@@ -25,6 +25,15 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - Contradictory evidence matters and should not be collapsed into a generic low-confidence bucket.
 - Claim-focused analyst review is part of the product, not a temporary workaround.
 - Workflow logs are not enough; the system needs semantic claim-to-evidence provenance.
+- A useful validation triad for MVP is emerging: `support`, `contradict`, `insufficient evidence`.
+- Source credibility is a separate signal from claim support and should not override semantic verification.
+- Analyst review should use progressive disclosure: overview first, then drill-down evidence and rationale.
+- Evidence should be ranked for analyst consumption so sufficient context appears early.
+- MVP analyst workflow should follow a layered review path: `review queue -> case overview -> claim workspace -> evidence detail`.
+- OSINT-style credibility naming should separate `source_reliability` from `information_credibility`.
+- Human review state must remain separate from system verdicts.
+- Domain contract layer is now present for cases, documents, chunks, retrieval, claims, review decisions, report entries, and case reports.
+- Application contract layer is now present for case intake, document preparation, claim extraction, claim verification, human review, report assembly, and credibility assessment.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.
@@ -32,20 +41,24 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - Graph capabilities should be deferred until later iterations unless new evidence changes that decision.
 - API-first model usage is likely the fastest path to quality in MVP.
 - Typed provenance relations may become valuable after MVP once basic claim grounding works.
+- MVP source reliability / information credibility scoring should start as rule-based provisional bands with analyst override.
+- A lightweight contradiction/entailment path for MVP can follow: claim decomposition → evidence matching/ranking → support/contradict/insufficient verdict.
+- MVP review workflow can use explicit queue/item states without requiring a heavy workflow engine.
 
 ## Do weryfikacji
 - Whether MVP should be API-first, local-first, or dual-mode.
 - Which PDF/web parser stack should be the default.
-- Whether source reliability scoring should be rule-based or model-assisted in iteration 1.
+- Which exact entailment/NLI component is light enough and good enough for iteration 1.
+- What minimum credibility rubric and stored fields should be mandatory from day 1.
 - Which source families beyond URL/PDF/RSS should enter MVP.
-- What the lightest acceptable contradiction/entailment validation path is for iteration 1.
+- Which review interactions are MVP-critical versus iteration-2 nice-to-have.
 
 ## Core domain objects
 ### Case
 A bounded investigation context with objective, questions, scope, and status.
 
 ### Document
-A raw source artifact with metadata, content hash, provenance, and ingestion status.
+A raw source artifact with metadata, content hash, provenance, ingestion status, and provisional source reliability / information credibility metadata.
 
 ### Chunk
 An addressable document fragment used for retrieval, evidence linking, and downstream extraction.
@@ -54,10 +67,10 @@ An addressable document fragment used for retrieval, evidence linking, and downs
 A detected named object or identifier grounded in one or more chunks.
 
 ### Claim
-A structured statement extracted from evidence and linked to supporting or contradictory chunks.
+A structured statement extracted from evidence and linked to supporting, contradictory, or insufficient evidence outcomes.
 
 ### Review
-A human decision attached to a claim, entity, or report.
+A human decision attached to a claim, entity, or report, including rationale and optional override notes.
 
 ### Report
 A synthesized investigation output assembled from reviewed or classified claims.
@@ -71,8 +84,10 @@ A synthesized investigation output assembled from reviewed or classified claims.
 - entity extraction
 - claim extraction
 - relevance scoring at a basic level
+- evidence ranking at a basic level for analyst review
 - validation of schema and evidence links
 - contradiction-aware claim validation at a basic level
+- provisional source credibility scoring with analyst override
 - analyst review
 - markdown/html/json reporting
 
@@ -82,6 +97,8 @@ A synthesized investigation output assembled from reviewed or classified claims.
 - broad social/web crawling at scale
 - advanced entity resolution
 - multimodal heavy pipeline as a default
+- highly granular typed provenance taxonomies
+- fully learned black-box credibility scoring as the main trust signal
 
 ## Quality rules
 1. No claim without evidence links.
@@ -91,6 +108,9 @@ A synthesized investigation output assembled from reviewed or classified claims.
 5. The analyst must be able to inspect the source path behind each report statement.
 6. Contradictory evidence must be preserved and surfaced, not silently merged away.
 7. Unverified claims should be gated from stronger report sections.
+8. Citation presence alone does not count as support.
+9. Source credibility scores are advisory and cannot replace claim-level evidence checks.
+10. Review UI should minimize cognitive overload by default and reveal deeper detail on demand.
 
 ## Repository document roles
 - `docs/architecture/architecture-ssot.md`: canonical product and architecture baseline.
@@ -98,10 +118,9 @@ A synthesized investigation output assembled from reviewed or classified claims.
 - `docs/plans/execution-blueprint-v0.md`: provisional implementation-facing plan, still pre-build.
 
 ## Current recommended next step
-Continue structured research and use each cycle to either strengthen or revise:
-- MVP storage assumptions,
-- retrieval strategy,
-- extraction contract design,
-- contradiction handling,
-- analyst review workflow,
-- reporting contract.
+The minimal contract-first baseline for `domain` and `application` is now in place.
+
+Next recommended step:
+- freeze a written `6.x` plan for execution-side seams (`Protocols` / abstract interfaces) between `application` and `pipeline` / `storage`
+- keep that step contract-first and implementation-light
+- do not jump into concrete storage or retrieval engines before those seams are explicit

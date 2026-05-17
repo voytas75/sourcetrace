@@ -19,18 +19,29 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - Research updates should patch this blueprint before any implementation-ready plan is frozen.
 - Contradiction-aware validation is important enough to shape the design before implementation starts.
 - Analyst review is a core workflow surface, not a reporting afterthought.
+- Progressive disclosure is the right default for analyst review UX.
+- Source reliability / information credibility should be implemented as advisory triage, not as a substitute for claim validation.
+- Basic evidence ranking belongs in the MVP plan because it reduces analyst reading load.
+- MVP analyst review should follow a layered path: review queue, case overview, claim workspace, evidence detail.
+- Human review state should be stored separately from system verdicts.
+- Domain contract coverage is in place for cases, documents, chunks, retrieval, claim verification flow, and case-level report output.
+- Application contract coverage is in place for case intake, document preparation, claim extraction, claim verification, human review, report assembly, and credibility assessment.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.
 - Package boundaries should follow domain and workflow concerns, not framework defaults.
 - A future graph layer should fit into the same domain model rather than reshape it.
 - MVP can begin with simple provenance links, while leaving room for typed provenance relations later.
+- MVP contradiction validation can likely be implemented as a 3-step flow: claim decomposition, evidence attribution/ranking, aggregated verdict.
+- MVP source reliability / information credibility scoring can start with explicit criteria and bands rather than opaque scalar trust scores.
+- MVP review queue can use explicit item states such as `new`, `triaged`, `in_review`, `on_hold`, `resolved`, `escalated`.
 
 ## Do weryfikacji
 - final tech stack choices for parser, LLM provider mode, and retrieval/reranking details
 - whether review UX should be server-rendered first or API + separate frontend
 - what minimum source set defines MVP readiness
-- what lightweight contradiction/entailment mechanism is sufficient for the first usable build
+- which exact entailment/NLI path is sufficient for the first usable build
+- which review interactions belong in MVP versus iteration 2
 
 ---
 
@@ -49,6 +60,7 @@ Planned concerns:
 - reports
 - run metadata
 - claim-evidence relations
+- credibility assessments
 
 Expected package path:
 - `src/sourcetrace/domain/`
@@ -64,6 +76,7 @@ Planned concerns:
 - validate claims
 - assemble report
 - review workflow actions
+- credibility assessment workflow
 
 Expected package path:
 - `src/sourcetrace/application/`
@@ -77,7 +90,9 @@ Planned concerns:
 - extraction pipeline
 - validation pipeline
 - retrieval strategies
+- evidence ranking
 - reporting assembly
+- source reliability / information credibility enrichment
 
 Expected package path:
 - `src/sourcetrace/pipeline/`
@@ -91,6 +106,7 @@ Planned concerns:
 - vector and full-text search adapters
 - run logging persistence
 - provenance link persistence
+- credibility metadata persistence
 
 Expected package path:
 - `src/sourcetrace/storage/`
@@ -103,6 +119,7 @@ Planned concerns:
 - HTML views or minimal frontend handlers
 - claim review screens
 - report export endpoints
+- review queue / triage views
 - health/status endpoints later
 
 Expected package path:
@@ -166,6 +183,8 @@ Outputs:
 - narrowed MVP source set
 - narrowed retrieval and parser assumptions
 - narrowed contradiction-handling assumptions
+- provisional source reliability / information credibility rubric
+- narrowed analyst review assumptions
 
 ### Phase B — implementation readiness decision
 Entry condition:
@@ -175,6 +194,7 @@ Outputs:
 - implementation-ready plan
 - first bounded slice definition
 - candidate stack freeze for iteration 1
+- explicit MVP review workflow
 
 ### Phase C — bounded MVP implementation
 Not started yet.
@@ -189,24 +209,28 @@ Questions:
 - Which source types are mandatory in iteration 1?
 - What exact analyst workflow is supported end-to-end?
 - What review actions are required before reporting?
+- What minimum source reliability / information credibility rubric must be stored from day 1?
 
 ### Gate 2: storage and retrieval freeze
 Questions:
 - Is Postgres + pgvector still sufficient after further research?
 - Do we need reranking in iteration 1 or can it wait?
 - Is hybrid retrieval mandatory for the first usable cut?
+- How explicit should evidence ranking be in analyst-facing results?
 
-### Gate 3: extraction contract freeze
+### Gate 3: extraction and validation contract freeze
 Questions:
 - What JSON schemas define entities, claims, and validations?
 - What minimum support checks are required before a claim becomes report-eligible?
-- How are supportive versus contradictory links represented?
+- How are supportive versus contradictory versus insufficient links represented?
+- Which exact entailment/NLI component will power the first verifier?
 
 ### Gate 4: delivery surface freeze
 Questions:
 - Minimal web UI first, or API-first with very thin views?
 - What report formats are mandatory in iteration 1?
 - What claim-review affordances are required in the first analyst UI?
+- Which progressive-disclosure layers are mandatory in MVP?
 
 ---
 
@@ -217,6 +241,7 @@ When a new source materially changes assumptions about:
 - validation,
 - analyst review,
 - reporting,
+- credibility scoring,
 
 then patch:
 1. `docs/research/research-ledger.md`
@@ -226,9 +251,9 @@ then patch:
 ---
 
 ## Current recommended next research slice
-1. lightweight entailment / contradiction validation options
-2. source credibility scoring and conflict resolution patterns
-3. analyst workflow and review-interface guidance for triage efficiency
+1. parser stack and ingestion defaults
+2. retrieval/reranking depth for iteration 1
+3. execution-side seam design for `application -> pipeline/storage` (`6.x` plan before concrete adapters)
 
 ## Later at execution start
 When implementation is explicitly approved, create a new implementation-ready plan that includes:
