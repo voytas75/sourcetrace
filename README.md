@@ -43,8 +43,11 @@ Confirmed now:
 - that same runtime assembly now also exposes a text-generation-backed `claim_normalization` gateway for the existing `claim_normalization` task alias, using the same env-resolved edge injection path and keeping provider details out of higher layers
 - the application extraction runtime can now optionally consume that `claim_normalization` gateway to normalize extracted `exact_text` before claim records are materialized, while preserving the previous fallback behavior when no normalizer is wired
 - a minimal local front door now exists for the delivery surface: `python -m sourcetrace.web` (and installed console script `sourcetrace-web`) starts a pure-stdlib WSGI server against the in-memory delivery/runtime path for thin local end-to-end smoke runs
+- a repo-owned local launcher now also exists: `python -m sourcetrace.local_launcher` (and installed console script `sourcetrace-local`) loads `src/sourcetrace/runtime_config.py`, builds `build_llm_runtime(...)`, and wires the `credibility_draft` gateway into the local web delivery path
+- the runtime-config file `src/sourcetrace/runtime_config.py` is now the default place to set SourceTrace-owned task models for `claim_extraction`, `claim_normalization`, and `credibility_draft`
+- the local root route `GET /` now returns a small HTML landing page listing the available smoke-test routes instead of the previous `{"error": "not_found"}` JSON payload
 - the local web delivery path can now optionally compose that credibility helper through `create_default_delivery(..., credibility_draft=...)` and expose it via `POST /api/documents/{document_id}/credibility` for WSGI smoke coverage, without adding `.env` loading or provider fields to web requests
-- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `190 passed`
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `197 passed`
 - the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
 
 ## Repository map
@@ -70,12 +73,21 @@ Run locally with uv:
 2. `uv run pytest -q`
 3. `uv run python -m sourcetrace.web`
 
+Run the repo-owned launcher with runtime-config + LLM wiring:
+1. export `SOURCETRACE_LLM_API_KEY`
+2. export `SOURCETRACE_LLM_BASE_URL`
+3. export `SOURCETRACE_LLM_API_VERSION`
+4. `PYTHONPATH=src uv run python -m sourcetrace.local_launcher`
+   - or `PYTHONPATH=src uv run sourcetrace-local`
+
 Expected startup: `SourceTrace local server listening on http://127.0.0.1:8000`
 Use `Ctrl+C` to stop the server cleanly.
 
 Notes:
 - the repo now declares a minimal `pyproject.toml` and uses `src/` package layout
 - `.env` is still not loaded by the repo; any required external secrets must come from the process environment only
+- `src/sourcetrace/runtime_config.py` is now the repo-owned place for task-level model settings
+- the local launcher currently wires `credibility_draft` through the web delivery path; broader extraction/normalization web consumption is still do weryfikacji
 - the local web run is still a thin in-memory/dev path, not a production server shape
 
 ## LLM runtime config example
@@ -129,8 +141,12 @@ Do weryfikacji:
 
 ## Local smoke flow
 1. Start the local server:
-   - `uv run python -m sourcetrace.web`
-2. In another terminal, submit a minimal verification request:
+   - lightweight in-memory front door only: `uv run python -m sourcetrace.web`
+   - repo-owned runtime-config + LLM launcher: `PYTHONPATH=src uv run python -m sourcetrace.local_launcher`
+   - installed script variant: `PYTHONPATH=src uv run sourcetrace-local`
+2. Open `http://127.0.0.1:8000/`
+   - Expected: `200 OK` HTML landing page listing the available smoke-test routes
+3. In another terminal, submit a minimal verification request:
    - `curl -X POST http://127.0.0.1:8000/api/verify \
      -H 'Content-Type: application/json' \
      -d '{

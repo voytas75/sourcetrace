@@ -66,6 +66,8 @@ class SourceTraceWSGIApp:
         environ: WsgiEnviron,
         start_response: StartResponse,
     ) -> Iterable[bytes]:
+        if method == "GET" and path == "/":
+            return self._render_home(start_response)
         if method == "POST" and path == "/api/verify":
             return self._verify_claim(environ, start_response)
         if method == "GET" and path.startswith("/api/claims/"):
@@ -84,6 +86,16 @@ class SourceTraceWSGIApp:
                 render_case_review_html(self.delivery, case_id),
             )
         return _json_response(start_response, "404 Not Found", {"error": "not_found"})
+
+    def _render_home(
+        self,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        return _html_response(
+            start_response,
+            "200 OK",
+            _render_home_html(),
+        )
 
     def _verify_claim(
         self,
@@ -369,6 +381,27 @@ def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _render_home_html() -> str:
+    return (
+        "<!doctype html>"
+        "<html><head><title>SourceTrace Local</title></head>"
+        "<body>"
+        "<h1>SourceTrace local server</h1>"
+        "<p>Available routes:</p>"
+        "<ul>"
+        "<li><code>POST /api/verify</code></li>"
+        "<li><code>GET /api/claims/{claim_id}/verification</code></li>"
+        "<li><code>POST /api/reviews</code></li>"
+        "<li><code>GET /api/reports/{case_id}.json</code></li>"
+        "<li><code>GET /api/reports/{case_id}.md</code></li>"
+        "<li><code>POST /api/documents/{document_id}/credibility</code></li>"
+        "<li><code>GET /cases/{case_id}</code></li>"
+        "</ul>"
+        "<p>Use the API endpoints or the case route for smoke testing.</p>"
+        "</body></html>"
+    )
 
 
 __all__ = [

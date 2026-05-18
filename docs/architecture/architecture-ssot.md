@@ -61,6 +61,9 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - That same runtime assembly now exposes text-generation-backed `credibility_draft` and `claim_normalization` gateways for their existing task aliases through the same provider-neutral text path.
 - The application layer now exposes `build_llm_credibility_assessor(...)`, a public helper that binds `credibility_draft` into the existing credibility assessment request/outcome contract while treating generated text as advisory notes, not as a hard credibility score.
 - The local web delivery path can optionally compose that helper through `create_default_delivery(..., credibility_draft=...)` and expose it through `POST /api/documents/{document_id}/credibility`; this is still WSGI/in-memory smoke wiring, not provider bootstrap or `.env` loading.
+- A repo-owned local launcher now exists in `src/sourcetrace/local_launcher.py`: it reads `src/sourcetrace/runtime_config.py`, builds `build_llm_runtime(...)`, and wires the `credibility_draft` gateway into the local WSGI delivery path.
+- `src/sourcetrace/runtime_config.py` is now the default repo-side location for task-level model routing (`claim_extraction`, `claim_normalization`, `credibility_draft`), while secrets/bootstrap values still remain external process env inputs.
+- The local root route `GET /` now returns a small HTML landing page listing the available smoke-test routes, instead of falling through to the generic `{"error": "not_found"}` payload.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.

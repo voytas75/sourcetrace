@@ -250,6 +250,17 @@ def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
     assert "The bridge reopened after inspection." in case_body
 
 
+def test_wsgi_root_route_returns_html_home_page() -> None:
+    app = create_wsgi_app(delivery=_seeded_delivery())
+
+    status, headers, body = _call_wsgi(app, method="GET", path="/")
+
+    assert status == "200 OK"
+    assert ("Content-Type", "text/html; charset=utf-8") in headers
+    assert "SourceTrace local server" in body
+    assert "POST /api/verify" in body
+
+
 def test_wsgi_app_exposes_configured_credibility_assessment_route() -> None:
     persistence = create_in_memory_persistence()
     persistence.documents.save_document(_document())

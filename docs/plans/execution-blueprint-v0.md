@@ -58,12 +58,14 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
 - That delivery surface now carries explicit inspection evidence summaries, explicit missing/invalid status payloads, and thin-path end-to-end regression coverage.
 - That same delivery surface now also has a local runnable front door: `python -m sourcetrace.web` (and installed console script `sourcetrace-web`) start a stdlib WSGI server over the same in-memory runtime for thin local smoke runs.
+- A repo-owned launcher now also exists for the bounded LLM-backed local path: `python -m sourcetrace.local_launcher` (and installed console script `sourcetrace-local`) read `src/sourcetrace/runtime_config.py`, assemble `build_llm_runtime(...)`, and wire `credibility_draft` into the local delivery runtime.
+- The local root route `GET /` now serves a small HTML landing page that lists available smoke-test routes instead of returning the generic `not_found` JSON payload.
 - The local delivery surface can now optionally compose the LLM-backed credibility helper through `create_default_delivery(..., credibility_draft=...)` and consume it via `POST /api/documents/{document_id}/credibility`, keeping provider bootstrap and `.env` loading outside web request contracts.
 - Local baseline after the 10.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`.
-- Local setup is now also standardized through a minimal `pyproject.toml` and `uv` workflow: `uv sync --dev`, `uv run pytest -q`, `uv run python -m sourcetrace.web`.
+- Local setup is now also standardized through a minimal `pyproject.toml` and `uv` workflow: `uv sync --dev`, `uv run pytest -q`, `uv run python -m sourcetrace.web`, and `PYTHONPATH=src uv run python -m sourcetrace.local_launcher` / `PYTHONPATH=src uv run sourcetrace-local`.
 - Local baseline after the bounded LLM.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`.
 - Local baseline after storage-backed extraction persistence on the LLM application path is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`.
-- Local baseline after the credibility runtime launch path is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `190 passed`.
+- Local baseline after the credibility runtime launch path and local-launcher/root-route follow-ons is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `197 passed`.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.

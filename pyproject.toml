@@ -17,6 +17,7 @@ dev = [
 
 [project.scripts]
 sourcetrace-web = "sourcetrace.web.__main__:main"
+sourcetrace-local = "sourcetrace.local_launcher:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
