@@ -38,6 +38,7 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - The application layer now includes an LLM-backed claim extraction runtime seam for mapping structured extraction payloads into application claim outcomes.
 - That extraction runtime now supports optional persistence of extracted claims through the existing `ClaimRepository` boundary, keeping storage wiring explicit and provider-free.
 - That same runtime now emits initial `ClaimEvidenceLink` records per extracted claim and optionally persists them through the same `ClaimRepository` boundary, preserving the existing storage seam instead of introducing a parallel path.
+- Those initial extraction-side evidence links now stay semantically provisional: they use `INSUFFICIENT_EVIDENCE` rather than implying support, and their rationale text points back to the extracted span reference for later analyst/verification review.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.

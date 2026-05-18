@@ -93,18 +93,20 @@ def _span_reference_for(
 def _build_initial_evidence_links(
     claims: tuple[Claim, ...],
 ) -> tuple[ClaimEvidenceLink, ...]:
-    return tuple(
-        ClaimEvidenceLink(
-            claim_id=claim.claim_id,
-            document_id=claim.document_id,
-            chunk_id=claim.chunk_id,
-            evidence_rank=1,
-            evidence_verdict=VerificationVerdict.SUPPORT,
-            rationale="Extracted from source chunk.",
-            snippet=claim.exact_text or None,
-            score=None,
-        )
-        for claim in claims
+    return tuple(_build_initial_evidence_link(claim) for claim in claims)
+
+
+def _build_initial_evidence_link(claim: Claim) -> ClaimEvidenceLink:
+    span_reference = claim.source_span_reference or "chunk-span:unknown"
+    return ClaimEvidenceLink(
+        claim_id=claim.claim_id,
+        document_id=claim.document_id,
+        chunk_id=claim.chunk_id,
+        evidence_rank=1,
+        evidence_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=f"Initial extraction link from chunk {span_reference}.",
+        snippet=claim.exact_text or None,
+        score=None,
     )
 
 

@@ -102,7 +102,8 @@ def test_build_llm_claim_extractor_maps_gateway_payload_to_application_outcome()
     assert outcome.evidence_links[0].document_id == "doc-1"
     assert outcome.evidence_links[0].chunk_id == "chunk-1"
     assert outcome.evidence_links[0].evidence_rank == 1
-    assert outcome.evidence_links[0].evidence_verdict is VerificationVerdict.SUPPORT
+    assert outcome.evidence_links[0].evidence_verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE
+    assert outcome.evidence_links[0].rationale == "Initial extraction link from chunk p1."
     assert outcome.evidence_links[0].snippet == "The network expanded in 2025."
     assert outcome.evidence_links[0].score is None
     assert outcome.document is document
