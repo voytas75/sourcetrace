@@ -7,7 +7,7 @@ from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
 
 if TYPE_CHECKING:
-    from sourcetrace.llm.interfaces import ClaimExtractionGateway
+    from sourcetrace.llm.interfaces import ClaimExtractionGateway, ClaimNormalizationGateway
     from sourcetrace.storage.interfaces import ClaimRepository
 
 
@@ -16,9 +16,11 @@ class _LlmClaimExtractor:
         self,
         *,
         extract_claims: "ClaimExtractionGateway",
+        normalize_claim: "ClaimNormalizationGateway | None" = None,
         claim_repository: "ClaimRepository | None" = None,
     ) -> None:
         self._extract_claims = extract_claims
+        self._normalize_claim = normalize_claim
         self._claim_repository = claim_repository
 
     def __call__(
@@ -42,7 +44,7 @@ class _LlmClaimExtractor:
                 case_id=request.case_id,
                 document_id=request.document_id,
                 chunk_id=_chunk_id_for(item=item, request=request),
-                exact_text=_normalized_string(item.get("exact_text")) or "",
+                exact_text=_claim_text_for(item=item, normalize_claim=self._normalize_claim),
                 source_span_reference=_span_reference_for(
                     item=item,
                     request=request,
@@ -89,6 +91,18 @@ def _normalized_string(value: object) -> str | None:
     if not normalized:
         return None
     return normalized
+
+
+def _claim_text_for(
+    *,
+    item: dict[str, object],
+    normalize_claim: "ClaimNormalizationGateway | None",
+) -> str:
+    exact_text = _normalized_string(item.get("exact_text")) or ""
+    if normalize_claim is None or not exact_text:
+        return exact_text
+    normalized = normalize_claim(exact_text).text.strip()
+    return normalized or exact_text
 
 
 def _normalized_item_string(item: dict[str, object], key: str) -> str | None:
@@ -260,12 +274,14 @@ def _evidence_score(evidence_payload: dict[str, object]) -> float | None:
 def build_llm_claim_extractor(
     *,
     extract_claims: "ClaimExtractionGateway",
+    normalize_claim: "ClaimNormalizationGateway | None" = None,
     claim_repository: "ClaimRepository | None" = None,
 ) -> _LlmClaimExtractor:
     """Bind the LLM claim extraction gateway into the application extraction shape."""
 
     return _LlmClaimExtractor(
         extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
         claim_repository=claim_repository,
     )
 

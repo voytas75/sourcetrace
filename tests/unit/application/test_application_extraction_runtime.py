@@ -190,6 +190,72 @@ def test_build_llm_claim_extractor_falls_back_to_chunk_position_reference_when_s
     assert outcome.claims[0].source_span_reference == "p1"
 
 
+def test_build_llm_claim_extractor_uses_claim_normalization_gateway_when_available() -> None:
+    captured_normalization_inputs: list[str] = []
+
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "  Raw claim text with noise.  ",
+                        "source_span_reference": "p1",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    def normalize_claim(claim_text: str):
+        captured_normalization_inputs.append(claim_text)
+        return type("_NormalizationResult", (), {"text": "Normalized claim text."})()
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Raw claim text with noise.",
+            start_char=0,
+            end_char=27,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(
+        extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
+    )
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert captured_normalization_inputs == ["Raw claim text with noise."]
+    assert outcome.claims[0].exact_text == "Normalized claim text."
+
+
 def test_build_llm_claim_extractor_persists_extracted_claims_when_repository_is_provided() -> None:
     def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
         return LlmStructuredGenerationResult(

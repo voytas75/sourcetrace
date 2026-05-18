@@ -50,6 +50,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - That same assembly path now also routes claim-extraction composition through the public `build_claim_extraction_gateway(...)` factory, removing the remaining direct dependency on a private extraction symbol without changing runtime behavior.
 - That same assembly path can now also expose a text-generation-backed `credibility_draft` gateway for the existing task alias without widening application/request surfaces or moving `.env` handling into the repo.
 - The same assembly path can now also expose a text-generation-backed `claim_normalization` gateway for the existing task alias via the same provider-neutral text path.
+- The application extraction runtime can now optionally apply that `claim_normalization` gateway before persisting/materializing extracted claims, keeping the extraction contract stable while moving normalization behind a seam.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
