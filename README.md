@@ -113,8 +113,16 @@ Notes:
 5. Export the markdown report:
    - `curl http://127.0.0.1:8000/api/reports/case-1.md`
    - Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`
+6. Draft advisory document credibility notes:
+   - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility \
+       -H 'Content-Type: application/json' \
+       -d '{"assessment_method":"llm_draft_v1"}'`
+   - Expected: `200 OK` with JSON containing `credibility_assessment.notes`
 
 ## Minimal failure cases
+- Missing credibility assessment source document:
+  - `POST /api/documents/missing-doc/credibility`
+  - Expected: `404 Not Found` with `{"error": "credibility_assessment_not_found", "status": "missing"}`
 - Missing verification artifact:
   - `GET /api/claims/missing-claim/verification`
   - Expected: `404 Not Found` with `{"error": "verification_not_found", "status": "missing"}`
