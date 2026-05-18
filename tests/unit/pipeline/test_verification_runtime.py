@@ -1,0 +1,117 @@
+from sourcetrace.application import ClaimVerificationExecution
+from sourcetrace.domain import Claim, DocumentChunk
+from sourcetrace.domain.types import VerificationVerdict
+from sourcetrace.pipeline import (
+    ClaimVerificationRuntime,
+    ClaimVerificationRuntimeRequest,
+    EvidencePresenceClaimVerifier,
+    LexicalChunkRetriever,
+    RetrievalExecution,
+)
+from sourcetrace.pipeline.verification import (
+    ClaimVerificationRuntime as ModuleClaimVerificationRuntime,
+)
+from sourcetrace.pipeline.verification import (
+    ClaimVerificationRuntimeRequest as ModuleClaimVerificationRuntimeRequest,
+)
+from sourcetrace.pipeline.verification import (
+    EvidencePresenceClaimVerifier as ModuleEvidencePresenceClaimVerifier,
+)
+from sourcetrace.storage import create_in_memory_persistence
+
+
+def test_pipeline_package_re_exports_verification_runtime_path() -> None:
+    assert ClaimVerificationRuntime is ModuleClaimVerificationRuntime
+    assert ClaimVerificationRuntimeRequest is ModuleClaimVerificationRuntimeRequest
+    assert EvidencePresenceClaimVerifier is ModuleEvidencePresenceClaimVerifier
+
+
+def test_claim_verification_runtime_retrieves_verifies_and_persists_claim_path() -> None:
+    persistence = create_in_memory_persistence()
+    persistence.documents.save_chunks(
+        (
+            DocumentChunk(
+                chunk_id="chunk-1",
+                case_id="case-1",
+                document_id="doc-1",
+                raw_text="City officials confirmed the bridge reopened after inspection.",
+                start_char=0,
+                end_char=63,
+                chunk_index=1,
+            ),
+        )
+    )
+    claim = Claim(
+        claim_id="claim-1",
+        case_id="case-1",
+        document_id="doc-1",
+        chunk_id="chunk-1",
+        exact_text="The bridge reopened after inspection.",
+        source_span_reference="p1",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+    runtime = ClaimVerificationRuntime(
+        persistence=persistence,
+        retrieval=RetrievalExecution(
+            retrieve_chunks=LexicalChunkRetriever(documents=persistence.documents)
+        ),
+        verification=ClaimVerificationExecution(
+            verify_claim=EvidencePresenceClaimVerifier()
+        ),
+    )
+
+    outcome = runtime(
+        ClaimVerificationRuntimeRequest(
+            claim=claim,
+            requested_k=3,
+            query_id="query-1",
+            retrieval_method="runtime-lexical",
+        )
+    )
+
+    verification = outcome.verification_outcome.verification
+    assert outcome.retrieval_query.query_id == "query-1"
+    assert outcome.retrieved_evidence.returned_k == 1
+    assert tuple(hit.chunk_id for hit in outcome.retrieved_evidence.hits) == ("chunk-1",)
+    assert verification.verdict is VerificationVerdict.SUPPORT
+    assert verification.supporting_chunk_ids == ("chunk-1",)
+    assert persistence.claims.get_claim("claim-1") is claim
+    assert persistence.claims.get_verification("claim-1") is verification
+    assert persistence.claims.list_evidence_links_for_claim("claim-1") == (
+        outcome.evidence_links[0],
+    )
+    assert outcome.evidence_links[0].evidence_rank == 1
+    assert outcome.evidence_links[0].evidence_verdict is VerificationVerdict.SUPPORT
+
+
+def test_claim_verification_runtime_persists_insufficient_evidence_without_hits() -> None:
+    persistence = create_in_memory_persistence()
+    claim = Claim(
+        claim_id="claim-1",
+        case_id="case-1",
+        document_id="doc-1",
+        chunk_id=None,
+        exact_text="The bridge reopened after inspection.",
+        source_span_reference="p1",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+    runtime = ClaimVerificationRuntime(
+        persistence=persistence,
+        retrieval=RetrievalExecution(
+            retrieve_chunks=LexicalChunkRetriever(documents=persistence.documents)
+        ),
+        verification=ClaimVerificationExecution(
+            verify_claim=EvidencePresenceClaimVerifier()
+        ),
+    )
+
+    outcome = runtime(ClaimVerificationRuntimeRequest(claim=claim, requested_k=3))
+
+    verification = outcome.verification_outcome.verification
+    assert outcome.retrieved_evidence.hits == ()
+    assert outcome.evidence_links == ()
+    assert verification.verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE
+    assert verification.supporting_chunk_ids == ()
+    assert persistence.claims.get_verification("claim-1") is verification
