@@ -47,6 +47,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - That same LLM layer now also includes a minimal process-env bootstrap resolver: `resolve_llm_bootstrap_config(...)` reads only the declared env var names, fails fast on missing/blank values, and still keeps `.env` loading outside repo scope.
 - The LiteLLM adapter layer now also includes first provider-bootstrap wiring helpers: `build_litellm_completion_caller(...)`, `build_litellm_text_generator(...)`, and `build_litellm_structured_generator(...)` consume `ResolvedLlmBootstrapConfig` and inject provider-facing bootstrap fields only at the adapter edge.
 - The same LLM layer now also includes a first runtime assembly/factory entrypoint: `build_llm_runtime(...)` composes config, resolved bootstrap inputs, LiteLLM structured-generation wiring, and claim-extraction runtime access into one local bundle.
+- That same assembly path now also routes claim-extraction composition through the public `build_claim_extraction_gateway(...)` factory, removing the remaining direct dependency on a private extraction symbol without changing runtime behavior.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
