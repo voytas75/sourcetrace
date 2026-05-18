@@ -49,6 +49,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - The same LLM layer now also includes a first runtime assembly/factory entrypoint: `build_llm_runtime(...)` composes config, resolved bootstrap inputs, LiteLLM structured-generation wiring, and claim-extraction runtime access into one local bundle.
 - That same assembly path now also routes claim-extraction composition through the public `build_claim_extraction_gateway(...)` factory, removing the remaining direct dependency on a private extraction symbol without changing runtime behavior.
 - That same assembly path can now also expose a text-generation-backed `credibility_draft` gateway for the existing task alias without widening application/request surfaces or moving `.env` handling into the repo.
+- The same assembly path can now also expose a text-generation-backed `claim_normalization` gateway for the existing task alias via the same provider-neutral text path.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.

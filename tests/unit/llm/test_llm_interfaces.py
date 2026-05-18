@@ -93,6 +93,7 @@ def test_llm_package_re_exports_models_and_execution_seams() -> None:
                 "bootstrap",
                 "structured_generation",
                 "claim_extraction",
+                "claim_normalization",
                 "credibility_draft",
             ),
         ),

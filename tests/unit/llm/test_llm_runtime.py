@@ -297,6 +297,79 @@ def test_build_llm_runtime_also_exposes_credibility_draft_gateway() -> None:
             environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
 
 
+def test_build_llm_runtime_also_exposes_claim_normalization_gateway() -> None:
+    config = SourceTraceLlmConfig(
+        bootstrap=LlmBootstrapConfig(
+            api_key_env_var="SOURCETRACE_LLM_API_KEY",
+            base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+        ),
+        tasks={
+            "claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0),
+            "claim_normalization": LlmTaskConfig(model="gpt-4.1-mini", temperature=0.1),
+        },
+    )
+    original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
+    original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+    captured_calls: list[dict[str, object]] = []
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        captured_calls.append(dict(kwargs))
+        if kwargs.get("response_format") == {"type": "json_object"}:
+            return {
+                "model": kwargs["model"],
+                "choices": [
+                    {
+                        "message": {
+                            "parsed": {
+                                "claims": [
+                                    {
+                                        "claim_id": "claim-1",
+                                        "chunk_id": "chunk-1",
+                                        "exact_text": "alpha claim",
+                                        "source_span_reference": "chars:0-11",
+                                    }
+                                ]
+                            }
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+
+        return {
+            "model": kwargs["model"],
+            "choices": [
+                {
+                    "message": {"content": "Normalized claim text."},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    try:
+        environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
+        environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+
+        runtime = build_llm_runtime(completion_fn=completion_fn, config=config)
+        result = runtime.claim_normalization("Raw claim text with noise.")
+
+        assert result.text == "Normalized claim text."
+        assert captured_calls[-1]["api_key"] == "test-api-key"
+        assert captured_calls[-1]["base_url"] == "https://llm.example.test"
+        assert captured_calls[-1]["model"] == "gpt-4.1-mini"
+        assert captured_calls[-1]["temperature"] == 0.1
+    finally:
+        if original_api_key is None:
+            environ.pop("SOURCETRACE_LLM_API_KEY", None)
+        else:
+            environ["SOURCETRACE_LLM_API_KEY"] = original_api_key
+
+        if original_base_url is None:
+            environ.pop("SOURCETRACE_LLM_BASE_URL", None)
+        else:
+            environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
+
+
 def test_structured_generation_execution_builds_schema_aware_request_and_parses_payload() -> None:
     captured_request: LlmStructuredGenerationRequest | None = None
 

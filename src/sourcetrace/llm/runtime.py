@@ -12,6 +12,7 @@ from sourcetrace.llm.config import (
 from sourcetrace.llm.extraction import build_claim_extraction_gateway
 from sourcetrace.llm.interfaces import (
     ClaimExtractionGateway,
+    ClaimNormalizationGateway,
     CredibilityDraftGateway,
     StructuredGenerationRuntime,
 )
@@ -19,7 +20,7 @@ from sourcetrace.llm.litellm_client import (
     build_litellm_structured_generator,
     build_litellm_text_generator,
 )
-from sourcetrace.llm.models import LlmGenerationRequest, LlmMessage
+from sourcetrace.llm.models import LlmGenerationRequest, LlmGenerationResult, LlmMessage
 from sourcetrace.llm.structured_generation import build_structured_generation_execution
 
 
@@ -31,26 +32,28 @@ class SourceTraceLlmRuntime:
     bootstrap: ResolvedLlmBootstrapConfig
     structured_generation: StructuredGenerationRuntime
     claim_extraction: ClaimExtractionGateway
+    claim_normalization: ClaimNormalizationGateway
     credibility_draft: CredibilityDraftGateway
 
 
-def _build_credibility_draft_gateway(
+def _build_text_task_gateway(
     *,
-    generate_text: Callable[[LlmGenerationRequest], Any],
+    task_name: str,
+    generate_text: Callable[[LlmGenerationRequest], LlmGenerationResult],
     config: SourceTraceLlmConfig,
-) -> CredibilityDraftGateway:
-    def draft_credibility_note(evidence_summary: str):
-        task = config.task("credibility_draft")
+) -> Callable[..., LlmGenerationResult]:
+    def invoke(input_text: str) -> LlmGenerationResult:
+        task = config.task(task_name)
         return generate_text(
             LlmGenerationRequest(
-                messages=(LlmMessage(role="user", content=evidence_summary),),
+                messages=(LlmMessage(role="user", content=input_text),),
                 model=task.model,
                 temperature=task.temperature,
                 max_output_tokens=task.max_output_tokens,
             )
         )
 
-    return draft_credibility_note
+    return invoke
 
 
 def build_llm_runtime(
@@ -77,7 +80,13 @@ def build_llm_runtime(
         generate_structured=structured_execution.generate_structured,
     )
     claim_extraction = build_claim_extraction_gateway(execution=structured_runtime)
-    credibility_draft = _build_credibility_draft_gateway(
+    claim_normalization = _build_text_task_gateway(
+        task_name="claim_normalization",
+        generate_text=text_generator,
+        config=config,
+    )
+    credibility_draft = _build_text_task_gateway(
+        task_name="credibility_draft",
         generate_text=text_generator,
         config=config,
     )
@@ -86,6 +95,7 @@ def build_llm_runtime(
         bootstrap=bootstrap,
         structured_generation=structured_runtime,
         claim_extraction=claim_extraction,
+        claim_normalization=claim_normalization,
         credibility_draft=credibility_draft,
     )
 
