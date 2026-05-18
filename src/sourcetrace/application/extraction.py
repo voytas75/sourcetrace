@@ -26,6 +26,8 @@ class ClaimExtractionOutcome:
     chunks: tuple[DocumentChunk, ...]
     claims: tuple[Claim, ...]
     evidence_links: tuple[ClaimEvidenceLink, ...]
+    dropped_claim_items: int = 0
+    dropped_evidence_items: int = 0
 
 
 __all__ = [

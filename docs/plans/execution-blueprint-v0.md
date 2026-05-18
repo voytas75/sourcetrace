@@ -36,6 +36,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - That extraction mapping now also supports payloads where one claim carries a list of evidence items: the runtime emits multiple provisional `ClaimEvidenceLink` rows, keeps `evidence_rank` aligned with payload order, and accepts per-item `chunk_id` overrides while preserving the same provider-neutral/storage-neutral boundary.
 - That same mapping now also normalizes noisy evidence lists defensively: invalid entries are ignored, remaining links are ranked densely from `1..N`, and the old single-link provisional fallback is kept only when normalization leaves no valid evidence items.
 - The runtime now also normalizes top-level `claims` payloads before claim construction: invalid entries are discarded, dense fallback claim IDs are assigned only across accepted items, and evidence-link generation stays aligned with that normalized claim list.
+- The same application outcome now carries lightweight normalization diagnostics so callers can see how many top-level claim items and nested evidence items were dropped during payload cleanup without changing storage or provider seams.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.

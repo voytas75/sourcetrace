@@ -35,7 +35,7 @@ class _LlmClaimExtractor:
             if chunk.chunk_id in request.chunk_ids
         )
         result = self._extract_claims(prepared_text)
-        claim_items = _claim_items_for(result.payload)
+        claim_items, dropped_claim_items = _claim_items_for(result.payload)
         claims = tuple(
             Claim(
                 claim_id=str(item.get("claim_id") or f"claim-{index + 1}"),
@@ -58,6 +58,7 @@ class _LlmClaimExtractor:
             claims=claims,
             items=claim_items,
         )
+        dropped_evidence_items = _count_dropped_evidence_items(claim_items)
         if self._claim_repository is not None:
             evidence_links = self._claim_repository.save_evidence_links(evidence_links)
         return ClaimExtractionOutcome(
@@ -66,6 +67,8 @@ class _LlmClaimExtractor:
             chunks=chunks,
             claims=claims,
             evidence_links=evidence_links,
+            dropped_claim_items=dropped_claim_items,
+            dropped_evidence_items=dropped_evidence_items,
         )
 
 
@@ -78,11 +81,12 @@ def _chunk_id_for(item: dict[str, object], request: ClaimExtractionRequest) -> s
     return None
 
 
-def _claim_items_for(payload: dict[str, object]) -> tuple[dict[str, object], ...]:
+def _claim_items_for(payload: dict[str, object]) -> tuple[tuple[dict[str, object], ...], int]:
     claims = payload.get("claims")
     if not isinstance(claims, list):
-        return ()
-    return tuple(item for item in claims if _is_valid_claim_payload(item))
+        return (), 0
+    normalized = tuple(item for item in claims if _is_valid_claim_payload(item))
+    return normalized, len(claims) - len(normalized)
 
 
 def _is_valid_claim_payload(item: object) -> bool:
@@ -142,6 +146,17 @@ def _build_initial_evidence_links_for_claim(
         )
         for index, evidence_payload in enumerate(evidence_items, start=1)
     )
+
+
+def _count_dropped_evidence_items(items: tuple[dict[str, object], ...]) -> int:
+    return sum(_dropped_evidence_items_for(item) for item in items)
+
+
+def _dropped_evidence_items_for(item: dict[str, object]) -> int:
+    evidence = item.get("evidence")
+    if isinstance(evidence, dict) or not isinstance(evidence, list):
+        return 0
+    return len(evidence) - len(_evidence_items_for(item))
 
 
 def _build_initial_evidence_link(

@@ -129,6 +129,8 @@ def test_build_llm_claim_extractor_maps_gateway_payload_to_application_outcome()
     assert outcome.evidence_links[2].rationale == "Initial extraction link from chunk p2."
     assert outcome.evidence_links[2].snippet == "The rollout reached two regions."
     assert outcome.evidence_links[2].score is None
+    assert outcome.dropped_claim_items == 0
+    assert outcome.dropped_evidence_items == 0
     assert outcome.document is document
     assert outcome.chunks == chunks
 
@@ -484,6 +486,8 @@ def test_build_llm_claim_extractor_ignores_invalid_top_level_claim_items() -> No
     assert tuple(link.claim_id for link in outcome.evidence_links) == ("claim-1", "claim-explicit")
     assert outcome.evidence_links[0].snippet == "The network expanded in 2025."
     assert outcome.evidence_links[1].snippet == "The rollout reached two regions."
+    assert outcome.dropped_claim_items == 4
+    assert outcome.dropped_evidence_items == 0
 
 
 def test_build_llm_claim_extractor_handles_non_list_claim_payload_as_empty() -> None:
@@ -532,3 +536,69 @@ def test_build_llm_claim_extractor_handles_non_list_claim_payload_as_empty() -> 
 
     assert outcome.claims == ()
     assert outcome.evidence_links == ()
+    assert outcome.dropped_claim_items == 0
+    assert outcome.dropped_evidence_items == 0
+
+
+def test_build_llm_claim_extractor_reports_dropped_evidence_items() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The network expanded in 2025.",
+                        "source_span_reference": "p1",
+                        "evidence": [
+                            None,
+                            {},
+                            {"score": "0.9"},
+                            {"snippet": "Accepted evidence snippet."},
+                        ],
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The network expanded in 2025.",
+            start_char=0,
+            end_char=29,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.evidence_links) == 1
+    assert outcome.dropped_claim_items == 0
+    assert outcome.dropped_evidence_items == 3

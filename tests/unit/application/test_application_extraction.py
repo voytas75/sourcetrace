@@ -90,6 +90,8 @@ def test_claim_extraction_execution_bundle_keeps_explicit_callable_dependency() 
             chunks=chunks,
             claims=claims,
             evidence_links=evidence_links,
+            dropped_claim_items=0,
+            dropped_evidence_items=0,
         )
 
     execution = ClaimExtractionExecution(extract_claims=extract_claims)
@@ -181,6 +183,8 @@ def test_claim_extraction_request_and_outcome_keep_document_chunk_claim_context(
     assert outcome.chunks == chunks
     assert outcome.claims == claims
     assert outcome.evidence_links == evidence_links
+    assert outcome.dropped_claim_items == 0
+    assert outcome.dropped_evidence_items == 0
 
 
 def test_claim_extraction_contracts_are_immutable() -> None:
