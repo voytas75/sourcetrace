@@ -3,13 +3,16 @@
 SourceTrace is an application project for building an evidence-centric OSINT + LLM system, with research, planning, and later implementation kept in one repository.
 
 ## Current state
-This repository is in the research-first architecture phase.
+This repository is past the pure research-first phase and now has a bounded contract-first implementation baseline.
 
 Confirmed now:
 - product direction is evidence-first and claim-centric
 - research, SSOT, and execution blueprint documents are in place
 - product package layout exists under `src/sourcetrace/`
-- implementation has not started yet
+- `domain` contracts are implemented
+- `application` request/outcome contracts are implemented
+- `application` execution seams are implemented
+- local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `95 passed`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
@@ -21,14 +24,14 @@ Confirmed now:
 - `data/` — local working data directories kept mostly out of git
 
 ## Working model
-The intended workflow is:
-1. gather and review sources
+The intended workflow is now:
+1. gather and review sources when architecture assumptions still change
 2. update research ledger
 3. patch SSOT and execution blueprint when assumptions change
-4. freeze an implementation-ready plan later
-5. only then start bounded implementation slices
+4. execute bounded contract-first slices for agreed layers
+5. only then move into runtime adapters, storage engines, and retrieval implementations
 
 ## Near-term focus
-- continue review of papers and thematic sources
-- refine provenance, claim validation, and retrieval assumptions
-- keep the MVP architecture small and auditable
+- keep repo-facing docs aligned with the delivered contract baseline
+- freeze the next layer of lower-level dependency seams for retrieval and persistence
+- keep the MVP architecture small, auditable, and implementation-light until runtime choices are explicit

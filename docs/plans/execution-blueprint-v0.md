@@ -1,10 +1,10 @@
 # SourceTrace Execution Blueprint v0
 
 Status: provisional
-Mode: research-first, no implementation yet
-Purpose: describe the intended module boundaries, build order, open questions, and decision gates before implementation begins.
+Mode: implementation has started in bounded contract-first slices
+Purpose: describe the intended module boundaries, delivered contract baseline, next-layer build order, open questions, and decision gates.
 
-> This is not an implementation-ready plan. It is a living bridge between research and later execution.
+> This is still a living bridge between research and execution, but it now needs to reflect delivered bounded implementation work.
 
 ## Goal
 Prepare SourceTrace to move from research into a bounded MVP build without locking in architecture too early.
@@ -26,6 +26,8 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - Human review state should be stored separately from system verdicts.
 - Domain contract coverage is in place for cases, documents, chunks, retrieval, claim verification flow, and case-level report output.
 - Application contract coverage is in place for case intake, document preparation, claim extraction, claim verification, human review, report assembly, and credibility assessment.
+- Application-side execution seam coverage is in place for those same use-case areas via `application.interfaces`.
+- Local baseline after the execution-seam rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `95 passed`.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.
@@ -187,18 +189,24 @@ Outputs:
 - narrowed analyst review assumptions
 
 ### Phase B — implementation readiness decision
-Entry condition:
-- major architecture questions reduced to manageable `do weryfikacji`
+Status now:
+- partly completed
+- domain contracts are in place
+- application contracts are in place
+- application-side execution seams are in place
+- the next readiness gap is lower-level dependency seams for retrieval and persistence
 
-Outputs:
-- implementation-ready plan
-- first bounded slice definition
+Remaining outputs:
+- synced repo-facing docs that describe the delivered contract baseline truthfully
+- next-layer implementation-ready plan for lower-level dependency seams
 - candidate stack freeze for iteration 1
 - explicit MVP review workflow
 
 ### Phase C — bounded MVP implementation
-Not started yet.
-Will begin only after a dedicated implementation plan is written and approved.
+Status now:
+- started in bounded contract-first slices
+- so far limited to domain contracts, application contracts, and application-side execution seams
+- runtime adapters / storage engines / retrieval implementations are still not started
 
 ---
 
@@ -250,10 +258,10 @@ then patch:
 
 ---
 
-## Current recommended next research slice
-1. parser stack and ingestion defaults
-2. retrieval/reranking depth for iteration 1
-3. execution-side seam design for `application -> pipeline/storage` (`6.x` plan before concrete adapters)
+## Current recommended next research / implementation slice
+1. sync repo-facing docs to the delivered post-6.x baseline
+2. freeze the next layer of lower-level dependency seams for retrieval and persistence
+3. only after that, decide how much retrieval/reranking depth is required for iteration 1 runtime work
 
 ## Later at execution start
 When implementation is explicitly approved, create a new implementation-ready plan that includes:

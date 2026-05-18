@@ -118,9 +118,16 @@ A synthesized investigation output assembled from reviewed or classified claims.
 - `docs/plans/execution-blueprint-v0.md`: provisional implementation-facing plan, still pre-build.
 
 ## Current recommended next step
-The minimal contract-first baseline for `domain` and `application` is now in place.
+The minimal contract-first baseline for `domain` and `application` is now in place, including application-side execution seams.
+
+Confirmed now:
+- `domain` contracts are in place
+- `application` request/outcome contracts are in place
+- `application` execution seams are in place for case intake, document preparation, claim extraction, verification, human review, report assembly, and credibility assessment
+- local verification after the execution-seam rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `95 passed`
 
 Next recommended step:
-- freeze a written `6.x` plan for execution-side seams (`Protocols` / abstract interfaces) between `application` and `pipeline` / `storage`
-- keep that step contract-first and implementation-light
-- do not jump into concrete storage or retrieval engines before those seams are explicit
+- sync repo-facing docs and blueprint to the real post-6.x implementation state
+- then freeze the next layer of lower-level dependency seams for retrieval and persistence
+- keep that next step contract-first and implementation-light
+- do not jump into concrete storage or retrieval engines before those lower-level seams are explicit
