@@ -32,6 +32,7 @@ Confirmed now:
 - source-span fallback is now slightly refined for single-chunk extraction requests: when normalized claim span fields are blank, the runtime can fall back to the lone request chunk’s `position_reference` instead of `chunk-span:unknown`, while multi-chunk requests keep the previous conservative behavior, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
 - extraction runtime normalization helpers are now slightly cleaner internally: repeated trim-aware string lookups were consolidated behind small helper functions without changing claim/evidence filtering, diagnostics, or fallback behavior, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
 - the current LLM layer is still intentionally provider-bootstrap-light: SourceTrace-owned task config covers only task routing (`model`, `temperature`, `max_output_tokens`), the repo does not load `.env` itself, and LiteLLM remains only a hidden adapter shape until a separate runtime configuration contract is implemented, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
+- a minimal LLM bootstrap contract is now present without breaking provider-neutral seams: `SourceTraceLlmConfig` can declare explicit external env var names through `LlmBootstrapConfig`, while env resolution/loading itself still remains outside the repo-owned runtime, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `168 passed`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
@@ -52,5 +53,5 @@ The intended workflow is now:
 
 ## Near-term focus
 - keep repo-facing docs aligned with the delivered post-LLM.x baseline
-- decide the next bounded integration slice for the LLM-backed path only after freezing the runtime configuration contract: `.env` ownership, env-vs-launcher responsibility, and whether LiteLLM is merely an internal adapter or the official local bootstrap path
+- decide the next bounded integration slice for the LLM-backed path after the new minimal bootstrap contract: whether to add a runtime resolver for env process inputs, whether `.env` should stay out of repo scope, and how real provider wiring plugs into the hidden LiteLLM path
 - keep the MVP architecture small, auditable, and implementation-light until heavier runtime choices are explicit

@@ -7,6 +7,7 @@ from sourcetrace.llm import (
     ClaimExtractionGateway,
     ClaimNormalizationGateway,
     CredibilityDraftGateway,
+    LlmBootstrapConfig,
     LlmConfigurationError,
     LlmError,
     LlmGenerationRequest,
@@ -74,10 +75,11 @@ def test_llm_package_re_exports_models_and_execution_seams() -> None:
         (LlmTextGenerationExecution, ("generate_text",)),
         (StructuredLlmGenerationExecution, ("generate_structured",)),
         (StructuredGenerationRuntime, ("generate_structured",)),
+        (LlmBootstrapConfig, ("api_key_env_var", "base_url_env_var")),
         (LlmTaskConfig, ("model", "temperature", "max_output_tokens")),
         (
             SourceTraceLlmConfig,
-            ("default_timeout_seconds", "default_max_output_tokens", "tasks"),
+            ("default_timeout_seconds", "default_max_output_tokens", "bootstrap", "tasks"),
         ),
     ],
 )
@@ -125,6 +127,7 @@ def test_llm_protocols_expose_callable_entrypoints(protocol: type[Any]) -> None:
 
 def test_llm_request_and_result_objects_keep_provider_details_outside_interface() -> None:
     for exported in (
+        LlmBootstrapConfig,
         LlmError,
         LlmTimeoutError,
         LlmRateLimitError,
@@ -154,3 +157,17 @@ def test_llm_request_and_result_objects_keep_provider_details_outside_interface(
     assert not hasattr(request, "provider")
     assert not hasattr(request, "api_key")
     assert not hasattr(result, "provider_response")
+
+
+def test_bootstrap_config_keeps_env_contract_explicit_but_outside_request_surface() -> None:
+    bootstrap = LlmBootstrapConfig(
+        api_key_env_var="SOURCETRACE_LLM_API_KEY",
+        base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+    )
+    config = SourceTraceLlmConfig(bootstrap=bootstrap)
+
+    assert config.bootstrap is bootstrap
+    assert config.bootstrap_env_var_names() == (
+        "SOURCETRACE_LLM_API_KEY",
+        "SOURCETRACE_LLM_BASE_URL",
+    )

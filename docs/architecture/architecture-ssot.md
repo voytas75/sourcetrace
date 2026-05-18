@@ -50,6 +50,7 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - The current LLM config boundary is still intentionally narrow: `SourceTraceLlmConfig` only routes task-level model settings (`model`, `temperature`, `max_output_tokens`), while provider bootstrap details such as API keys, base URLs, or env loading are not yet part of the SourceTrace contract.
 - The repository does not currently load `.env` itself and does not define official project env names for provider bootstrap; any real provider wiring remains an external launcher/runtime concern until a dedicated configuration slice formalizes it.
 - `src/sourcetrace/llm/litellm_client.py` should currently be read as a response/error normalization adapter shape, not as proof that LiteLLM bootstrap or `LITELLM_*` environment variables are already part of the implemented runtime contract.
+- A first minimal bootstrap contract is now in place inside that same LLM boundary: `LlmBootstrapConfig` lets SourceTrace declare the expected external env var names while keeping env loading/resolution itself outside request models and outside the application layer.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.
@@ -159,7 +160,7 @@ Recommended target stack for the next architectural phase:
 - LLM usage focused on extraction, normalization, and drafting; final verification remains grounded in retrieval evidence, NLI/rules, and human review
 
 Next recommended step:
-- freeze the LLM runtime configuration contract first: decide whether SourceTrace ever loads `.env` itself, whether env injection belongs only to the launcher/shell, and which variables become official project-facing inputs
+- keep `.env` loading outside the repo unless a later slice explicitly changes that boundary; SourceTrace now only declares external env names via `LlmBootstrapConfig`
 - keep LiteLLM hidden behind the local boundary and avoid leaking provider details upward while broadening integration
-- only after that contract is frozen decide whether the next slice is real provider bootstrap wiring, deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
+- next decide whether to add a runtime bootstrap resolver for env process inputs before deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
 - do not jump into broad platformization before those boundaries stay explicit in both code and docs

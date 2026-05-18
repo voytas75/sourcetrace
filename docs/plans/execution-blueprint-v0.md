@@ -43,6 +43,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - The current LLM bootstrap contract is still deliberately unfinished: local config/routes only cover task-level model settings, while provider bootstrap inputs such as API keys, base URLs, and env loading are still outside the implemented SourceTrace boundary.
 - The repo currently does not load `.env` and does not define official project env names for LLM bootstrap; live provider wiring is still expected to arrive through an external launcher/runtime decision rather than hidden coupling in `src/sourcetrace/llm/`.
 - The existing `litellm_client.py` module should therefore be treated as an internal adapter shape for LiteLLM-style calls, not as evidence that LiteLLM bootstrap or `LITELLM_*` variables are already part of the frozen project contract.
+- A first bounded bootstrap contract is now implemented anyway: `LlmBootstrapConfig` lets the LLM layer declare explicit external env var names without pushing env-loading logic into application contracts, request models, or provider-specific runtime code.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
@@ -262,7 +263,7 @@ Recommended v1 LLM integration direction:
 - LLM communication should live behind a dedicated backend gateway layer, not inside domain or application contracts directly.
 - Preferred provider abstraction direction for v1: LiteLLM.
 - Application/use-case code should depend on SourceTrace-owned gateways (for example claim extraction or structured generation gateways), while provider/model routing stays inside the LLM integration layer.
-- Before real provider bootstrap work starts, freeze a separate configuration contract covering `.env` ownership, launcher-vs-repo env responsibility, and the official provider-facing variable names (if any).
+- A first minimal configuration contract is now in place via `LlmBootstrapConfig`; the next bootstrap slice should resolve env process inputs against that contract rather than widen request/application surfaces.
 - LLMs should primarily support extraction, normalization, and drafting tasks; final verification should still be grounded in retrieval evidence, explicit rules, NLI, and human review.
 
 ### Gate 4: delivery surface freeze
@@ -291,9 +292,9 @@ then patch:
 ---
 
 ## Current recommended next research / implementation slice
-1. freeze and document the LLM runtime configuration contract (`.env` ownership, launcher responsibility, official env names, LiteLLM bootstrap status)
-2. keep repo-facing docs synced to the delivered post-LLM.next.11 baseline
-3. only after that, use the current in-memory runtime + delivery path to evaluate whether the next slice should be real provider bootstrap wiring, deeper runtime orchestration, richer review semantics, or heavier infra
+1. keep repo-facing docs synced to the delivered Config.next.2 baseline (`LlmBootstrapConfig` + explicit external env-name contract)
+2. decide whether the next slice should add a runtime bootstrap resolver for env process inputs while keeping `.env` loading outside repo scope
+3. only after that, use the current in-memory runtime + delivery path to evaluate whether deeper runtime orchestration, richer review semantics, or heavier infra is actually needed next
 
 ## Later at execution start
 When implementation is explicitly approved, create a new implementation-ready plan that includes:

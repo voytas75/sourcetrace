@@ -4,6 +4,7 @@ from sourcetrace.llm import (
     ClaimExtractionGateway,
     ClaimNormalizationGateway,
     CredibilityDraftGateway,
+    LlmBootstrapConfig,
     LlmConfigurationError,
     LlmError,
     LlmGenerationRequest,
@@ -68,6 +69,10 @@ def test_source_trace_llm_config_returns_task_mapping_without_provider_leakage()
     config = SourceTraceLlmConfig(
         default_timeout_seconds=30.0,
         default_max_output_tokens=1024,
+        bootstrap=LlmBootstrapConfig(
+            api_key_env_var="SOURCETRACE_LLM_API_KEY",
+            base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+        ),
         tasks={
             "claim_extraction": LlmTaskConfig(
                 model="gpt-4o-mini",
@@ -86,6 +91,10 @@ def test_source_trace_llm_config_returns_task_mapping_without_provider_leakage()
     assert extraction.model == "gpt-4o-mini"
     assert extraction.temperature == 0.0
     assert extraction.max_output_tokens == 800
+    assert config.bootstrap_env_var_names() == (
+        "SOURCETRACE_LLM_API_KEY",
+        "SOURCETRACE_LLM_BASE_URL",
+    )
     assert not hasattr(extraction, "provider")
 
 
@@ -94,6 +103,12 @@ def test_source_trace_llm_config_raises_for_unknown_task_alias() -> None:
 
     with pytest.raises(LlmConfigurationError, match="missing LLM task config"):
         config.task("unknown")
+
+
+def test_source_trace_llm_config_defaults_to_no_bootstrap_env_vars() -> None:
+    config = SourceTraceLlmConfig(tasks={})
+
+    assert config.bootstrap_env_var_names() == ()
 
 
 def test_structured_generation_execution_builds_schema_aware_request_and_parses_payload() -> None:

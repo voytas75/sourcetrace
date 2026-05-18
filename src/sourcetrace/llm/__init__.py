@@ -1,6 +1,6 @@
 """SourceTrace-owned LLM integration boundary."""
 
-from sourcetrace.llm.config import LlmTaskConfig, SourceTraceLlmConfig
+from sourcetrace.llm.config import LlmBootstrapConfig, LlmTaskConfig, SourceTraceLlmConfig
 from sourcetrace.llm.errors import (
     LlmConfigurationError,
     LlmError,
@@ -34,6 +34,7 @@ __all__ = [
     "ClaimExtractionGateway",
     "ClaimNormalizationGateway",
     "CredibilityDraftGateway",
+    "LlmBootstrapConfig",
     "LlmConfigurationError",
     "LlmError",
     "LlmGenerationRequest",

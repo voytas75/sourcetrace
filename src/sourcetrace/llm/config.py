@@ -1,8 +1,24 @@
-"""SourceTrace-owned task routing config for LLM work."""
+"""SourceTrace-owned task routing and bootstrap config for LLM work."""
 
 from dataclasses import dataclass, field
 
 from sourcetrace.llm.errors import LlmConfigurationError
+
+
+@dataclass(frozen=True)
+class LlmBootstrapConfig:
+    """Provider-bootstrap inputs kept outside task-level routing config."""
+
+    api_key_env_var: str | None = None
+    base_url_env_var: str | None = None
+
+    def env_var_names(self) -> tuple[str, ...]:
+        names: list[str] = []
+        if self.api_key_env_var is not None:
+            names.append(self.api_key_env_var)
+        if self.base_url_env_var is not None:
+            names.append(self.base_url_env_var)
+        return tuple(names)
 
 
 @dataclass(frozen=True)
@@ -20,7 +36,13 @@ class SourceTraceLlmConfig:
 
     default_timeout_seconds: float | None = None
     default_max_output_tokens: int | None = None
+    bootstrap: LlmBootstrapConfig = field(default_factory=LlmBootstrapConfig)
     tasks: dict[str, LlmTaskConfig] = field(default_factory=dict)
+
+    def bootstrap_env_var_names(self) -> tuple[str, ...]:
+        """Return the explicit env vars expected from an external launcher/runtime."""
+
+        return self.bootstrap.env_var_names()
 
     def task(self, task_name: str) -> LlmTaskConfig:
         """Return task routing config or raise a normalized config error."""
@@ -42,6 +64,7 @@ class SourceTraceLlmConfig:
 
 
 __all__ = [
+    "LlmBootstrapConfig",
     "LlmTaskConfig",
     "SourceTraceLlmConfig",
 ]
