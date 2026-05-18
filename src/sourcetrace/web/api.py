@@ -43,7 +43,7 @@ class SourceTraceWSGIApp:
             return _json_response(
                 start_response,
                 "400 Bad Request",
-                {"error": str(exc)},
+                {"error": str(exc), "status": "invalid_request"},
             )
 
     def _dispatch(
@@ -112,7 +112,7 @@ class SourceTraceWSGIApp:
             return _json_response(
                 start_response,
                 "404 Not Found",
-                {"error": "verification_not_found"},
+                {"error": "verification_not_found", "status": "missing"},
             )
         return _json_response(
             start_response,
@@ -161,6 +161,12 @@ class SourceTraceWSGIApp:
         if report_ref.endswith(".json"):
             case_id = report_ref.removesuffix(".json")
             outcome = self.delivery.assemble_case_report(case_id)
+            if not outcome.entries:
+                return _json_response(
+                    start_response,
+                    "404 Not Found",
+                    {"error": "report_not_found", "status": "missing"},
+                )
             return _json_response(
                 start_response,
                 "200 OK",
@@ -169,6 +175,12 @@ class SourceTraceWSGIApp:
         if report_ref.endswith(".md"):
             case_id = report_ref.removesuffix(".md")
             outcome = self.delivery.assemble_case_report(case_id)
+            if not outcome.entries:
+                return _json_response(
+                    start_response,
+                    "404 Not Found",
+                    {"error": "report_not_found", "status": "missing"},
+                )
             return _text_response(
                 start_response,
                 "200 OK",

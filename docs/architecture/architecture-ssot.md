@@ -127,10 +127,11 @@ Confirmed now:
 - lower-level retrieval and persistence seams are in place in `pipeline.interfaces` and `storage.interfaces`
 - a first in-memory runtime path is in place for persistence, lexical retrieval, and verification orchestration
 - a minimal analyst delivery surface is in place in `web/` with a pure-stdlib WSGI/API, a case HTML view, and report JSON/Markdown output
-- local verification after the 9.x rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `119 passed`
+- that delivery surface now exposes evidence summary fields, explicit missing/invalid status payloads, and a thin-path end-to-end test pack over the in-memory flow
+- local verification after the 10.x rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`
 
 Next recommended step:
-- sync repo-facing docs and blueprint to the real post-9.x implementation state
-- harden the minimal runtime and delivery path with bounded follow-up slices
-- defer heavier storage, retrieval, and frontend stack choices until the current narrow path is pressure-tested
-- do not jump into broad platformization before the current MVP path is stabilized
+- sync repo-facing docs and blueprint to the real post-10.x implementation state
+- use the stabilized in-memory runtime + delivery path to decide whether heavier storage/retrieval/frontend choices are actually warranted
+- keep follow-up slices bounded around analyst usefulness and explicit runtime semantics
+- do not jump into broad platformization before the current MVP path is pressure-tested further

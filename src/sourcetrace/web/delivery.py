@@ -51,6 +51,12 @@ class VerificationInspection:
     claim: Claim
     verification: ClaimVerification
     evidence_links: tuple[ClaimEvidenceLink, ...]
+    evidence_count: int
+    supporting_evidence_count: int
+    contradicting_evidence_count: int
+    insufficient_evidence_count: int
+    has_review: bool
+    has_report_entry: bool
 
 
 @dataclass(frozen=True)
@@ -85,10 +91,27 @@ class SourceTraceDelivery:
         if claim is None or verification is None:
             return None
         evidence_links = _list_evidence_links(self.persistence, claim_id)
+        review_decision = self.persistence.claims.get_review_decision(claim_id)
         return VerificationInspection(
             claim=claim,
             verification=verification,
             evidence_links=evidence_links,
+            evidence_count=len(evidence_links),
+            supporting_evidence_count=_count_evidence_links(
+                evidence_links,
+                VerificationVerdict.SUPPORT,
+            ),
+            contradicting_evidence_count=_count_evidence_links(
+                evidence_links,
+                VerificationVerdict.CONTRADICT,
+            ),
+            insufficient_evidence_count=_count_evidence_links(
+                evidence_links,
+                VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            ),
+            has_review=review_decision is not None,
+            has_report_entry=review_decision is not None
+            and not _is_excluded_from_report(review_decision),
         )
 
     def record_review(
@@ -200,6 +223,14 @@ def verification_inspection_to_payload(
     return {
         "claim": claim_to_payload(inspection.claim),
         "verification": verification_to_payload(inspection.verification),
+        "evidence_summary": {
+            "evidence_count": inspection.evidence_count,
+            "supporting_evidence_count": inspection.supporting_evidence_count,
+            "contradicting_evidence_count": inspection.contradicting_evidence_count,
+            "insufficient_evidence_count": inspection.insufficient_evidence_count,
+            "has_review": inspection.has_review,
+            "has_report_entry": inspection.has_report_entry,
+        },
         "evidence_links": [
             evidence_link_to_payload(link) for link in inspection.evidence_links
         ],
@@ -333,6 +364,13 @@ def claim_from_payload(payload: dict[str, object]) -> Claim:
 def review_decision_from_payload(payload: dict[str, object]) -> ClaimReviewDecision:
     """Deserialize a review decision from an API payload."""
 
+    if "claim_id" not in payload:
+        raise ValueError("claim_id is required.")
+    if "case_id" not in payload:
+        raise ValueError("case_id is required.")
+    if "human_review_status" not in payload:
+        raise ValueError("human_review_status is required.")
+
     final_verdict = payload.get("final_verdict")
     analyst_disposition = payload.get("analyst_disposition")
     return ClaimReviewDecision(
@@ -463,6 +501,13 @@ def _list_evidence_links(
     if not callable(list_links):
         return ()
     return tuple(list_links(claim_id))
+
+
+def _count_evidence_links(
+    evidence_links: tuple[ClaimEvidenceLink, ...],
+    verdict: VerificationVerdict,
+) -> int:
+    return sum(1 for link in evidence_links if link.evidence_verdict is verdict)
 
 
 def _is_excluded_from_report(decision: ClaimReviewDecision) -> bool:

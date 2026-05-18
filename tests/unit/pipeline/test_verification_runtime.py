@@ -85,6 +85,56 @@ def test_claim_verification_runtime_retrieves_verifies_and_persists_claim_path()
     assert outcome.evidence_links[0].evidence_verdict is VerificationVerdict.SUPPORT
 
 
+def test_claim_verification_runtime_deduplicates_repeated_chunk_hits() -> None:
+    persistence = create_in_memory_persistence()
+    persistence.documents.save_chunks(
+        (
+            DocumentChunk(
+                chunk_id="chunk-1",
+                case_id="case-1",
+                document_id="doc-1",
+                raw_text="City officials confirmed the bridge reopened after inspection.",
+                start_char=0,
+                end_char=63,
+                chunk_index=1,
+            ),
+        )
+    )
+    claim = Claim(
+        claim_id="claim-1",
+        case_id="case-1",
+        document_id="doc-1",
+        chunk_id="chunk-1",
+        exact_text="The bridge reopened after inspection.",
+        source_span_reference="p1",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+    runtime = ClaimVerificationRuntime(
+        persistence=persistence,
+        retrieval=RetrievalExecution(
+            retrieve_chunks=LexicalChunkRetriever(documents=persistence.documents)
+        ),
+        verification=ClaimVerificationExecution(
+            verify_claim=EvidencePresenceClaimVerifier()
+        ),
+    )
+
+    outcome = runtime(
+        ClaimVerificationRuntimeRequest(
+            claim=claim,
+            requested_k=3,
+            document_ids=("doc-1", "doc-1"),
+        )
+    )
+
+    assert tuple(hit.chunk_id for hit in outcome.retrieved_evidence.hits) == ("chunk-1",)
+    assert outcome.verification_outcome.verification.supporting_chunk_ids == ("chunk-1",)
+    assert persistence.claims.list_evidence_links_for_claim("claim-1") == (
+        outcome.evidence_links[0],
+    )
+
+
 def test_claim_verification_runtime_persists_insufficient_evidence_without_hits() -> None:
     persistence = create_in_memory_persistence()
     claim = Claim(

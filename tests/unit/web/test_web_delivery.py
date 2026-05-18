@@ -59,6 +59,12 @@ def test_delivery_service_runs_and_inspects_verification_path() -> None:
     assert inspection.claim is claim
     assert inspection.verification.verdict is VerificationVerdict.SUPPORT
     assert tuple(link.chunk_id for link in inspection.evidence_links) == ("chunk-1",)
+    assert inspection.evidence_count == 1
+    assert inspection.supporting_evidence_count == 1
+    assert inspection.contradicting_evidence_count == 0
+    assert inspection.insufficient_evidence_count == 0
+    assert inspection.has_review is False
+    assert inspection.has_report_entry is False
 
 
 def test_delivery_service_assembles_json_and_markdown_report_output() -> None:
@@ -138,7 +144,16 @@ def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
     assert verify_status == "200 OK"
     assert json.loads(verify_body)["verification"]["verdict"] == "support"
     assert inspect_status == "200 OK"
-    assert json.loads(inspect_body)["evidence_links"][0]["chunk_id"] == "chunk-1"
+    inspection_payload = json.loads(inspect_body)
+    assert inspection_payload["evidence_links"][0]["chunk_id"] == "chunk-1"
+    assert inspection_payload["evidence_summary"] == {
+        "evidence_count": 1,
+        "supporting_evidence_count": 1,
+        "contradicting_evidence_count": 0,
+        "insufficient_evidence_count": 0,
+        "has_review": False,
+        "has_report_entry": False,
+    }
     assert review_status == "200 OK"
     assert report_status == "200 OK"
     assert ("Content-Type", "text/markdown; charset=utf-8") in report_headers
@@ -146,6 +161,46 @@ def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
     assert case_status == "200 OK"
     assert ("Content-Type", "text/html; charset=utf-8") in case_headers
     assert "The bridge reopened after inspection." in case_body
+
+
+def test_wsgi_app_returns_status_payloads_for_missing_or_invalid_resources() -> None:
+    app = create_wsgi_app(delivery=_seeded_delivery())
+
+    missing_inspection_status, _, missing_inspection_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/claims/missing-claim/verification",
+    )
+    missing_report_status, _, missing_report_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/reports/missing-case.json",
+    )
+    invalid_review_status, _, invalid_review_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/reviews",
+        payload={
+            "claim_id": "claim-1",
+            "case_id": "case-1",
+        },
+    )
+
+    assert missing_inspection_status == "404 Not Found"
+    assert json.loads(missing_inspection_body) == {
+        "error": "verification_not_found",
+        "status": "missing",
+    }
+    assert missing_report_status == "404 Not Found"
+    assert json.loads(missing_report_body) == {
+        "error": "report_not_found",
+        "status": "missing",
+    }
+    assert invalid_review_status == "400 Bad Request"
+    assert json.loads(invalid_review_body) == {
+        "error": "human_review_status is required.",
+        "status": "invalid_request",
+    }
 
 
 def _seeded_delivery() -> SourceTraceDelivery:

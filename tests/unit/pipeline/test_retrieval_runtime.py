@@ -63,6 +63,44 @@ def test_lexical_chunk_retriever_ranks_persisted_chunks_by_overlap() -> None:
     assert result.hits[0].snippet == "Officials confirmed the bridge reopened after repairs."
 
 
+def test_lexical_chunk_retriever_prefers_first_occurrence_when_scores_tie() -> None:
+    persistence = create_in_memory_persistence()
+    persistence.documents.save_chunks(
+        (
+            DocumentChunk(
+                chunk_id="chunk-2",
+                case_id="case-1",
+                document_id="doc-1",
+                raw_text="Bridge reopened for traffic.",
+                start_char=30,
+                end_char=58,
+                chunk_index=2,
+            ),
+            DocumentChunk(
+                chunk_id="chunk-1",
+                case_id="case-1",
+                document_id="doc-1",
+                raw_text="Bridge reopened for traffic.",
+                start_char=0,
+                end_char=28,
+                chunk_index=1,
+            ),
+        )
+    )
+
+    result = LexicalChunkRetriever(documents=persistence.documents)(
+        RetrievalQuery(
+            query_id="query-1",
+            case_id="case-1",
+            query_text="bridge reopened",
+            requested_k=2,
+        )
+    )
+
+    assert tuple(hit.chunk_id for hit in result.hits) == ("chunk-1", "chunk-2")
+    assert tuple(hit.rank for hit in result.hits) == (1, 2)
+
+
 def test_lexical_chunk_retriever_can_search_all_case_chunks_for_in_memory_storage() -> None:
     persistence = create_in_memory_persistence()
     persistence.documents.save_chunks(

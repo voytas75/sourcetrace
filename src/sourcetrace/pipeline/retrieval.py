@@ -56,12 +56,19 @@ class LexicalChunkRetriever:
 
     def _candidate_chunks(self, query: RetrievalQuery) -> tuple[DocumentChunk, ...]:
         if query.document_ids:
-            chunks: list[DocumentChunk] = []
+            chunks_by_id: dict[str, DocumentChunk] = {}
             for document_id in query.document_ids:
-                chunks.extend(
-                    self.documents.list_chunks_for_document(query.case_id, document_id)
+                for chunk in self.documents.list_chunks_for_document(
+                    query.case_id,
+                    document_id,
+                ):
+                    chunks_by_id.setdefault(chunk.chunk_id, chunk)
+            return tuple(
+                sorted(
+                    chunks_by_id.values(),
+                    key=lambda chunk: (chunk.document_id, chunk.chunk_index),
                 )
-            return tuple(chunks)
+            )
 
         list_chunks_for_case = getattr(self.documents, "list_chunks_for_case", None)
         if callable(list_chunks_for_case):

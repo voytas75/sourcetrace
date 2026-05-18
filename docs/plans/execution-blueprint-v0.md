@@ -30,7 +30,8 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
-- Local baseline after the 9.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `119 passed`.
+- That delivery surface now carries explicit inspection evidence summaries, explicit missing/invalid status payloads, and thin-path end-to-end regression coverage.
+- Local baseline after the 10.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.
@@ -202,10 +203,10 @@ Status now:
 - a first bounded delivery surface is in place
 
 Remaining outputs:
-- synced repo-facing docs that describe the delivered post-9.x baseline truthfully
+- synced repo-facing docs that describe the delivered post-10.x baseline truthfully
 - candidate stack freeze for iteration 1 beyond the in-memory baseline
 - explicit MVP review workflow hardening
-- bounded follow-up plan for stabilizing the current runtime and delivery path
+- bounded follow-up plan for stabilizing the current runtime semantics and analyst path
 
 ### Phase C — bounded MVP implementation
 Status now:
@@ -265,8 +266,8 @@ then patch:
 ---
 
 ## Current recommended next research / implementation slice
-1. keep repo-facing docs synced to the delivered post-9.x baseline
-2. harden the current in-memory runtime and minimal delivery path in bounded slices
+1. keep repo-facing docs synced to the delivered post-10.x baseline
+2. use the current in-memory runtime + delivery path to evaluate whether richer review semantics or heavier infra are actually needed next
 3. only after that, decide how much heavier retrieval, storage, and frontend depth is actually required for iteration 1
 
 ## Later at execution start

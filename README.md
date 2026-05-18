@@ -15,7 +15,10 @@ Confirmed now:
 - lower-level retrieval and persistence seams are implemented in `pipeline.interfaces` and `storage.interfaces`
 - first in-memory runtime path is implemented for persistence, lexical retrieval, and verification orchestration
 - minimal analyst-facing delivery surface is implemented in `web/` as a pure-stdlib WSGI/API + HTML/Markdown baseline
-- local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `119 passed`
+- inspection payloads now include derived evidence summary fields and review/report-entry status hints
+- delivery routes now distinguish invalid requests and missing verification/report artifacts explicitly
+- the in-memory retrieval/runtime path is hardened for duplicate document selection and thin-path end-to-end coverage
+- local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
@@ -35,6 +38,6 @@ The intended workflow is now:
 5. only then move into runtime adapters, storage engines, and retrieval implementations
 
 ## Near-term focus
-- keep repo-facing docs aligned with the delivered post-9.x baseline
-- harden the minimal runtime and delivery path without broadening scope prematurely
+- keep repo-facing docs aligned with the delivered post-10.x baseline
+- pressure-test the current in-memory runtime and delivery path before picking heavier infra
 - keep the MVP architecture small, auditable, and implementation-light until heavier runtime choices are explicit
