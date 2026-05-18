@@ -76,6 +76,7 @@ def test_source_trace_llm_config_returns_task_mapping_without_provider_leakage()
         bootstrap=LlmBootstrapConfig(
             api_key_env_var="SOURCETRACE_LLM_API_KEY",
             base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+            api_version_env_var="SOURCETRACE_LLM_API_VERSION",
         ),
         tasks={
             "claim_extraction": LlmTaskConfig(
@@ -98,6 +99,7 @@ def test_source_trace_llm_config_returns_task_mapping_without_provider_leakage()
     assert config.bootstrap_env_var_names() == (
         "SOURCETRACE_LLM_API_KEY",
         "SOURCETRACE_LLM_BASE_URL",
+        "SOURCETRACE_LLM_API_VERSION",
     )
     assert not hasattr(extraction, "provider")
 
@@ -159,16 +161,37 @@ def test_bootstrap_resolver_raises_for_blank_declared_env_var() -> None:
             environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
 
 
+def test_bootstrap_resolver_raises_for_missing_declared_api_version_env_var() -> None:
+    bootstrap = LlmBootstrapConfig(api_version_env_var="SOURCETRACE_LLM_API_VERSION")
+    original_api_version = environ.get("SOURCETRACE_LLM_API_VERSION")
+
+    try:
+        environ.pop("SOURCETRACE_LLM_API_VERSION", None)
+
+        with pytest.raises(
+            LlmConfigurationError,
+            match="missing required LLM bootstrap env var for api_version: SOURCETRACE_LLM_API_VERSION",
+        ):
+            resolve_llm_bootstrap_config(bootstrap)
+    finally:
+        if original_api_version is None:
+            environ.pop("SOURCETRACE_LLM_API_VERSION", None)
+        else:
+            environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version
+
+
 def test_build_llm_runtime_assembles_bootstrap_structured_generation_and_claim_gateway() -> None:
     config = SourceTraceLlmConfig(
         bootstrap=LlmBootstrapConfig(
             api_key_env_var="SOURCETRACE_LLM_API_KEY",
             base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+            api_version_env_var="SOURCETRACE_LLM_API_VERSION",
         ),
         tasks={"claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0)},
     )
     original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
     original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+    original_api_version = environ.get("SOURCETRACE_LLM_API_VERSION")
     captured_kwargs: dict[str, object] = {}
 
     def completion_fn(**kwargs: object) -> dict[str, object]:
@@ -197,6 +220,7 @@ def test_build_llm_runtime_assembles_bootstrap_structured_generation_and_claim_g
     try:
         environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
         environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+        environ["SOURCETRACE_LLM_API_VERSION"] = "preview"
 
         runtime = build_llm_runtime(completion_fn=completion_fn, config=config)
         result = runtime.claim_extraction("alpha claim in source text")
@@ -205,9 +229,11 @@ def test_build_llm_runtime_assembles_bootstrap_structured_generation_and_claim_g
         assert runtime.bootstrap == ResolvedLlmBootstrapConfig(
             api_key="test-api-key",
             base_url="https://llm.example.test",
+            api_version="preview",
         )
         assert captured_kwargs["api_key"] == "test-api-key"
         assert captured_kwargs["base_url"] == "https://llm.example.test"
+        assert captured_kwargs["api_version"] == "preview"
         assert captured_kwargs["model"] == "gpt-4o-mini"
         assert result.payload["claims"][0]["claim_id"] == "claim-1"
     finally:
@@ -221,12 +247,18 @@ def test_build_llm_runtime_assembles_bootstrap_structured_generation_and_claim_g
         else:
             environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
 
+        if original_api_version is None:
+            environ.pop("SOURCETRACE_LLM_API_VERSION", None)
+        else:
+            environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version
+
 
 def test_build_llm_runtime_also_exposes_credibility_draft_gateway() -> None:
     config = SourceTraceLlmConfig(
         bootstrap=LlmBootstrapConfig(
             api_key_env_var="SOURCETRACE_LLM_API_KEY",
             base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+            api_version_env_var="SOURCETRACE_LLM_API_VERSION",
         ),
         tasks={
             "claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0),
@@ -235,6 +267,7 @@ def test_build_llm_runtime_also_exposes_credibility_draft_gateway() -> None:
     )
     original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
     original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+    original_api_version = environ.get("SOURCETRACE_LLM_API_VERSION")
     captured_calls: list[dict[str, object]] = []
 
     def completion_fn(**kwargs: object) -> dict[str, object]:
@@ -274,6 +307,7 @@ def test_build_llm_runtime_also_exposes_credibility_draft_gateway() -> None:
     try:
         environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
         environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+        environ["SOURCETRACE_LLM_API_VERSION"] = "preview"
 
         runtime = build_llm_runtime(completion_fn=completion_fn, config=config)
         result = runtime.credibility_draft(
@@ -283,6 +317,7 @@ def test_build_llm_runtime_also_exposes_credibility_draft_gateway() -> None:
         assert result.text == "Draft credibility note."
         assert captured_calls[-1]["api_key"] == "test-api-key"
         assert captured_calls[-1]["base_url"] == "https://llm.example.test"
+        assert captured_calls[-1]["api_version"] == "preview"
         assert captured_calls[-1]["model"] == "gpt-4.1-mini"
         assert captured_calls[-1]["temperature"] == 0.2
     finally:
@@ -296,12 +331,18 @@ def test_build_llm_runtime_also_exposes_credibility_draft_gateway() -> None:
         else:
             environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
 
+        if original_api_version is None:
+            environ.pop("SOURCETRACE_LLM_API_VERSION", None)
+        else:
+            environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version
+
 
 def test_build_llm_runtime_also_exposes_claim_normalization_gateway() -> None:
     config = SourceTraceLlmConfig(
         bootstrap=LlmBootstrapConfig(
             api_key_env_var="SOURCETRACE_LLM_API_KEY",
             base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+            api_version_env_var="SOURCETRACE_LLM_API_VERSION",
         ),
         tasks={
             "claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0),
@@ -310,6 +351,7 @@ def test_build_llm_runtime_also_exposes_claim_normalization_gateway() -> None:
     )
     original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
     original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+    original_api_version = environ.get("SOURCETRACE_LLM_API_VERSION")
     captured_calls: list[dict[str, object]] = []
 
     def completion_fn(**kwargs: object) -> dict[str, object]:
@@ -349,6 +391,7 @@ def test_build_llm_runtime_also_exposes_claim_normalization_gateway() -> None:
     try:
         environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
         environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+        environ["SOURCETRACE_LLM_API_VERSION"] = "preview"
 
         runtime = build_llm_runtime(completion_fn=completion_fn, config=config)
         result = runtime.claim_normalization("Raw claim text with noise.")
@@ -356,6 +399,7 @@ def test_build_llm_runtime_also_exposes_claim_normalization_gateway() -> None:
         assert result.text == "Normalized claim text."
         assert captured_calls[-1]["api_key"] == "test-api-key"
         assert captured_calls[-1]["base_url"] == "https://llm.example.test"
+        assert captured_calls[-1]["api_version"] == "preview"
         assert captured_calls[-1]["model"] == "gpt-4.1-mini"
         assert captured_calls[-1]["temperature"] == 0.1
     finally:
@@ -368,6 +412,11 @@ def test_build_llm_runtime_also_exposes_claim_normalization_gateway() -> None:
             environ.pop("SOURCETRACE_LLM_BASE_URL", None)
         else:
             environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
+
+        if original_api_version is None:
+            environ.pop("SOURCETRACE_LLM_API_VERSION", None)
+        else:
+            environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version
 
 
 def test_structured_generation_execution_builds_schema_aware_request_and_parses_payload() -> None:

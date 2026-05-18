@@ -12,6 +12,7 @@ class LlmBootstrapConfig:
 
     api_key_env_var: str | None = None
     base_url_env_var: str | None = None
+    api_version_env_var: str | None = None
 
     def env_var_names(self) -> tuple[str, ...]:
         names: list[str] = []
@@ -19,6 +20,8 @@ class LlmBootstrapConfig:
             names.append(self.api_key_env_var)
         if self.base_url_env_var is not None:
             names.append(self.base_url_env_var)
+        if self.api_version_env_var is not None:
+            names.append(self.api_version_env_var)
         return tuple(names)
 
 
@@ -28,6 +31,7 @@ class ResolvedLlmBootstrapConfig:
 
     api_key: str | None = None
     base_url: str | None = None
+    api_version: str | None = None
 
 
 def resolve_llm_bootstrap_config(
@@ -43,7 +47,15 @@ def resolve_llm_bootstrap_config(
         bootstrap.base_url_env_var,
         field_label="base_url",
     )
-    return ResolvedLlmBootstrapConfig(api_key=api_key, base_url=base_url)
+    api_version = _resolve_required_env_value(
+        bootstrap.api_version_env_var,
+        field_label="api_version",
+    )
+    return ResolvedLlmBootstrapConfig(
+        api_key=api_key,
+        base_url=base_url,
+        api_version=api_version,
+    )
 
 
 def _resolve_required_env_value(env_var_name: str | None, *, field_label: str) -> str | None:

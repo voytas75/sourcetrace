@@ -79,8 +79,11 @@ def test_llm_package_re_exports_models_and_execution_seams() -> None:
         (LlmTextGenerationExecution, ("generate_text",)),
         (StructuredLlmGenerationExecution, ("generate_structured",)),
         (StructuredGenerationRuntime, ("generate_structured",)),
-        (LlmBootstrapConfig, ("api_key_env_var", "base_url_env_var")),
-        (ResolvedLlmBootstrapConfig, ("api_key", "base_url")),
+        (
+            LlmBootstrapConfig,
+            ("api_key_env_var", "base_url_env_var", "api_version_env_var"),
+        ),
+        (ResolvedLlmBootstrapConfig, ("api_key", "base_url", "api_version")),
         (LlmTaskConfig, ("model", "temperature", "max_output_tokens")),
         (
             SourceTraceLlmConfig,
@@ -179,6 +182,7 @@ def test_bootstrap_config_keeps_env_contract_explicit_but_outside_request_surfac
     bootstrap = LlmBootstrapConfig(
         api_key_env_var="SOURCETRACE_LLM_API_KEY",
         base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+        api_version_env_var="SOURCETRACE_LLM_API_VERSION",
     )
     config = SourceTraceLlmConfig(bootstrap=bootstrap)
 
@@ -186,6 +190,7 @@ def test_bootstrap_config_keeps_env_contract_explicit_but_outside_request_surfac
     assert config.bootstrap_env_var_names() == (
         "SOURCETRACE_LLM_API_KEY",
         "SOURCETRACE_LLM_BASE_URL",
+        "SOURCETRACE_LLM_API_VERSION",
     )
 
 
@@ -193,19 +198,23 @@ def test_bootstrap_resolver_reads_only_declared_process_env_inputs() -> None:
     bootstrap = LlmBootstrapConfig(
         api_key_env_var="SOURCETRACE_LLM_API_KEY",
         base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+        api_version_env_var="SOURCETRACE_LLM_API_VERSION",
     )
     original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
     original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+    original_api_version = environ.get("SOURCETRACE_LLM_API_VERSION")
 
     try:
         environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
         environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+        environ["SOURCETRACE_LLM_API_VERSION"] = "preview"
 
         resolved = resolve_llm_bootstrap_config(bootstrap)
 
         assert resolved == ResolvedLlmBootstrapConfig(
             api_key="test-api-key",
             base_url="https://llm.example.test",
+            api_version="preview",
         )
     finally:
         if original_api_key is None:
@@ -217,3 +226,8 @@ def test_bootstrap_resolver_reads_only_declared_process_env_inputs() -> None:
             environ.pop("SOURCETRACE_LLM_BASE_URL", None)
         else:
             environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
+
+        if original_api_version is None:
+            environ.pop("SOURCETRACE_LLM_API_VERSION", None)
+        else:
+            environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version

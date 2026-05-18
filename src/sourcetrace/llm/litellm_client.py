@@ -45,6 +45,8 @@ def build_litellm_completion_caller(
             kwargs["api_key"] = bootstrap.api_key
         if bootstrap.base_url is not None:
             kwargs["base_url"] = bootstrap.base_url
+        if bootstrap.api_version is not None:
+            kwargs["api_version"] = bootstrap.api_version
         return completion_fn(**kwargs)
 
     return caller

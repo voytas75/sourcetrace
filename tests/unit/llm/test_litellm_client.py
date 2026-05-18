@@ -81,6 +81,7 @@ def test_build_litellm_completion_caller_injects_resolved_bootstrap_inputs() -> 
         bootstrap=ResolvedLlmBootstrapConfig(
             api_key="test-api-key",
             base_url="https://llm.example.test",
+            api_version="preview",
         ),
     )
 
@@ -88,6 +89,7 @@ def test_build_litellm_completion_caller_injects_resolved_bootstrap_inputs() -> 
 
     assert captured_kwargs["api_key"] == "test-api-key"
     assert captured_kwargs["base_url"] == "https://llm.example.test"
+    assert captured_kwargs["api_version"] == "preview"
     assert captured_kwargs["model"] == "gpt-4o-mini"
 
 
@@ -108,12 +110,16 @@ def test_build_litellm_text_generator_keeps_bootstrap_outside_request_surface() 
 
     generator = build_litellm_text_generator(
         completion_fn=completion_fn,
-        bootstrap=ResolvedLlmBootstrapConfig(api_key="test-api-key"),
+        bootstrap=ResolvedLlmBootstrapConfig(
+            api_key="test-api-key",
+            api_version="preview",
+        ),
     )
     result = generator(request)
 
     assert result.text == "normalized answer"
     assert captured_kwargs["api_key"] == "test-api-key"
+    assert captured_kwargs["api_version"] == "preview"
     assert captured_kwargs["model"] == "gpt-4o-mini"
     assert not hasattr(request, "api_key")
 
@@ -189,11 +195,15 @@ def test_build_litellm_structured_generator_keeps_bootstrap_outside_request_surf
 
     generator = build_litellm_structured_generator(
         completion_fn=completion_fn,
-        bootstrap=ResolvedLlmBootstrapConfig(base_url="https://llm.example.test"),
+        bootstrap=ResolvedLlmBootstrapConfig(
+            base_url="https://llm.example.test",
+            api_version="preview",
+        ),
     )
     result = generator(request)
 
     assert result.payload == {"claims": [{"claim_id": "claim-1"}]}
     assert captured_kwargs["base_url"] == "https://llm.example.test"
+    assert captured_kwargs["api_version"] == "preview"
     assert captured_kwargs["response_format"] == {"type": "json_object"}
     assert not hasattr(request, "base_url")
