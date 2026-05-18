@@ -42,6 +42,7 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - When the LLM extraction payload includes nested evidence metadata for a claim, the same runtime now maps that snippet/rationale/score into the initial `ClaimEvidenceLink` instead of discarding it, while still keeping the link provisional until a later verification pass.
 - If the payload carries multiple evidence items for one claim, the runtime now emits multiple provisional `ClaimEvidenceLink` records instead of collapsing them into one; ranking follows payload order and each item can override `chunk_id` plus its own snippet/rationale/score.
 - That same extraction-side evidence mapping is now defensive against noisy payload lists: invalid entries are dropped before link creation, accepted entries are re-ranked densely, and the runtime only falls back to one provisional link when no valid evidence payload survives normalization.
+- Top-level claim normalization is now defensive too: non-dict or empty/junk `payload["claims"]` entries are filtered out before application claim creation, fallback `claim-{n}` IDs are assigned after filtering, and downstream evidence-link creation only runs against the normalized claim item set.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.

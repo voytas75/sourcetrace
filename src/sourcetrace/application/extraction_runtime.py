@@ -35,6 +35,7 @@ class _LlmClaimExtractor:
             if chunk.chunk_id in request.chunk_ids
         )
         result = self._extract_claims(prepared_text)
+        claim_items = _claim_items_for(result.payload)
         claims = tuple(
             Claim(
                 claim_id=str(item.get("claim_id") or f"claim-{index + 1}"),
@@ -49,13 +50,13 @@ class _LlmClaimExtractor:
                 system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
                 rationale=None,
             )
-            for index, item in enumerate(result.payload.get("claims", ()))
+            for index, item in enumerate(claim_items)
         )
         if self._claim_repository is not None:
             claims = self._claim_repository.save_claims(claims)
         evidence_links = _build_initial_evidence_links(
             claims=claims,
-            items=tuple(result.payload.get("claims", ())),
+            items=claim_items,
         )
         if self._claim_repository is not None:
             evidence_links = self._claim_repository.save_evidence_links(evidence_links)
@@ -75,6 +76,27 @@ def _chunk_id_for(item: dict[str, object], request: ClaimExtractionRequest) -> s
     if request.chunk_ids:
         return request.chunk_ids[0]
     return None
+
+
+def _claim_items_for(payload: dict[str, object]) -> tuple[dict[str, object], ...]:
+    claims = payload.get("claims")
+    if not isinstance(claims, list):
+        return ()
+    return tuple(item for item in claims if _is_valid_claim_payload(item))
+
+
+def _is_valid_claim_payload(item: object) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return any(
+        isinstance(value, str) and bool(value)
+        for value in (
+            item.get("claim_id"),
+            item.get("chunk_id"),
+            item.get("exact_text"),
+            item.get("source_span_reference"),
+        )
+    ) or bool(_evidence_items_for(item))
 
 
 def _span_reference_for(

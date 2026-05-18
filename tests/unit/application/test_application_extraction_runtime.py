@@ -401,3 +401,134 @@ def test_build_llm_claim_extractor_falls_back_to_single_link_when_evidence_paylo
     assert outcome.evidence_links[0].rationale == "Initial extraction link from chunk p1."
     assert outcome.evidence_links[0].snippet == "The network expanded in 2025."
     assert outcome.evidence_links[0].score is None
+
+
+def test_build_llm_claim_extractor_ignores_invalid_top_level_claim_items() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    None,
+                    "noise",
+                    {},
+                    {"evidence": [None, {}, {"score": "0.2"}]},
+                    {
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The network expanded in 2025.",
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-explicit",
+                        "chunk_id": "chunk-2",
+                        "exact_text": "The rollout reached two regions.",
+                        "source_span_reference": "p2",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The network expanded in 2025.",
+            start_char=0,
+            end_char=29,
+            chunk_index=0,
+            position_reference="p1",
+            previous_chunk_id=None,
+            next_chunk_id="chunk-2",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The rollout reached two regions.",
+            start_char=30,
+            end_char=63,
+            chunk_index=1,
+            position_reference="p2",
+            previous_chunk_id="chunk-1",
+            next_chunk_id=None,
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2"),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert tuple(claim.claim_id for claim in outcome.claims) == ("claim-1", "claim-explicit")
+    assert tuple(claim.chunk_id for claim in outcome.claims) == ("chunk-1", "chunk-2")
+    assert tuple(link.claim_id for link in outcome.evidence_links) == ("claim-1", "claim-explicit")
+    assert outcome.evidence_links[0].snippet == "The network expanded in 2025."
+    assert outcome.evidence_links[1].snippet == "The rollout reached two regions."
+
+
+def test_build_llm_claim_extractor_handles_non_list_claim_payload_as_empty() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={"claims": "noise"},
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The network expanded in 2025.",
+            start_char=0,
+            end_char=29,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert outcome.claims == ()
+    assert outcome.evidence_links == ()
