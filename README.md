@@ -78,6 +78,55 @@ Notes:
 - `.env` is still not loaded by the repo; any required external secrets must come from the process environment only
 - the local web run is still a thin in-memory/dev path, not a production server shape
 
+## LLM runtime config example
+Production bootstrap lives outside the repo, in the process environment of whatever launches Sourcetrace:
+- `SOURCETRACE_LLM_API_KEY`
+- `SOURCETRACE_LLM_BASE_URL`
+- `SOURCETRACE_LLM_API_VERSION`
+
+For Azure / Microsoft Foundry GPT-5.x through LiteLLM, keep `model` inside `SourceTraceLlmConfig.tasks[...]` and keep bootstrap inputs only in `LlmBootstrapConfig`:
+
+```python
+from sourcetrace.llm import LlmBootstrapConfig, LlmTaskConfig, SourceTraceLlmConfig
+
+llm_config = SourceTraceLlmConfig(
+    bootstrap=LlmBootstrapConfig(
+        api_key_env_var="SOURCETRACE_LLM_API_KEY",
+        base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+        api_version_env_var="SOURCETRACE_LLM_API_VERSION",
+    ),
+    default_timeout_seconds=30.0,
+    default_max_output_tokens=1200,
+    tasks={
+        "claim_extraction": LlmTaskConfig(
+            model="azure/gpt-5-mini",
+            temperature=0.0,
+        ),
+        "claim_normalization": LlmTaskConfig(
+            model="azure/gpt-5-mini",
+            temperature=0.0,
+            max_output_tokens=400,
+        ),
+        "credibility_draft": LlmTaskConfig(
+            model="azure/gpt-5",
+            temperature=0.2,
+            max_output_tokens=600,
+        ),
+    },
+)
+```
+
+Operationally, that means:
+- `model` is app config owned by Sourcetrace (`SourceTraceLlmConfig` / `LlmTaskConfig`)
+- `api_key`, `base_url`, and `api_version` are runtime bootstrap owned by the external launcher/environment
+- `build_llm_runtime(...)` resolves bootstrap from `os.environ` and injects it only at the LiteLLM adapter edge
+- `create_default_delivery(..., credibility_draft=runtime.credibility_draft)` is the current local wiring point for the credibility web path
+- `claim_extraction`, `claim_normalization`, and `credibility_draft` are the currently wired task names in `src/sourcetrace/llm/runtime.py`
+
+Do weryfikacji:
+- the exact Azure deployment/model alias string must match your LiteLLM + Azure setup (`azure/gpt-5`, `azure/gpt-5-mini`, or deployment-specific alias)
+- if your Azure endpoint requires `api_version=preview`, set that in the launcher environment, not in repo files
+
 ## Local smoke flow
 1. Start the local server:
    - `uv run python -m sourcetrace.web`
