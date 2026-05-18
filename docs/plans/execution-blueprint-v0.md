@@ -27,7 +27,10 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - Domain contract coverage is in place for cases, documents, chunks, retrieval, claim verification flow, and case-level report output.
 - Application contract coverage is in place for case intake, document preparation, claim extraction, claim verification, human review, report assembly, and credibility assessment.
 - Application-side execution seam coverage is in place for those same use-case areas via `application.interfaces`.
-- Local baseline after the execution-seam rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `95 passed`.
+- Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
+- A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
+- A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
+- Local baseline after the 9.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `119 passed`.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.
@@ -190,23 +193,26 @@ Outputs:
 
 ### Phase B — implementation readiness decision
 Status now:
-- partly completed
+- materially advanced
 - domain contracts are in place
 - application contracts are in place
 - application-side execution seams are in place
-- the next readiness gap is lower-level dependency seams for retrieval and persistence
+- lower-level retrieval and persistence seams are in place
+- a first bounded runtime path is in place
+- a first bounded delivery surface is in place
 
 Remaining outputs:
-- synced repo-facing docs that describe the delivered contract baseline truthfully
-- next-layer implementation-ready plan for lower-level dependency seams
-- candidate stack freeze for iteration 1
-- explicit MVP review workflow
+- synced repo-facing docs that describe the delivered post-9.x baseline truthfully
+- candidate stack freeze for iteration 1 beyond the in-memory baseline
+- explicit MVP review workflow hardening
+- bounded follow-up plan for stabilizing the current runtime and delivery path
 
 ### Phase C — bounded MVP implementation
 Status now:
 - started in bounded contract-first slices
-- so far limited to domain contracts, application contracts, and application-side execution seams
-- runtime adapters / storage engines / retrieval implementations are still not started
+- no longer limited to contracts alone
+- includes an in-memory persistence path, lexical retrieval, verification orchestration, and minimal analyst delivery
+- heavier storage engines, richer retrieval, and broader frontend/runtime choices are still intentionally deferred
 
 ---
 
@@ -259,9 +265,9 @@ then patch:
 ---
 
 ## Current recommended next research / implementation slice
-1. sync repo-facing docs to the delivered post-6.x baseline
-2. freeze the next layer of lower-level dependency seams for retrieval and persistence
-3. only after that, decide how much retrieval/reranking depth is required for iteration 1 runtime work
+1. keep repo-facing docs synced to the delivered post-9.x baseline
+2. harden the current in-memory runtime and minimal delivery path in bounded slices
+3. only after that, decide how much heavier retrieval, storage, and frontend depth is actually required for iteration 1
 
 ## Later at execution start
 When implementation is explicitly approved, create a new implementation-ready plan that includes:

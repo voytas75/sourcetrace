@@ -118,16 +118,19 @@ A synthesized investigation output assembled from reviewed or classified claims.
 - `docs/plans/execution-blueprint-v0.md`: provisional implementation-facing plan, still pre-build.
 
 ## Current recommended next step
-The minimal contract-first baseline for `domain` and `application` is now in place, including application-side execution seams.
+The initial contract-first baseline is now extended through lower-level seams, a minimal in-memory runtime path, and a minimal analyst-facing delivery surface.
 
 Confirmed now:
 - `domain` contracts are in place
 - `application` request/outcome contracts are in place
 - `application` execution seams are in place for case intake, document preparation, claim extraction, verification, human review, report assembly, and credibility assessment
-- local verification after the execution-seam rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `95 passed`
+- lower-level retrieval and persistence seams are in place in `pipeline.interfaces` and `storage.interfaces`
+- a first in-memory runtime path is in place for persistence, lexical retrieval, and verification orchestration
+- a minimal analyst delivery surface is in place in `web/` with a pure-stdlib WSGI/API, a case HTML view, and report JSON/Markdown output
+- local verification after the 9.x rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `119 passed`
 
 Next recommended step:
-- sync repo-facing docs and blueprint to the real post-6.x implementation state
-- then freeze the next layer of lower-level dependency seams for retrieval and persistence
-- keep that next step contract-first and implementation-light
-- do not jump into concrete storage or retrieval engines before those lower-level seams are explicit
+- sync repo-facing docs and blueprint to the real post-9.x implementation state
+- harden the minimal runtime and delivery path with bounded follow-up slices
+- defer heavier storage, retrieval, and frontend stack choices until the current narrow path is pressure-tested
+- do not jump into broad platformization before the current MVP path is stabilized

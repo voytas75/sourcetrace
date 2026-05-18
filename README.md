@@ -3,7 +3,7 @@
 SourceTrace is an application project for building an evidence-centric OSINT + LLM system, with research, planning, and later implementation kept in one repository.
 
 ## Current state
-This repository is past the pure research-first phase and now has a bounded contract-first implementation baseline.
+This repository is past the pure research-first phase and now has a bounded contract-first implementation baseline plus a first narrow runtime and delivery path.
 
 Confirmed now:
 - product direction is evidence-first and claim-centric
@@ -12,7 +12,10 @@ Confirmed now:
 - `domain` contracts are implemented
 - `application` request/outcome contracts are implemented
 - `application` execution seams are implemented
-- local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `95 passed`
+- lower-level retrieval and persistence seams are implemented in `pipeline.interfaces` and `storage.interfaces`
+- first in-memory runtime path is implemented for persistence, lexical retrieval, and verification orchestration
+- minimal analyst-facing delivery surface is implemented in `web/` as a pure-stdlib WSGI/API + HTML/Markdown baseline
+- local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `119 passed`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
@@ -32,6 +35,6 @@ The intended workflow is now:
 5. only then move into runtime adapters, storage engines, and retrieval implementations
 
 ## Near-term focus
-- keep repo-facing docs aligned with the delivered contract baseline
-- freeze the next layer of lower-level dependency seams for retrieval and persistence
-- keep the MVP architecture small, auditable, and implementation-light until runtime choices are explicit
+- keep repo-facing docs aligned with the delivered post-9.x baseline
+- harden the minimal runtime and delivery path without broadening scope prematurely
+- keep the MVP architecture small, auditable, and implementation-light until heavier runtime choices are explicit
