@@ -89,7 +89,18 @@ Notes:
      }'`
 3. Inspect the verification artifact:
    - `curl http://127.0.0.1:8000/api/claims/claim-1/verification`
-4. Export the markdown report after review/report assembly work has populated the case report surface:
+4. Record a minimal analyst review so the case report surface has reviewed content:
+   - `curl -X POST http://127.0.0.1:8000/api/reviews \
+     -H 'Content-Type: application/json' \
+     -d '{
+       "claim_id": "claim-1",
+       "case_id": "case-1",
+       "human_review_status": "reviewed_accept",
+       "analyst_disposition": "confirmed_support",
+       "final_verdict": "support",
+       "review_notes": "Accepted for report."
+     }'`
+5. Export the markdown report:
    - `curl http://127.0.0.1:8000/api/reports/case-1.md`
 
 ## Near-term focus
