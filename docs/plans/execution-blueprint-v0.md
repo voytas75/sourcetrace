@@ -39,6 +39,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - The same application outcome now carries lightweight normalization diagnostics so callers can see how many top-level claim items and nested evidence items were dropped during payload cleanup without changing storage or provider seams.
 - That cleanup is now also trim-aware for string payload fields: whitespace-only values are treated as missing, surviving strings are stripped before entering claims/evidence links, and the existing normalization diagnostics count against those trimmed semantics.
 - For the specific single-chunk extraction case, source-span fallback is now a bit more informative: when normalized claim span fields are blank, the runtime can reuse the sole request chunk’s `position_reference`; multi-chunk requests still keep the old conservative unknown-span fallback.
+- The same runtime code is now also slightly cleaner internally: repeated trim-aware string access paths were collapsed into small helper functions, keeping the slice behaviorally neutral while reducing local duplication.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
