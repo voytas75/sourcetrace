@@ -50,6 +50,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - That same assembly path now also routes claim-extraction composition through the public `build_claim_extraction_gateway(...)` factory, removing the remaining direct dependency on a private extraction symbol without changing runtime behavior.
 - That same assembly path can now also expose a text-generation-backed `credibility_draft` gateway for the existing task alias without widening application/request surfaces or moving `.env` handling into the repo.
 - The existing application credibility seam can now consume that `credibility_draft` gateway inside a bounded assessment callable, so advisory notes can be LLM-drafted while the request/outcome contract stays unchanged.
+- The application layer now exposes `build_llm_credibility_assessor(...)` as the public credibility counterpart to `build_llm_claim_extractor(...)`; it maps `credibility_draft` output into advisory assessment notes while leaving source reliability, information credibility, and provenance bands at `unknown`.
 - The same assembly path can now also expose a text-generation-backed `claim_normalization` gateway for the existing task alias via the same provider-neutral text path.
 - The application extraction runtime can now optionally apply that `claim_normalization` gateway before persisting/materializing extracted claims, keeping the extraction contract stable while moving normalization behind a seam.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
@@ -57,10 +58,12 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
 - That delivery surface now carries explicit inspection evidence summaries, explicit missing/invalid status payloads, and thin-path end-to-end regression coverage.
 - That same delivery surface now also has a local runnable front door: `python -m sourcetrace.web` (and installed console script `sourcetrace-web`) start a stdlib WSGI server over the same in-memory runtime for thin local smoke runs.
+- The local delivery surface can now optionally compose the LLM-backed credibility helper through `create_default_delivery(..., credibility_draft=...)` and consume it via `POST /api/documents/{document_id}/credibility`, keeping provider bootstrap and `.env` loading outside web request contracts.
 - Local baseline after the 10.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`.
 - Local setup is now also standardized through a minimal `pyproject.toml` and `uv` workflow: `uv sync --dev`, `uv run pytest -q`, `uv run python -m sourcetrace.web`.
 - Local baseline after the bounded LLM.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`.
 - Local baseline after storage-backed extraction persistence on the LLM application path is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`.
+- Local baseline after the credibility runtime launch path is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `190 passed`.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.
@@ -273,7 +276,7 @@ Recommended v1 LLM integration direction:
 - LLM communication should live behind a dedicated backend gateway layer, not inside domain or application contracts directly.
 - Preferred provider abstraction direction for v1: LiteLLM.
 - Application/use-case code should depend on SourceTrace-owned gateways (for example claim extraction or structured generation gateways), while provider/model routing stays inside the LLM integration layer.
-- A first minimal configuration contract is now in place via `LlmBootstrapConfig`, env process inputs are resolved through `resolve_llm_bootstrap_config(...)`, the LiteLLM adapter has bounded bootstrap wiring helpers, and `build_llm_runtime(...)` now assembles the first local runtime bundle; the next bootstrap slice should decide whether to clean up the remaining private claim-gateway composition or broaden the assembled runtime without widening request/application surfaces.
+- A first minimal configuration contract is now in place via `LlmBootstrapConfig`, env process inputs are resolved through `resolve_llm_bootstrap_config(...)`, the LiteLLM adapter has bounded bootstrap wiring helpers, and `build_llm_runtime(...)` now assembles the local runtime bundle with claim extraction, claim normalization, and credibility drafting gateways.
 - LLMs should primarily support extraction, normalization, and drafting tasks; final verification should still be grounded in retrieval evidence, explicit rules, NLI, and human review.
 
 ### Gate 4: delivery surface freeze
@@ -302,9 +305,9 @@ then patch:
 ---
 
 ## Current recommended next research / implementation slice
-1. keep repo-facing docs synced to the delivered Config.next.5 baseline (`LlmBootstrapConfig` + `resolve_llm_bootstrap_config(...)` + LiteLLM bootstrap wiring helpers + `build_llm_runtime(...)`)
-2. decide whether the next slice should clean up the remaining private claim-gateway composition or broaden the assembled runtime to additional task gateways while keeping `.env` loading outside repo scope
-3. only after that, use the current in-memory runtime + delivery path to evaluate whether deeper runtime orchestration, richer review semantics, or heavier infra is actually needed next
+1. keep repo-facing docs synced to the delivered credibility runtime launch path (`build_llm_credibility_assessor(...)` + optional web delivery composition + WSGI smoke route)
+2. decide the next bounded analyst workflow slice that should consume the existing extraction, normalization, credibility, verification, review, and report seams
+3. keep `.env` loading and provider-specific bootstrap outside repo scope unless a later explicit configuration slice changes that boundary
 
 ## Later at execution start
 When implementation is explicitly approved, create a new implementation-ready plan that includes:

@@ -11,12 +11,16 @@ from sourcetrace.application import (
     CredibilityAssessmentOutcome,
     CredibilityAssessmentRequest,
     CredibilityAssessor,
+    build_llm_credibility_assessor,
 )
 from sourcetrace.application.credibility import (
     CredibilityAssessmentOutcome as ModuleCredibilityAssessmentOutcome,
 )
 from sourcetrace.application.credibility import (
     CredibilityAssessmentRequest as ModuleCredibilityAssessmentRequest,
+)
+from sourcetrace.application.credibility_runtime import (
+    build_llm_credibility_assessor as RuntimeBuildLlmCredibilityAssessor,
 )
 from sourcetrace.application.interfaces import (
     CredibilityAssessmentExecution as InterfacesCredibilityAssessmentExecution,
@@ -35,6 +39,7 @@ def test_application_package_re_exports_credibility_assessment_contracts() -> No
     assert CredibilityAssessmentOutcome is ModuleCredibilityAssessmentOutcome
     assert CredibilityAssessor is InterfacesCredibilityAssessor
     assert CredibilityAssessmentExecution is InterfacesCredibilityAssessmentExecution
+    assert build_llm_credibility_assessor is RuntimeBuildLlmCredibilityAssessor
 
 
 def test_credibility_assessment_execution_bundle_keeps_explicit_callable_dependency() -> None:
@@ -124,6 +129,59 @@ def test_credibility_assessment_contracts_are_immutable() -> None:
 
     with pytest.raises(FrozenInstanceError):
         setattr(request, "assessment_method", "other")
+
+
+def test_build_llm_credibility_assessor_maps_draft_gateway_to_application_outcome() -> None:
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher="Example News",
+        author="Analyst",
+        title="Network report",
+        published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+    prompts: list[str] = []
+
+    def draft_credibility(prompt: str) -> LlmGenerationResult:
+        prompts.append(prompt)
+        return LlmGenerationResult(
+            text="Corroborated by two independent reports.",
+            model="gpt-4.1-mini",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+    request = CredibilityAssessmentRequest(
+        document=document,
+        assessment_method="llm_draft_v1",
+    )
+
+    outcome = assessor(request)
+
+    assert outcome.request is request
+    assert outcome.assessment.assessment_id == "credibility-doc-1"
+    assert outcome.assessment.document_id == "doc-1"
+    assert outcome.assessment.source_reliability is CredibilityBand.UNKNOWN
+    assert outcome.assessment.information_credibility is CredibilityBand.UNKNOWN
+    assert outcome.assessment.source_reliability_factors == ()
+    assert outcome.assessment.information_credibility_factors == ()
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.UNKNOWN
+    assert outcome.assessment.method == "llm_draft_v1"
+    assert outcome.assessment.notes == "Corroborated by two independent reports."
+    assert outcome.assessment.assessed_by == "system"
+    assert outcome.assessment.assessed_at == datetime(2026, 5, 18, 0, 10, tzinfo=UTC)
+    assert outcome.assessment.override is False
+    assert "doc-1" in prompts[0]
+    assert "Network report" in prompts[0]
+    assert "https://example.test/report" in prompts[0]
 
 
 

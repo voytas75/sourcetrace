@@ -55,6 +55,9 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - The LiteLLM adapter boundary now also owns the first real provider-bootstrap wiring helpers: `build_litellm_completion_caller(...)`, `build_litellm_text_generator(...)`, and `build_litellm_structured_generator(...)` inject resolved `api_key` / `base_url` values only at the adapter edge, keeping request models and application seams provider-neutral.
 - The same LLM layer now also owns a small assembly entrypoint: `build_llm_runtime(...)` composes config, process-env bootstrap resolution, structured-generation wiring, and the first claim-extraction gateway into one local runtime bundle without adding `.env` loading or provider details to higher layers.
 - That runtime assembly now uses the public `build_claim_extraction_gateway(...)` factory instead of composing against a private extraction symbol directly, keeping the local composition boundary explicit while preserving behavior.
+- That same runtime assembly now exposes text-generation-backed `credibility_draft` and `claim_normalization` gateways for their existing task aliases through the same provider-neutral text path.
+- The application layer now exposes `build_llm_credibility_assessor(...)`, a public helper that binds `credibility_draft` into the existing credibility assessment request/outcome contract while treating generated text as advisory notes, not as a hard credibility score.
+- The local web delivery path can optionally compose that helper through `create_default_delivery(..., credibility_draft=...)` and expose it through `POST /api/documents/{document_id}/credibility`; this is still WSGI/in-memory smoke wiring, not provider bootstrap or `.env` loading.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.
@@ -154,6 +157,7 @@ Confirmed now:
 - local setup is now also standardized through a minimal `pyproject.toml` and `uv` workflow: `uv sync --dev`, `uv run pytest -q`, `uv run python -m sourcetrace.web`
 - local verification after the bounded LLM.x layer + extraction integration rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`
 - local verification after storage-backed extraction persistence on the LLM application path: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
+- local verification after the credibility runtime launch path: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `190 passed`
 
 Recommended target stack for the next architectural phase:
 - Python backend with FastAPI + Pydantic v2 + SQLAlchemy/Alembic
@@ -168,8 +172,5 @@ Recommended target stack for the next architectural phase:
 Next recommended step:
 - keep `.env` loading outside the repo unless a later slice explicitly changes that boundary; SourceTrace now only declares external env names via `LlmBootstrapConfig`
 - keep LiteLLM hidden behind the local boundary and avoid leaking provider details upward while broadening integration
-- the next bounded runtime broadening step after claim extraction can stay inside the same boundary by wiring additional task gateways such as `credibility_draft` through the existing text-generation adapter path before deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
-- once exposed in the runtime bundle, `credibility_draft` can be consumed from the existing application credibility seam as a bounded note-drafting dependency without changing the higher-level credibility contract
-- the same pattern also works for `claim_normalization`, so the boundary can keep broadening task-by-task without leaking provider details upward
-- once exposed in the runtime bundle, `claim_normalization` can be consumed at the application extraction seam as an optional post-processing step on extracted claim text without changing the higher-level extraction contract
+- the credibility and normalization task gateways are now wired through bounded application/runtime seams; the next slice should build on those seams only where a concrete analyst workflow needs it
 - do not jump into broad platformization before those boundaries stay explicit in both code and docs

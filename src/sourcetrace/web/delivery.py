@@ -1,12 +1,19 @@
 """Thin analyst-facing delivery service over the runtime path."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sourcetrace.application import (
+    CredibilityAssessmentExecution,
+    CredibilityAssessmentOutcome,
+    CredibilityAssessmentRequest,
     ClaimVerificationExecution,
     ReportAssemblyExecution,
     ReportAssemblyOutcome,
     ReportAssemblyRequest,
+    build_llm_credibility_assessor,
 )
 from sourcetrace.domain import (
     CaseReport,
@@ -15,6 +22,7 @@ from sourcetrace.domain import (
     ClaimReportEntry,
     ClaimReviewDecision,
     ClaimVerification,
+    DocumentCredibilityAssessment,
 )
 from sourcetrace.domain.types import (
     AnalystDisposition,
@@ -31,6 +39,9 @@ from sourcetrace.pipeline import (
 )
 from sourcetrace.storage import create_in_memory_persistence
 from sourcetrace.storage.interfaces import CorePersistence
+
+if TYPE_CHECKING:
+    from sourcetrace.llm.interfaces import CredibilityDraftGateway
 
 
 @dataclass(frozen=True)
@@ -66,6 +77,7 @@ class SourceTraceDelivery:
     persistence: CorePersistence
     verification_runtime: ClaimVerificationRuntime
     report_assembly: ReportAssemblyExecution
+    credibility_assessment: CredibilityAssessmentExecution | None = None
 
     def verify_claim(
         self,
@@ -133,6 +145,24 @@ class SourceTraceDelivery:
             )
         )
 
+    def assess_document_credibility(
+        self,
+        document_id: str,
+        *,
+        assessment_method: str | None = None,
+    ) -> CredibilityAssessmentOutcome | None:
+        """Run the configured credibility assessment path for one stored document."""
+
+        document = self.persistence.documents.get_document(document_id)
+        if document is None or self.credibility_assessment is None:
+            return None
+        return self.credibility_assessment.assess_credibility(
+            CredibilityAssessmentRequest(
+                document=document,
+                assessment_method=assessment_method,
+            )
+        )
+
 
 @dataclass(frozen=True)
 class PersistenceReportAssembler:
@@ -192,6 +222,8 @@ class PersistenceReportAssembler:
 
 def create_default_delivery(
     persistence: CorePersistence | None = None,
+    credibility_draft: "CredibilityDraftGateway | None" = None,
+    credibility_assessed_at: Callable[[], datetime] | None = None,
 ) -> SourceTraceDelivery:
     """Create the default in-memory analyst delivery surface."""
 
@@ -208,10 +240,15 @@ def create_default_delivery(
     report_assembly = ReportAssemblyExecution(
         assemble_report=PersistenceReportAssembler(persistence=persistence)
     )
+    credibility_assessment = _build_credibility_assessment_execution(
+        credibility_draft=credibility_draft,
+        credibility_assessed_at=credibility_assessed_at,
+    )
     return SourceTraceDelivery(
         persistence=persistence,
         verification_runtime=verification_runtime,
         report_assembly=report_assembly,
+        credibility_assessment=credibility_assessment,
     )
 
 
@@ -289,6 +326,29 @@ def report_outcome_to_payload(outcome: ReportAssemblyOutcome) -> dict[str, objec
             "report_summary": outcome.case_report.report_summary,
             "entries": [report_entry_to_payload(entry) for entry in outcome.entries],
         }
+    }
+
+
+def document_credibility_assessment_to_payload(
+    assessment: DocumentCredibilityAssessment,
+) -> dict[str, object]:
+    """Serialize a document credibility assessment for JSON responses."""
+
+    return {
+        "assessment_id": assessment.assessment_id,
+        "document_id": assessment.document_id,
+        "source_reliability": assessment.source_reliability.value,
+        "information_credibility": assessment.information_credibility.value,
+        "source_reliability_factors": list(assessment.source_reliability_factors),
+        "information_credibility_factors": list(
+            assessment.information_credibility_factors
+        ),
+        "provenance_distance": assessment.provenance_distance.value,
+        "method": assessment.method,
+        "notes": assessment.notes,
+        "assessed_by": assessment.assessed_by,
+        "assessed_at": assessment.assessed_at.isoformat(),
+        "override": assessment.override,
     }
 
 
@@ -471,6 +531,21 @@ def _review_decisions_for_case(
             )
         decisions.append(decision)
     return tuple(decisions)
+
+
+def _build_credibility_assessment_execution(
+    *,
+    credibility_draft: "CredibilityDraftGateway | None",
+    credibility_assessed_at: Callable[[], datetime] | None,
+) -> CredibilityAssessmentExecution | None:
+    if credibility_draft is None:
+        return None
+    return CredibilityAssessmentExecution(
+        assess_credibility=build_llm_credibility_assessor(
+            draft_credibility=credibility_draft,
+            assessed_at=credibility_assessed_at,
+        )
+    )
 
 
 def _get_verification(

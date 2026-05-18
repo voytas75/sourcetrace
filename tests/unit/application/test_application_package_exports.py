@@ -4,6 +4,7 @@ from sourcetrace.application import (
     ClaimExtractionOutcome,
     ClaimExtractionRequest,
     build_llm_claim_extractor,
+    build_llm_credibility_assessor,
     ClaimReviewOutcome,
     ClaimReviewRequest,
     ClaimVerificationOutcome,
@@ -34,6 +35,9 @@ from sourcetrace.application.credibility import (
 )
 from sourcetrace.application.credibility import (
     CredibilityAssessmentRequest as CredibilityCredibilityAssessmentRequest,
+)
+from sourcetrace.application.credibility_runtime import (
+    build_llm_credibility_assessor as RuntimeBuildLlmCredibilityAssessor,
 )
 from sourcetrace.application.documents import (
     DocumentPreparationOutcome as DocumentsDocumentPreparationOutcome,
@@ -100,3 +104,4 @@ def test_application_package_re_exports_report_assembly_contracts() -> None:
 def test_application_package_re_exports_credibility_assessment_contracts() -> None:
     assert CredibilityAssessmentRequest is CredibilityCredibilityAssessmentRequest
     assert CredibilityAssessmentOutcome is CredibilityCredibilityAssessmentOutcome
+    assert build_llm_credibility_assessor is RuntimeBuildLlmCredibilityAssessor

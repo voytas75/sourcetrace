@@ -1,16 +1,18 @@
 import json
 from dataclasses import FrozenInstanceError
+from datetime import UTC, datetime
 from io import BytesIO
 from wsgiref.util import setup_testing_defaults
 
 import pytest
 
-from sourcetrace.domain import Claim, ClaimReviewDecision, DocumentChunk
+from sourcetrace.domain import Claim, ClaimReviewDecision, Document, DocumentChunk
 from sourcetrace.domain.types import (
     AnalystDisposition,
     HumanReviewStatus,
     VerificationVerdict,
 )
+from sourcetrace.llm.models import LlmGenerationResult
 from sourcetrace.storage import create_in_memory_persistence
 from sourcetrace.web import (
     PersistenceReportAssembler,
@@ -248,6 +250,51 @@ def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
     assert "The bridge reopened after inspection." in case_body
 
 
+def test_wsgi_app_exposes_configured_credibility_assessment_route() -> None:
+    persistence = create_in_memory_persistence()
+    persistence.documents.save_document(_document())
+    prompts: list[str] = []
+
+    def draft_credibility(prompt: str) -> LlmGenerationResult:
+        prompts.append(prompt)
+        return LlmGenerationResult(
+            text="Credibility draft reached the web path.",
+            model="gpt-4.1-mini",
+        )
+
+    delivery = create_default_delivery(
+        persistence=persistence,
+        credibility_draft=draft_credibility,
+        credibility_assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+    app = create_wsgi_app(delivery=delivery)
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/doc-1/credibility",
+        payload={"assessment_method": "llm_draft_v1"},
+    )
+
+    payload = json.loads(body)
+    assert status == "200 OK"
+    assert payload["credibility_assessment"] == {
+        "assessment_id": "credibility-doc-1",
+        "document_id": "doc-1",
+        "source_reliability": "unknown",
+        "information_credibility": "unknown",
+        "source_reliability_factors": [],
+        "information_credibility_factors": [],
+        "provenance_distance": "unknown",
+        "method": "llm_draft_v1",
+        "notes": "Credibility draft reached the web path.",
+        "assessed_by": "system",
+        "assessed_at": "2026-05-18T00:10:00+00:00",
+        "override": False,
+    }
+    assert "doc-1" in prompts[0]
+
+
 def test_wsgi_app_returns_status_payloads_for_missing_or_invalid_resources() -> None:
     app = create_wsgi_app(delivery=_seeded_delivery())
 
@@ -304,6 +351,22 @@ def _seeded_delivery() -> SourceTraceDelivery:
         )
     )
     return create_default_delivery(persistence=persistence)
+
+
+def _document() -> Document:
+    return Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher="Example News",
+        author="Analyst",
+        title="Network report",
+        published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
 
 
 def _claim() -> Claim:

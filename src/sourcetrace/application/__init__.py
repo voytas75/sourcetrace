@@ -10,6 +10,7 @@ from sourcetrace.application.credibility import (
     CredibilityAssessmentOutcome,
     CredibilityAssessmentRequest,
 )
+from sourcetrace.application.credibility_runtime import build_llm_credibility_assessor
 from sourcetrace.application.documents import (
     DocumentPreparationOutcome,
     DocumentPreparationRequest,
@@ -73,6 +74,7 @@ __all__ = [
     "CredibilityAssessmentOutcome",
     "CredibilityAssessmentRequest",
     "CredibilityAssessor",
+    "build_llm_credibility_assessor",
     "DocumentPreparationOutcome",
     "DocumentPreparationRequest",
     "DocumentPreparationExecution",

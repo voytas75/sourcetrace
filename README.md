@@ -39,9 +39,12 @@ Confirmed now:
 - that same runtime assembly now depends only on the public `build_claim_extraction_gateway(...)` factory rather than reaching into a private extraction symbol, keeping the composition boundary explicit without changing behavior or widening surfaces
 - that same runtime assembly now also exposes a text-generation-backed `credibility_draft` gateway for the existing `credibility_draft` task alias, still resolving bootstrap from process env only and still keeping provider details hidden behind the local LiteLLM adapter boundary
 - that `credibility_draft` gateway is now also consumable from the existing application credibility seam, so an assessment callable can draft advisory notes without changing the request/outcome contract or leaking provider details upward
+- the application layer now exposes `build_llm_credibility_assessor(...)`, a public helper that binds the `credibility_draft` gateway into `CredibilityAssessmentOutcome` while keeping generated text in advisory notes and leaving credibility bands/provenance at `unknown`
 - that same runtime assembly now also exposes a text-generation-backed `claim_normalization` gateway for the existing `claim_normalization` task alias, using the same env-resolved edge injection path and keeping provider details out of higher layers
 - the application extraction runtime can now optionally consume that `claim_normalization` gateway to normalize extracted `exact_text` before claim records are materialized, while preserving the previous fallback behavior when no normalizer is wired
 - a minimal local front door now exists for the delivery surface: `python -m sourcetrace.web` (and installed console script `sourcetrace-web`) starts a pure-stdlib WSGI server against the in-memory delivery/runtime path for thin local end-to-end smoke runs
+- the local web delivery path can now optionally compose that credibility helper through `create_default_delivery(..., credibility_draft=...)` and expose it via `POST /api/documents/{document_id}/credibility` for WSGI smoke coverage, without adding `.env` loading or provider fields to web requests
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `190 passed`
 - the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
 
 ## Repository map
@@ -123,6 +126,6 @@ Notes:
   - Expected: `400 Bad Request` with `status: invalid_request`
 
 ## Near-term focus
-- keep repo-facing docs aligned with the delivered post-LLM.x baseline
-- decide the next bounded integration slice for the LLM-backed path after the runtime composition cleanup: whether to broaden the assembled runtime to additional task gateways without widening request/application surfaces or pulling `.env` loading into the repo
+- keep repo-facing docs aligned with the delivered credibility runtime launch path
+- decide the next bounded integration slice after credibility helper + WSGI consumption, without widening request/application surfaces or pulling `.env` loading into the repo
 - keep the MVP architecture small, auditable, and implementation-light until heavier runtime choices are explicit

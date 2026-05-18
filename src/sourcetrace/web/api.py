@@ -12,6 +12,7 @@ from sourcetrace.web.delivery import (
     VerificationDeliveryRequest,
     claim_from_payload,
     create_default_delivery,
+    document_credibility_assessment_to_payload,
     render_case_review_html,
     render_report_markdown,
     report_outcome_to_payload,
@@ -71,6 +72,8 @@ class SourceTraceWSGIApp:
             return self._inspect_claim(path, start_response)
         if method == "POST" and path == "/api/reviews":
             return self._record_review(environ, start_response)
+        if method == "POST" and path.startswith("/api/documents/"):
+            return self._assess_document_credibility(path, environ, start_response)
         if method == "GET" and path.startswith("/api/reports/"):
             return self._render_report(path, start_response)
         if method == "GET" and path.startswith("/cases/"):
@@ -161,6 +164,42 @@ class SourceTraceWSGIApp:
                     ),
                     "review_notes": review_decision.review_notes,
                 }
+            },
+        )
+
+    def _assess_document_credibility(
+        self,
+        path: str,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        document_id = path.removeprefix("/api/documents/").removesuffix(
+            "/credibility"
+        )
+        if not path.endswith("/credibility") or not document_id:
+            return _json_response(
+                start_response,
+                "404 Not Found",
+                {"error": "not_found"},
+            )
+        payload = _read_json(environ)
+        outcome = self.delivery.assess_document_credibility(
+            document_id,
+            assessment_method=_optional_str(payload.get("assessment_method")),
+        )
+        if outcome is None:
+            return _json_response(
+                start_response,
+                "404 Not Found",
+                {"error": "credibility_assessment_not_found", "status": "missing"},
+            )
+        return _json_response(
+            start_response,
+            "200 OK",
+            {
+                "credibility_assessment": document_credibility_assessment_to_payload(
+                    outcome.assessment
+                )
             },
         )
 
