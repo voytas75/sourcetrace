@@ -8,11 +8,18 @@ from sourcetrace.domain.types import VerificationVerdict
 
 if TYPE_CHECKING:
     from sourcetrace.llm.interfaces import ClaimExtractionGateway
+    from sourcetrace.storage.interfaces import ClaimRepository
 
 
 class _LlmClaimExtractor:
-    def __init__(self, *, extract_claims: "ClaimExtractionGateway") -> None:
+    def __init__(
+        self,
+        *,
+        extract_claims: "ClaimExtractionGateway",
+        claim_repository: "ClaimRepository | None" = None,
+    ) -> None:
         self._extract_claims = extract_claims
+        self._claim_repository = claim_repository
 
     def __call__(
         self,
@@ -44,6 +51,8 @@ class _LlmClaimExtractor:
             )
             for index, item in enumerate(result.payload.get("claims", ()))
         )
+        if self._claim_repository is not None:
+            claims = self._claim_repository.save_claims(claims)
         return ClaimExtractionOutcome(
             request=request,
             document=document,
@@ -78,10 +87,17 @@ def _span_reference_for(
     return "chunk-span:unknown"
 
 
-def build_llm_claim_extractor(*, extract_claims: "ClaimExtractionGateway") -> _LlmClaimExtractor:
+def build_llm_claim_extractor(
+    *,
+    extract_claims: "ClaimExtractionGateway",
+    claim_repository: "ClaimRepository | None" = None,
+) -> _LlmClaimExtractor:
     """Bind the LLM claim extraction gateway into the application extraction shape."""
 
-    return _LlmClaimExtractor(extract_claims=extract_claims)
+    return _LlmClaimExtractor(
+        extract_claims=extract_claims,
+        claim_repository=claim_repository,
+    )
 
 
 __all__ = ["build_llm_claim_extractor"]

@@ -36,6 +36,7 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - Application contract layer is now present for case intake, document preparation, claim extraction, claim verification, human review, report assembly, and credibility assessment.
 - A bounded LLM integration layer is now present under `src/sourcetrace/llm/` with SourceTrace-owned models, config, normalized errors, structured-generation seams, and a first claim-extraction gateway.
 - The application layer now includes an LLM-backed claim extraction runtime seam for mapping structured extraction payloads into application claim outcomes.
+- That extraction runtime now supports optional persistence of extracted claims through the existing `ClaimRepository` boundary, keeping storage wiring explicit and provider-free.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.
@@ -132,6 +133,7 @@ Confirmed now:
 - that delivery surface now exposes evidence summary fields, explicit missing/invalid status payloads, and a thin-path end-to-end test pack over the in-memory flow
 - local verification after the 10.x rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`
 - local verification after the bounded LLM.x layer + extraction integration rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`
+- local verification after storage-backed extraction persistence on the LLM application path: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
 
 Recommended target stack for the next architectural phase:
 - Python backend with FastAPI + Pydantic v2 + SQLAlchemy/Alembic
@@ -144,7 +146,7 @@ Recommended target stack for the next architectural phase:
 - LLM usage focused on extraction, normalization, and drafting; final verification remains grounded in retrieval evidence, NLI/rules, and human review
 
 Next recommended step:
-- sync repo-facing docs to the bounded LLM.x baseline so the current architecture truthfully includes the new `llm/` layer and extraction runtime seam
-- only then decide whether the next slice is deeper runtime orchestration, storage-backed extraction persistence, or web/API integration for the LLM-backed path
+- sync repo-facing docs to the post-persistence baseline so the current architecture truthfully includes the optional `ClaimRepository` write-through on the LLM extraction runtime seam
+- only then decide whether the next slice is deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
 - keep LiteLLM hidden behind the local boundary and avoid leaking provider details upward while broadening integration
 - do not jump into broad platformization before those boundaries stay explicit in both code and docs

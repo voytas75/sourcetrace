@@ -29,12 +29,14 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - Application-side execution seam coverage is in place for those same use-case areas via `application.interfaces`.
 - A bounded LLM integration layer is now in place under `src/sourcetrace/llm/`, keeping models, config, normalized errors, LiteLLM-style adapters, and task gateways behind SourceTrace-owned boundaries.
 - The application layer now includes an explicit LLM-backed extraction runtime seam that maps structured extraction payloads into `ClaimExtractionOutcome`.
+- That LLM-backed extraction runtime now optionally persists extracted claims through `ClaimRepository`, keeping the write path inside existing storage seams rather than creating a provider-specific shortcut.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
 - That delivery surface now carries explicit inspection evidence summaries, explicit missing/invalid status payloads, and thin-path end-to-end regression coverage.
 - Local baseline after the 10.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`.
 - Local baseline after the bounded LLM.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`.
+- Local baseline after storage-backed extraction persistence on the LLM application path is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.
@@ -206,10 +208,10 @@ Status now:
 - a first bounded delivery surface is in place
 
 Remaining outputs:
-- synced repo-facing docs that describe the delivered post-LLM.x baseline truthfully
+- synced repo-facing docs that describe the delivered post-persistence baseline truthfully
 - candidate stack freeze for iteration 1 beyond the in-memory baseline
 - explicit MVP review workflow hardening
-- bounded follow-up plan for deeper LLM-backed orchestration, extraction persistence, and analyst path integration
+- bounded follow-up plan for deeper LLM-backed orchestration, richer claim/evidence persistence, and analyst path integration
 
 ### Phase C — bounded MVP implementation
 Status now:
