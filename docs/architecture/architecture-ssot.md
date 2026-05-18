@@ -41,6 +41,7 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - Those initial extraction-side evidence links now stay semantically provisional: they use `INSUFFICIENT_EVIDENCE` rather than implying support, and their rationale text points back to the extracted span reference for later analyst/verification review.
 - When the LLM extraction payload includes nested evidence metadata for a claim, the same runtime now maps that snippet/rationale/score into the initial `ClaimEvidenceLink` instead of discarding it, while still keeping the link provisional until a later verification pass.
 - If the payload carries multiple evidence items for one claim, the runtime now emits multiple provisional `ClaimEvidenceLink` records instead of collapsing them into one; ranking follows payload order and each item can override `chunk_id` plus its own snippet/rationale/score.
+- That same extraction-side evidence mapping is now defensive against noisy payload lists: invalid entries are dropped before link creation, accepted entries are re-ranked densely, and the runtime only falls back to one provisional link when no valid evidence payload survives normalization.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.

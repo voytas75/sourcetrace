@@ -145,9 +145,22 @@ def _evidence_items_for(item: dict[str, object]) -> tuple[dict[str, object], ...
     evidence = item.get("evidence")
     if isinstance(evidence, dict):
         return (evidence,)
-    if isinstance(evidence, list):
-        return tuple(entry for entry in evidence if isinstance(entry, dict))
-    return ()
+    if not isinstance(evidence, list):
+        return ()
+    return tuple(entry for entry in evidence if _is_valid_evidence_payload(entry))
+
+
+def _is_valid_evidence_payload(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    return any(
+        isinstance(value, str) and bool(value)
+        for value in (
+            entry.get("chunk_id"),
+            entry.get("snippet"),
+            entry.get("rationale"),
+        )
+    ) or isinstance(entry.get("score"), int | float)
 
 
 def _evidence_chunk_id(
