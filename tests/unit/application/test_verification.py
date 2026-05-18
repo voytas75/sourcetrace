@@ -4,12 +4,23 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from sourcetrace.application import ClaimVerificationOutcome, ClaimVerificationRequest
+from sourcetrace.application import (
+    ClaimVerificationExecution,
+    ClaimVerificationOutcome,
+    ClaimVerificationRequest,
+    ClaimVerifier,
+)
 from sourcetrace.application.verification import (
     ClaimVerificationOutcome as ModuleClaimVerificationOutcome,
 )
 from sourcetrace.application.verification import (
     ClaimVerificationRequest as ModuleClaimVerificationRequest,
+)
+from sourcetrace.application.interfaces import (
+    ClaimVerificationExecution as InterfacesClaimVerificationExecution,
+)
+from sourcetrace.application.interfaces import (
+    ClaimVerifier as InterfacesClaimVerifier,
 )
 from sourcetrace.domain import Claim, ClaimVerification, RetrievalHit, RetrievalQuery, RetrievalResultSet
 from sourcetrace.domain.types import VerificationVerdict
@@ -18,6 +29,25 @@ from sourcetrace.domain.types import VerificationVerdict
 def test_application_package_re_exports_verification_contracts() -> None:
     assert ClaimVerificationRequest is ModuleClaimVerificationRequest
     assert ClaimVerificationOutcome is ModuleClaimVerificationOutcome
+    assert ClaimVerifier is InterfacesClaimVerifier
+    assert ClaimVerificationExecution is InterfacesClaimVerificationExecution
+
+
+def test_claim_verification_execution_bundle_keeps_explicit_callable_dependency() -> None:
+    def verify_claim(request: ClaimVerificationRequest) -> ClaimVerificationOutcome:
+        verification = ClaimVerification(
+            claim_id=request.claim.claim_id,
+            case_id=request.claim.case_id,
+            verdict=VerificationVerdict.SUPPORT,
+            supporting_chunk_ids=tuple(hit.chunk_id for hit in request.retrieved_evidence.hits),
+            contradicting_chunk_ids=(),
+            analyst_notes="system-supported",
+        )
+        return ClaimVerificationOutcome(request=request, verification=verification)
+
+    execution = ClaimVerificationExecution(verify_claim=verify_claim)
+
+    assert execution.verify_claim is verify_claim
 
 
 def test_claim_verification_request_keeps_claim_and_retrieval_context() -> None:

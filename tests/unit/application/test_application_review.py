@@ -4,9 +4,20 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from sourcetrace.application import ClaimReviewOutcome, ClaimReviewRequest
+from sourcetrace.application import (
+    ClaimReviewExecution,
+    ClaimReviewOutcome,
+    ClaimReviewRequest,
+    ClaimReviewer,
+)
 from sourcetrace.application.review import ClaimReviewOutcome as ModuleClaimReviewOutcome
 from sourcetrace.application.review import ClaimReviewRequest as ModuleClaimReviewRequest
+from sourcetrace.application.interfaces import (
+    ClaimReviewExecution as InterfacesClaimReviewExecution,
+)
+from sourcetrace.application.interfaces import (
+    ClaimReviewer as InterfacesClaimReviewer,
+)
 from sourcetrace.domain import ClaimReviewDecision, ClaimVerification
 from sourcetrace.domain.types import AnalystDisposition, HumanReviewStatus, VerificationVerdict
 
@@ -14,6 +25,25 @@ from sourcetrace.domain.types import AnalystDisposition, HumanReviewStatus, Veri
 def test_application_package_re_exports_human_review_contracts() -> None:
     assert ClaimReviewRequest is ModuleClaimReviewRequest
     assert ClaimReviewOutcome is ModuleClaimReviewOutcome
+    assert ClaimReviewer is InterfacesClaimReviewer
+    assert ClaimReviewExecution is InterfacesClaimReviewExecution
+
+
+def test_claim_review_execution_bundle_keeps_explicit_callable_dependency() -> None:
+    def review_claim(request: ClaimReviewRequest) -> ClaimReviewOutcome:
+        review_decision = ClaimReviewDecision(
+            claim_id=request.verification.claim_id,
+            case_id=request.verification.case_id,
+            human_review_status=HumanReviewStatus.REVIEWED_ACCEPT,
+            analyst_disposition=AnalystDisposition.CONFIRMED_SUPPORT,
+            final_verdict=request.verification.verdict,
+            review_notes="Analyst confirmed support",
+        )
+        return ClaimReviewOutcome(request=request, review_decision=review_decision)
+
+    execution = ClaimReviewExecution(review_claim=review_claim)
+
+    assert execution.review_claim is review_claim
 
 
 def test_claim_review_request_and_outcome_keep_verification_and_decision() -> None:

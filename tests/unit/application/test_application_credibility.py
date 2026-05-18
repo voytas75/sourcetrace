@@ -6,14 +6,22 @@ from datetime import UTC, datetime
 import pytest
 
 from sourcetrace.application import (
+    CredibilityAssessmentExecution,
     CredibilityAssessmentOutcome,
     CredibilityAssessmentRequest,
+    CredibilityAssessor,
 )
 from sourcetrace.application.credibility import (
     CredibilityAssessmentOutcome as ModuleCredibilityAssessmentOutcome,
 )
 from sourcetrace.application.credibility import (
     CredibilityAssessmentRequest as ModuleCredibilityAssessmentRequest,
+)
+from sourcetrace.application.interfaces import (
+    CredibilityAssessmentExecution as InterfacesCredibilityAssessmentExecution,
+)
+from sourcetrace.application.interfaces import (
+    CredibilityAssessor as InterfacesCredibilityAssessor,
 )
 from sourcetrace.domain import Document, DocumentCredibilityAssessment
 from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance
@@ -22,6 +30,33 @@ from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance
 def test_application_package_re_exports_credibility_assessment_contracts() -> None:
     assert CredibilityAssessmentRequest is ModuleCredibilityAssessmentRequest
     assert CredibilityAssessmentOutcome is ModuleCredibilityAssessmentOutcome
+    assert CredibilityAssessor is InterfacesCredibilityAssessor
+    assert CredibilityAssessmentExecution is InterfacesCredibilityAssessmentExecution
+
+
+def test_credibility_assessment_execution_bundle_keeps_explicit_callable_dependency() -> None:
+    def assess_credibility(
+        request: CredibilityAssessmentRequest,
+    ) -> CredibilityAssessmentOutcome:
+        assessment = DocumentCredibilityAssessment(
+            assessment_id="cred-1",
+            document_id=request.document.document_id,
+            source_reliability=CredibilityBand.HIGH,
+            information_credibility=CredibilityBand.MEDIUM,
+            source_reliability_factors=("publisher_history",),
+            information_credibility_factors=("partial_corroboration",),
+            provenance_distance=ProvenanceDistance.PRIMARY,
+            method=request.assessment_method or "rule_based_v1",
+            notes="Needs analyst review before reporting.",
+            assessed_by="system",
+            assessed_at=datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+            override=False,
+        )
+        return CredibilityAssessmentOutcome(request=request, assessment=assessment)
+
+    execution = CredibilityAssessmentExecution(assess_credibility=assess_credibility)
+
+    assert execution.assess_credibility is assess_credibility
 
 
 def test_credibility_assessment_request_and_outcome_keep_document_and_assessment() -> None:

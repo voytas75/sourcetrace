@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 import pytest
 
 from sourcetrace.application import (
+    DocumentPreparationExecution,
     DocumentPreparationOutcome,
     DocumentPreparationRequest,
+    DocumentPreparer,
 )
 from sourcetrace.application.documents import (
     DocumentPreparationOutcome as ModuleDocumentPreparationOutcome,
@@ -15,12 +17,59 @@ from sourcetrace.application.documents import (
 from sourcetrace.application.documents import (
     DocumentPreparationRequest as ModuleDocumentPreparationRequest,
 )
+from sourcetrace.application.interfaces import (
+    DocumentPreparationExecution as InterfacesDocumentPreparationExecution,
+)
+from sourcetrace.application.interfaces import (
+    DocumentPreparer as InterfacesDocumentPreparer,
+)
 from sourcetrace.domain import Document, DocumentChunk
 
 
 def test_application_package_re_exports_document_preparation_contracts() -> None:
     assert DocumentPreparationRequest is ModuleDocumentPreparationRequest
     assert DocumentPreparationOutcome is ModuleDocumentPreparationOutcome
+    assert DocumentPreparer is InterfacesDocumentPreparer
+    assert DocumentPreparationExecution is InterfacesDocumentPreparationExecution
+
+
+def test_document_preparation_execution_bundle_keeps_explicit_callable_dependency() -> None:
+    def prepare_document(
+        request: DocumentPreparationRequest,
+    ) -> DocumentPreparationOutcome:
+        document = Document(
+            document_id=request.document_id,
+            case_id=request.case_id,
+            source_type="url",
+            source_url="https://example.test/report",
+            publisher=None,
+            author=None,
+            title=None,
+            published_at=None,
+            retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+            content_hash="sha256:test",
+            language=None,
+        )
+        chunks = (
+            DocumentChunk(
+                chunk_id="chunk-1",
+                case_id=request.case_id,
+                document_id=request.document_id,
+                raw_text="Prepared evidence chunk.",
+                start_char=0,
+                end_char=24,
+                chunk_index=0,
+            ),
+        )
+        return DocumentPreparationOutcome(
+            request=request,
+            document=document,
+            chunks=chunks,
+        )
+
+    execution = DocumentPreparationExecution(prepare_document=prepare_document)
+
+    assert execution.prepare_document is prepare_document
 
 
 def test_document_preparation_request_and_outcome_keep_document_and_chunks() -> None:

@@ -1,15 +1,17 @@
-"""Application case intake contract tests."""
-
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 
 import pytest
 
 from sourcetrace.application import (
+    CaseCreationExecution,
     CaseCreationOutcome,
     CaseCreationRequest,
+    CaseCreator,
+    SourceIngestionExecution,
     SourceIngestionOutcome,
     SourceIngestionRequest,
+    SourceIngestor,
 )
 from sourcetrace.application.cases import (
     CaseCreationOutcome as ModuleCaseCreationOutcome,
@@ -23,6 +25,16 @@ from sourcetrace.application.cases import (
 from sourcetrace.application.cases import (
     SourceIngestionRequest as ModuleSourceIngestionRequest,
 )
+from sourcetrace.application.interfaces import (
+    CaseCreationExecution as InterfacesCaseCreationExecution,
+)
+from sourcetrace.application.interfaces import CaseCreator as InterfacesCaseCreator
+from sourcetrace.application.interfaces import (
+    SourceIngestionExecution as InterfacesSourceIngestionExecution,
+)
+from sourcetrace.application.interfaces import (
+    SourceIngestor as InterfacesSourceIngestor,
+)
 from sourcetrace.domain import Case, Document
 
 
@@ -31,6 +43,42 @@ def test_application_package_re_exports_case_intake_contracts() -> None:
     assert CaseCreationOutcome is ModuleCaseCreationOutcome
     assert SourceIngestionRequest is ModuleSourceIngestionRequest
     assert SourceIngestionOutcome is ModuleSourceIngestionOutcome
+    assert CaseCreator is InterfacesCaseCreator
+    assert SourceIngestor is InterfacesSourceIngestor
+    assert CaseCreationExecution is InterfacesCaseCreationExecution
+    assert SourceIngestionExecution is InterfacesSourceIngestionExecution
+
+
+def test_case_intake_execution_bundles_keep_explicit_callable_dependencies() -> None:
+    def create_case(request: CaseCreationRequest) -> CaseCreationOutcome:
+        case = Case(
+            case_id=request.case_id,
+            title=request.title,
+            description=request.description,
+        )
+        return CaseCreationOutcome(request=request, case=case)
+
+    def ingest_source(request: SourceIngestionRequest) -> SourceIngestionOutcome:
+        document = Document(
+            document_id=request.document_id,
+            case_id=request.case_id,
+            source_type=request.source_type,
+            source_url=request.source_locator,
+            publisher=None,
+            author=None,
+            title=None,
+            published_at=None,
+            retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+            content_hash="sha256:test",
+            language=None,
+        )
+        return SourceIngestionOutcome(request=request, document=document)
+
+    execution = CaseCreationExecution(create_case=create_case)
+    ingestion = SourceIngestionExecution(ingest_source=ingest_source)
+
+    assert execution.create_case is create_case
+    assert ingestion.ingest_source is ingest_source
 
 
 def test_case_creation_request_and_outcome_keep_case_context() -> None:

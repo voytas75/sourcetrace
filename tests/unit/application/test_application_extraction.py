@@ -5,12 +5,23 @@ from datetime import UTC, datetime
 
 import pytest
 
-from sourcetrace.application import ClaimExtractionOutcome, ClaimExtractionRequest
+from sourcetrace.application import (
+    ClaimExtractionExecution,
+    ClaimExtractionOutcome,
+    ClaimExtractionRequest,
+    ClaimExtractor,
+)
 from sourcetrace.application.extraction import (
     ClaimExtractionOutcome as ModuleClaimExtractionOutcome,
 )
 from sourcetrace.application.extraction import (
     ClaimExtractionRequest as ModuleClaimExtractionRequest,
+)
+from sourcetrace.application.interfaces import (
+    ClaimExtractionExecution as InterfacesClaimExtractionExecution,
+)
+from sourcetrace.application.interfaces import (
+    ClaimExtractor as InterfacesClaimExtractor,
 )
 from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
@@ -19,6 +30,71 @@ from sourcetrace.domain.types import VerificationVerdict
 def test_application_package_re_exports_claim_extraction_contracts() -> None:
     assert ClaimExtractionRequest is ModuleClaimExtractionRequest
     assert ClaimExtractionOutcome is ModuleClaimExtractionOutcome
+    assert ClaimExtractor is InterfacesClaimExtractor
+    assert ClaimExtractionExecution is InterfacesClaimExtractionExecution
+
+
+def test_claim_extraction_execution_bundle_keeps_explicit_callable_dependency() -> None:
+    def extract_claims(request: ClaimExtractionRequest) -> ClaimExtractionOutcome:
+        document = Document(
+            document_id=request.document_id,
+            case_id=request.case_id,
+            source_type="url",
+            source_url="https://example.test/report",
+            publisher=None,
+            author=None,
+            title=None,
+            published_at=None,
+            retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+            content_hash="sha256:test",
+            language=None,
+        )
+        chunks = (
+            DocumentChunk(
+                chunk_id=request.chunk_ids[0],
+                case_id=request.case_id,
+                document_id=request.document_id,
+                raw_text="Prepared extraction chunk.",
+                start_char=0,
+                end_char=25,
+                chunk_index=0,
+            ),
+        )
+        claims = (
+            Claim(
+                claim_id="claim-1",
+                case_id=request.case_id,
+                document_id=request.document_id,
+                chunk_id=request.chunk_ids[0],
+                exact_text="The network expanded in 2025.",
+                source_span_reference="p1",
+                system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+                rationale=None,
+            ),
+        )
+        evidence_links = (
+            ClaimEvidenceLink(
+                claim_id="claim-1",
+                document_id=request.document_id,
+                chunk_id=request.chunk_ids[0],
+                evidence_rank=1,
+                evidence_verdict=VerificationVerdict.SUPPORT,
+                rationale="Direct source mention",
+                snippet="The network expanded in 2025.",
+                score=0.91,
+            ),
+        )
+        return ClaimExtractionOutcome(
+            request=request,
+            document=document,
+            chunks=chunks,
+            claims=claims,
+            evidence_links=evidence_links,
+        )
+
+    execution = ClaimExtractionExecution(extract_claims=extract_claims)
+
+    assert execution.extract_claims is extract_claims
 
 
 def test_claim_extraction_request_and_outcome_keep_document_chunk_claim_context() -> None:
