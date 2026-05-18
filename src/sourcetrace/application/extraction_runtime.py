@@ -53,7 +53,10 @@ class _LlmClaimExtractor:
         )
         if self._claim_repository is not None:
             claims = self._claim_repository.save_claims(claims)
-        evidence_links = _build_initial_evidence_links(claims)
+        evidence_links = _build_initial_evidence_links(
+            claims=claims,
+            items=tuple(result.payload.get("claims", ())),
+        )
         if self._claim_repository is not None:
             evidence_links = self._claim_repository.save_evidence_links(evidence_links)
         return ClaimExtractionOutcome(
@@ -91,12 +94,22 @@ def _span_reference_for(
 
 
 def _build_initial_evidence_links(
+    *,
     claims: tuple[Claim, ...],
+    items: tuple[dict[str, object], ...],
 ) -> tuple[ClaimEvidenceLink, ...]:
-    return tuple(_build_initial_evidence_link(claim) for claim in claims)
+    return tuple(
+        _build_initial_evidence_link(claim=claim, item=item)
+        for claim, item in zip(claims, items, strict=False)
+    )
 
 
-def _build_initial_evidence_link(claim: Claim) -> ClaimEvidenceLink:
+def _build_initial_evidence_link(
+    *,
+    claim: Claim,
+    item: dict[str, object],
+) -> ClaimEvidenceLink:
+    evidence_payload = _evidence_payload_for(item)
     span_reference = claim.source_span_reference or "chunk-span:unknown"
     return ClaimEvidenceLink(
         claim_id=claim.claim_id,
@@ -104,10 +117,46 @@ def _build_initial_evidence_link(claim: Claim) -> ClaimEvidenceLink:
         chunk_id=claim.chunk_id,
         evidence_rank=1,
         evidence_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
-        rationale=f"Initial extraction link from chunk {span_reference}.",
-        snippet=claim.exact_text or None,
-        score=None,
+        rationale=_evidence_rationale(evidence_payload, span_reference=span_reference),
+        snippet=_evidence_snippet(evidence_payload, claim=claim),
+        score=_evidence_score(evidence_payload),
     )
+
+
+def _evidence_payload_for(item: dict[str, object]) -> dict[str, object]:
+    evidence = item.get("evidence")
+    if isinstance(evidence, dict):
+        return evidence
+    return {}
+
+
+def _evidence_rationale(
+    evidence_payload: dict[str, object],
+    *,
+    span_reference: str,
+) -> str:
+    rationale = evidence_payload.get("rationale")
+    if isinstance(rationale, str) and rationale:
+        return rationale
+    return f"Initial extraction link from chunk {span_reference}."
+
+
+def _evidence_snippet(
+    evidence_payload: dict[str, object],
+    *,
+    claim: Claim,
+) -> str | None:
+    snippet = evidence_payload.get("snippet")
+    if isinstance(snippet, str) and snippet:
+        return snippet
+    return claim.exact_text or None
+
+
+def _evidence_score(evidence_payload: dict[str, object]) -> float | None:
+    score = evidence_payload.get("score")
+    if isinstance(score, int | float):
+        return float(score)
+    return None
 
 
 def build_llm_claim_extractor(

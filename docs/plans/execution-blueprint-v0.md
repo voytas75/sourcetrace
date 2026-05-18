@@ -32,6 +32,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - That LLM-backed extraction runtime now optionally persists extracted claims through `ClaimRepository`, keeping the write path inside existing storage seams rather than creating a provider-specific shortcut.
 - That same LLM-backed extraction runtime now also emits initial `ClaimEvidenceLink` records and optionally persists them through `ClaimRepository`, keeping claim/evidence writes on the same storage seam.
 - Those extraction-side evidence links now keep richer but still provisional semantics: `evidence_verdict` stays at `INSUFFICIENT_EVIDENCE` until later verification, and rationale text is derived from the extracted span reference instead of a fixed generic message.
+- Those same initial links are now also payload-aware: optional nested evidence metadata from the extraction result can populate link snippet/rationale/score fields immediately, without changing the provider-neutral boundary or promoting the link to a verified support signal.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
