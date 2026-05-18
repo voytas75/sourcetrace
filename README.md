@@ -107,6 +107,17 @@ Notes:
    - `curl http://127.0.0.1:8000/api/reports/case-1.md`
    - Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`
 
+## Minimal failure cases
+- Missing verification artifact:
+  - `GET /api/claims/missing-claim/verification`
+  - Expected: `404 Not Found` with `{"error": "verification_not_found", "status": "missing"}`
+- Missing report artifact:
+  - `GET /api/reports/missing-case.json`
+  - Expected: `404 Not Found` with `{"error": "report_not_found", "status": "missing"}`
+- Invalid review request:
+  - `POST /api/reviews` with an incomplete payload
+  - Expected: `400 Bad Request` with `status: invalid_request`
+
 ## Near-term focus
 - keep repo-facing docs aligned with the delivered post-LLM.x baseline
 - decide the next bounded integration slice for the LLM-backed path after the runtime composition cleanup: whether to broaden the assembled runtime to additional task gateways without widening request/application surfaces or pulling `.env` loading into the repo
