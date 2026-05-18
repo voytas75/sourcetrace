@@ -98,24 +98,42 @@ def _build_initial_evidence_links(
     claims: tuple[Claim, ...],
     items: tuple[dict[str, object], ...],
 ) -> tuple[ClaimEvidenceLink, ...]:
+    evidence_links: list[ClaimEvidenceLink] = []
+    for claim, item in zip(claims, items, strict=False):
+        evidence_links.extend(_build_initial_evidence_links_for_claim(claim=claim, item=item))
+    return tuple(evidence_links)
+
+
+def _build_initial_evidence_links_for_claim(
+    *,
+    claim: Claim,
+    item: dict[str, object],
+) -> tuple[ClaimEvidenceLink, ...]:
+    evidence_items = _evidence_items_for(item)
+    if not evidence_items:
+        return (_build_initial_evidence_link(claim=claim, evidence_payload={}, evidence_rank=1),)
     return tuple(
-        _build_initial_evidence_link(claim=claim, item=item)
-        for claim, item in zip(claims, items, strict=False)
+        _build_initial_evidence_link(
+            claim=claim,
+            evidence_payload=evidence_payload,
+            evidence_rank=index,
+        )
+        for index, evidence_payload in enumerate(evidence_items, start=1)
     )
 
 
 def _build_initial_evidence_link(
     *,
     claim: Claim,
-    item: dict[str, object],
+    evidence_payload: dict[str, object],
+    evidence_rank: int,
 ) -> ClaimEvidenceLink:
-    evidence_payload = _evidence_payload_for(item)
     span_reference = claim.source_span_reference or "chunk-span:unknown"
     return ClaimEvidenceLink(
         claim_id=claim.claim_id,
         document_id=claim.document_id,
-        chunk_id=claim.chunk_id,
-        evidence_rank=1,
+        chunk_id=_evidence_chunk_id(evidence_payload, claim=claim),
+        evidence_rank=evidence_rank,
         evidence_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
         rationale=_evidence_rationale(evidence_payload, span_reference=span_reference),
         snippet=_evidence_snippet(evidence_payload, claim=claim),
@@ -123,11 +141,24 @@ def _build_initial_evidence_link(
     )
 
 
-def _evidence_payload_for(item: dict[str, object]) -> dict[str, object]:
+def _evidence_items_for(item: dict[str, object]) -> tuple[dict[str, object], ...]:
     evidence = item.get("evidence")
     if isinstance(evidence, dict):
-        return evidence
-    return {}
+        return (evidence,)
+    if isinstance(evidence, list):
+        return tuple(entry for entry in evidence if isinstance(entry, dict))
+    return ()
+
+
+def _evidence_chunk_id(
+    evidence_payload: dict[str, object],
+    *,
+    claim: Claim,
+) -> str | None:
+    chunk_id = evidence_payload.get("chunk_id")
+    if isinstance(chunk_id, str):
+        return chunk_id
+    return claim.chunk_id
 
 
 def _evidence_rationale(

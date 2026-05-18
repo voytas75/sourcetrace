@@ -24,11 +24,20 @@ def test_build_llm_claim_extractor_maps_gateway_payload_to_application_outcome()
                         "chunk_id": "chunk-1",
                         "exact_text": "The network expanded in 2025.",
                         "source_span_reference": "p1",
-                        "evidence": {
-                            "snippet": "Network expansion noted in the first section.",
-                            "rationale": "LLM linked the claim to the first paragraph.",
-                            "score": 0.82,
-                        },
+                        "evidence": [
+                            {
+                                "chunk_id": "chunk-1",
+                                "snippet": "Network expansion noted in the first section.",
+                                "rationale": "Primary extraction evidence from paragraph one.",
+                                "score": 0.82,
+                            },
+                            {
+                                "chunk_id": "chunk-2",
+                                "snippet": "Regional rollout details appear later in the same report.",
+                                "rationale": "Secondary cross-reference from paragraph two.",
+                                "score": 0.51,
+                            },
+                        ],
                     },
                     {
                         "claim_id": "claim-2",
@@ -102,18 +111,24 @@ def test_build_llm_claim_extractor_maps_gateway_payload_to_application_outcome()
     assert outcome.claims[0].system_verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE
     assert tuple(link.claim_id for link in outcome.evidence_links) == (
         "claim-1",
+        "claim-1",
         "claim-2",
     )
     assert outcome.evidence_links[0].document_id == "doc-1"
     assert outcome.evidence_links[0].chunk_id == "chunk-1"
     assert outcome.evidence_links[0].evidence_rank == 1
     assert outcome.evidence_links[0].evidence_verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE
-    assert outcome.evidence_links[0].rationale == "LLM linked the claim to the first paragraph."
+    assert outcome.evidence_links[0].rationale == "Primary extraction evidence from paragraph one."
     assert outcome.evidence_links[0].snippet == "Network expansion noted in the first section."
     assert outcome.evidence_links[0].score == 0.82
-    assert outcome.evidence_links[1].rationale == "Initial extraction link from chunk p2."
-    assert outcome.evidence_links[1].snippet == "The rollout reached two regions."
-    assert outcome.evidence_links[1].score is None
+    assert outcome.evidence_links[1].chunk_id == "chunk-2"
+    assert outcome.evidence_links[1].evidence_rank == 2
+    assert outcome.evidence_links[1].rationale == "Secondary cross-reference from paragraph two."
+    assert outcome.evidence_links[1].snippet == "Regional rollout details appear later in the same report."
+    assert outcome.evidence_links[1].score == 0.51
+    assert outcome.evidence_links[2].rationale == "Initial extraction link from chunk p2."
+    assert outcome.evidence_links[2].snippet == "The rollout reached two regions."
+    assert outcome.evidence_links[2].score is None
     assert outcome.document is document
     assert outcome.chunks == chunks
 
