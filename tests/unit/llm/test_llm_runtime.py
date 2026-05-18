@@ -22,6 +22,7 @@ from sourcetrace.llm import (
     SourceTraceLlmConfig,
     StructuredLlmGenerationExecution,
     build_claim_extraction_gateway,
+    build_llm_runtime,
     build_structured_generation_execution,
     resolve_llm_bootstrap_config,
 )
@@ -152,6 +153,69 @@ def test_bootstrap_resolver_raises_for_blank_declared_env_var() -> None:
         ):
             resolve_llm_bootstrap_config(bootstrap)
     finally:
+        if original_base_url is None:
+            environ.pop("SOURCETRACE_LLM_BASE_URL", None)
+        else:
+            environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
+
+
+def test_build_llm_runtime_assembles_bootstrap_structured_generation_and_claim_gateway() -> None:
+    config = SourceTraceLlmConfig(
+        bootstrap=LlmBootstrapConfig(
+            api_key_env_var="SOURCETRACE_LLM_API_KEY",
+            base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+        ),
+        tasks={"claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0)},
+    )
+    original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
+    original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+    captured_kwargs: dict[str, object] = {}
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return {
+            "model": kwargs["model"],
+            "choices": [
+                {
+                    "message": {
+                        "parsed": {
+                            "claims": [
+                                {
+                                    "claim_id": "claim-1",
+                                    "chunk_id": "chunk-1",
+                                    "exact_text": "alpha claim",
+                                    "source_span_reference": "chars:0-11",
+                                }
+                            ]
+                        }
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    try:
+        environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
+        environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+
+        runtime = build_llm_runtime(completion_fn=completion_fn, config=config)
+        result = runtime.claim_extraction("alpha claim in source text")
+
+        assert runtime.config is config
+        assert runtime.bootstrap == ResolvedLlmBootstrapConfig(
+            api_key="test-api-key",
+            base_url="https://llm.example.test",
+        )
+        assert captured_kwargs["api_key"] == "test-api-key"
+        assert captured_kwargs["base_url"] == "https://llm.example.test"
+        assert captured_kwargs["model"] == "gpt-4o-mini"
+        assert result.payload["claims"][0]["claim_id"] == "claim-1"
+    finally:
+        if original_api_key is None:
+            environ.pop("SOURCETRACE_LLM_API_KEY", None)
+        else:
+            environ["SOURCETRACE_LLM_API_KEY"] = original_api_key
+
         if original_base_url is None:
             environ.pop("SOURCETRACE_LLM_BASE_URL", None)
         else:

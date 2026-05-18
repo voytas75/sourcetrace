@@ -35,6 +35,7 @@ Confirmed now:
 - a minimal LLM bootstrap contract is now present without breaking provider-neutral seams: `SourceTraceLlmConfig` can declare explicit external env var names through `LlmBootstrapConfig`, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `168 passed`
 - that same LLM boundary now also includes a small process-env bootstrap resolver: `resolve_llm_bootstrap_config(...)` reads only the declared env var names, fails fast on missing/blank values, still does not load `.env`, and keeps provider details outside request/application surfaces, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `173 passed`
 - the same LiteLLM adapter boundary now also wires those resolved bootstrap inputs into provider-facing callables: `build_litellm_completion_caller(...)`, `build_litellm_text_generator(...)`, and `build_litellm_structured_generator(...)` inject `api_key`/`base_url` without widening request or application surfaces, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `176 passed`
+- the LLM layer now also exposes a small runtime assembly entrypoint: `build_llm_runtime(...)` resolves env bootstrap, binds the LiteLLM structured generator, and assembles a claim-extraction-ready runtime bundle without adding `.env` loading or provider leakage to higher layers, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `178 passed`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
@@ -55,5 +56,5 @@ The intended workflow is now:
 
 ## Near-term focus
 - keep repo-facing docs aligned with the delivered post-LLM.x baseline
-- decide the next bounded integration slice for the LLM-backed path after the new LiteLLM bootstrap wiring helpers: whether to add higher-level runtime assembly/factory helpers over the hidden LiteLLM path without widening request/application surfaces or pulling `.env` loading into the repo
+- decide the next bounded integration slice for the LLM-backed path after the new runtime assembly entrypoint: whether to clean up the remaining private gateway composition inside LLM runtime wiring or broaden the assembled runtime to additional task gateways without widening request/application surfaces or pulling `.env` loading into the repo
 - keep the MVP architecture small, auditable, and implementation-light until heavier runtime choices are explicit

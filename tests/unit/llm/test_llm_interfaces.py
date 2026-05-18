@@ -25,6 +25,7 @@ from sourcetrace.llm import (
     LlmTimeoutError,
     ResolvedLlmBootstrapConfig,
     SourceTraceLlmConfig,
+    SourceTraceLlmRuntime,
     StructuredGenerationRuntime,
     StructuredLlmGenerationExecution,
     StructuredLlmGenerator,
@@ -84,6 +85,10 @@ def test_llm_package_re_exports_models_and_execution_seams() -> None:
         (
             SourceTraceLlmConfig,
             ("default_timeout_seconds", "default_max_output_tokens", "bootstrap", "tasks"),
+        ),
+        (
+            SourceTraceLlmRuntime,
+            ("config", "bootstrap", "structured_generation", "claim_extraction"),
         ),
     ],
 )

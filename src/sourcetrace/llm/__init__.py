@@ -40,6 +40,7 @@ from sourcetrace.llm.models import (
     TokenUsage,
 )
 from sourcetrace.llm.structured_generation import build_structured_generation_execution
+from sourcetrace.llm.runtime import SourceTraceLlmRuntime, build_llm_runtime
 
 __all__ = [
     "ClaimExtractionGateway",
@@ -62,6 +63,7 @@ __all__ = [
     "LlmTimeoutError",
     "ResolvedLlmBootstrapConfig",
     "SourceTraceLlmConfig",
+    "SourceTraceLlmRuntime",
     "StructuredGenerationRuntime",
     "StructuredLlmGenerationExecution",
     "StructuredLlmGenerator",
@@ -70,6 +72,7 @@ __all__ = [
     "build_litellm_completion_caller",
     "build_litellm_structured_generator",
     "build_litellm_text_generator",
+    "build_llm_runtime",
     "build_structured_generation_execution",
     "resolve_llm_bootstrap_config",
 ]
