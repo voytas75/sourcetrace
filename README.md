@@ -87,8 +87,10 @@ Notes:
        },
        "requested_k": 2
      }'`
+   - Expected: `200 OK` with JSON containing `verification.verdict`
 3. Inspect the verification artifact:
    - `curl http://127.0.0.1:8000/api/claims/claim-1/verification`
+   - Expected: `200 OK` with JSON containing `evidence_links` and `evidence_summary`
 4. Record a minimal analyst review so the case report surface has reviewed content:
    - `curl -X POST http://127.0.0.1:8000/api/reviews \
      -H 'Content-Type: application/json' \
@@ -100,8 +102,10 @@ Notes:
        "final_verdict": "support",
        "review_notes": "Accepted for report."
      }'`
+   - Expected: `200 OK` with JSON containing the persisted review payload
 5. Export the markdown report:
    - `curl http://127.0.0.1:8000/api/reports/case-1.md`
+   - Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`
 
 ## Near-term focus
 - keep repo-facing docs aligned with the delivered post-LLM.x baseline
