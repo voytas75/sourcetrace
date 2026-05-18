@@ -65,10 +65,13 @@ The intended workflow is now:
 5. only then move into runtime adapters, storage engines, and retrieval implementations
 
 ## Local environment bootstrap
-Recommended local developer bootstrap now:
+Run locally with uv:
 1. `uv sync --dev`
 2. `uv run pytest -q`
 3. `uv run python -m sourcetrace.web`
+
+Expected startup: `SourceTrace local server listening on http://127.0.0.1:8000`
+Use `Ctrl+C` to stop the server cleanly.
 
 Notes:
 - the repo now declares a minimal `pyproject.toml` and uses `src/` package layout
