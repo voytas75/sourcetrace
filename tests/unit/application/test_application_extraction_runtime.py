@@ -602,3 +602,97 @@ def test_build_llm_claim_extractor_reports_dropped_evidence_items() -> None:
     assert len(outcome.evidence_links) == 1
     assert outcome.dropped_claim_items == 0
     assert outcome.dropped_evidence_items == 3
+
+
+def test_build_llm_claim_extractor_treats_whitespace_only_payload_fields_as_missing() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "   ",
+                        "chunk_id": "   ",
+                        "exact_text": "   ",
+                        "source_span_reference": "   ",
+                        "evidence": [
+                            {"chunk_id": "   ", "snippet": "   ", "rationale": "   "},
+                            {
+                                "chunk_id": " chunk-2 ",
+                                "snippet": "  Accepted evidence snippet.  ",
+                                "rationale": "  Accepted evidence rationale.  ",
+                            },
+                        ],
+                    },
+                    {
+                        "claim_id": "   ",
+                        "chunk_id": "   ",
+                        "exact_text": "   ",
+                        "source_span_reference": "   ",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The network expanded in 2025.",
+            start_char=0,
+            end_char=29,
+            chunk_index=0,
+            position_reference="p1",
+            previous_chunk_id=None,
+            next_chunk_id="chunk-2",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Accepted evidence chunk.",
+            start_char=30,
+            end_char=54,
+            chunk_index=1,
+            position_reference="p2",
+            previous_chunk_id="chunk-1",
+            next_chunk_id=None,
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2"),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].claim_id == "claim-1"
+    assert outcome.claims[0].chunk_id == "chunk-1"
+    assert outcome.claims[0].exact_text == ""
+    assert outcome.claims[0].source_span_reference == "chunk-span:unknown"
+    assert len(outcome.evidence_links) == 1
+    assert outcome.evidence_links[0].chunk_id == "chunk-2"
+    assert outcome.evidence_links[0].snippet == "Accepted evidence snippet."
+    assert outcome.evidence_links[0].rationale == "Accepted evidence rationale."
+    assert outcome.dropped_claim_items == 1
+    assert outcome.dropped_evidence_items == 1
