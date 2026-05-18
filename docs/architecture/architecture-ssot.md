@@ -168,5 +168,5 @@ Recommended target stack for the next architectural phase:
 Next recommended step:
 - keep `.env` loading outside the repo unless a later slice explicitly changes that boundary; SourceTrace now only declares external env names via `LlmBootstrapConfig`
 - keep LiteLLM hidden behind the local boundary and avoid leaking provider details upward while broadening integration
-- next decide whether to broaden that assembled runtime to additional task gateways before deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
+- the next bounded runtime broadening step after claim extraction can stay inside the same boundary by wiring additional task gateways such as `credibility_draft` through the existing text-generation adapter path before deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
 - do not jump into broad platformization before those boundaries stay explicit in both code and docs

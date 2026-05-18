@@ -88,7 +88,13 @@ def test_llm_package_re_exports_models_and_execution_seams() -> None:
         ),
         (
             SourceTraceLlmRuntime,
-            ("config", "bootstrap", "structured_generation", "claim_extraction"),
+            (
+                "config",
+                "bootstrap",
+                "structured_generation",
+                "claim_extraction",
+                "credibility_draft",
+            ),
         ),
     ],
 )
