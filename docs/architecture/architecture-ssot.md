@@ -45,6 +45,7 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - Top-level claim normalization is now defensive too: non-dict or empty/junk `payload["claims"]` entries are filtered out before application claim creation, fallback `claim-{n}` IDs are assigned after filtering, and downstream evidence-link creation only runs against the normalized claim item set.
 - That same extraction runtime now surfaces lightweight normalization diagnostics in the application outcome: dropped top-level claim items and dropped evidence items are counted explicitly so junk payloads are observable instead of being silently ignored.
 - That normalization is now also trim-aware for string fields: whitespace-only claim/evidence values no longer count as usable signals, accepted strings are stripped before mapping, and the existing fallback/dropped-item behavior runs against those normalized values.
+- Source-span fallback is now slightly refined for single-chunk extraction requests: if a normalized claim item has no usable `source_span_reference` or `chunk_id`, the runtime may reuse the lone request chunk’s `position_reference`; multi-chunk requests still keep the conservative `chunk-span:unknown` fallback.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.

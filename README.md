@@ -29,6 +29,7 @@ Confirmed now:
 - top-level extraction claim normalization is now also defensive: invalid `payload["claims"]` entries are ignored before claim construction, accepted claims keep dense fallback IDs, and evidence links are emitted only for normalized claim items, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `162 passed`
 - extraction outcomes now also expose lightweight normalization diagnostics: `dropped_claim_items` and `dropped_evidence_items` report how many payload entries were ignored before mapping, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `163 passed`
 - extraction runtime string normalization is now trim-aware: whitespace-only claim/evidence fields are treated as missing, accepted strings are stripped before mapping, and dropped-item diagnostics stay aligned with that normalization, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `164 passed`
+- source-span fallback is now slightly refined for single-chunk extraction requests: when normalized claim span fields are blank, the runtime can fall back to the lone request chunk’s `position_reference` instead of `chunk-span:unknown`, while multi-chunk requests keep the previous conservative behavior, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline

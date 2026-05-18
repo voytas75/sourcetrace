@@ -696,3 +696,63 @@ def test_build_llm_claim_extractor_treats_whitespace_only_payload_fields_as_miss
     assert outcome.evidence_links[0].rationale == "Accepted evidence rationale."
     assert outcome.dropped_claim_items == 1
     assert outcome.dropped_evidence_items == 1
+
+
+def test_build_llm_claim_extractor_falls_back_to_single_request_chunk_span_when_claim_fields_are_blank() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "   ",
+                        "chunk_id": "   ",
+                        "exact_text": "   ",
+                        "source_span_reference": "   ",
+                        "evidence": [{"snippet": "Accepted evidence snippet."}],
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Only chunk in request.",
+            start_char=0,
+            end_char=22,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].chunk_id == "chunk-1"
+    assert outcome.claims[0].source_span_reference == "p1"
+    assert outcome.evidence_links[0].snippet == "Accepted evidence snippet."

@@ -45,6 +45,7 @@ class _LlmClaimExtractor:
                 exact_text=_normalized_string(item.get("exact_text")) or "",
                 source_span_reference=_span_reference_for(
                     item=item,
+                    request=request,
                     chunk_by_id=chunk_by_id,
                 ),
                 system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
@@ -115,6 +116,7 @@ def _is_valid_claim_payload(item: object) -> bool:
 def _span_reference_for(
     *,
     item: dict[str, object],
+    request: ClaimExtractionRequest,
     chunk_by_id: dict[str, DocumentChunk],
 ) -> str:
     span_reference = _normalized_string(item.get("source_span_reference"))
@@ -125,6 +127,10 @@ def _span_reference_for(
         chunk = chunk_by_id.get(chunk_id)
         if chunk is not None and chunk.position_reference is not None:
             return chunk.position_reference
+    if len(request.chunk_ids) == 1:
+        request_chunk = chunk_by_id.get(request.chunk_ids[0])
+        if request_chunk is not None and request_chunk.position_reference is not None:
+            return request_chunk.position_reference
     return "chunk-span:unknown"
 
 
