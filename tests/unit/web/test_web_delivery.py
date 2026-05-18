@@ -1,6 +1,9 @@
 import json
+from dataclasses import FrozenInstanceError
 from io import BytesIO
 from wsgiref.util import setup_testing_defaults
+
+import pytest
 
 from sourcetrace.domain import Claim, ClaimReviewDecision, DocumentChunk
 from sourcetrace.domain.types import (
@@ -16,11 +19,15 @@ from sourcetrace.web import (
     VerificationDeliveryRequest,
     create_default_delivery,
     create_wsgi_app,
+    create_wsgi_server,
+    run_local_server,
     render_report_markdown,
     report_outcome_to_payload,
 )
 from sourcetrace.web.api import SourceTraceWSGIApp as ModuleSourceTraceWSGIApp
 from sourcetrace.web.api import create_wsgi_app as module_create_wsgi_app
+from sourcetrace.web.api import create_wsgi_server as module_create_wsgi_server
+from sourcetrace.web.api import run_local_server as module_run_local_server
 from sourcetrace.web.delivery import (
     PersistenceReportAssembler as ModulePersistenceReportAssembler,
 )
@@ -38,6 +45,84 @@ def test_web_package_re_exports_delivery_surface() -> None:
     assert VerificationDeliveryRequest is ModuleVerificationDeliveryRequest
     assert create_default_delivery is module_create_default_delivery
     assert create_wsgi_app is module_create_wsgi_app
+    assert create_wsgi_server is module_create_wsgi_server
+    assert run_local_server is module_run_local_server
+
+
+def test_create_wsgi_server_returns_frozen_server_bundle_with_bound_app() -> None:
+    delivery = _seeded_delivery()
+
+    server_runtime = create_wsgi_server(
+        host="127.0.0.1",
+        port=0,
+        delivery=delivery,
+    )
+
+    assert server_runtime.host == "127.0.0.1"
+    assert server_runtime.port == 0
+    assert server_runtime.app.delivery is delivery
+    assert callable(server_runtime.server.serve_forever)
+    assert server_runtime.server.server_port >= 0
+
+    with pytest.raises(FrozenInstanceError):
+        setattr(server_runtime, "port", 8080)
+
+    server_runtime.server.server_close()
+
+
+def test_create_wsgi_server_uses_bound_port_when_ephemeral_port_requested() -> None:
+    server_runtime = create_wsgi_server(host="127.0.0.1", port=0)
+
+    try:
+        assert server_runtime.server.server_port > 0
+    finally:
+        server_runtime.server.server_close()
+
+
+def test_run_local_server_reports_bound_address_and_closes_server() -> None:
+    messages: list[str] = []
+
+    runtime = run_local_server(host="127.0.0.1", port=0, announce=messages.append)
+
+    try:
+        assert runtime.host == "127.0.0.1"
+        assert runtime.server.server_port > 0
+        assert messages == [
+            f"SourceTrace local server listening on http://127.0.0.1:{runtime.server.server_port}"
+        ]
+    finally:
+        runtime.server.server_close()
+
+
+def test_web_module_main_delegates_to_local_server_runtime() -> None:
+    from sourcetrace.web import __main__ as web_main
+
+    events: list[str] = []
+
+    class _FakeServer:
+        def serve_forever(self) -> None:
+            events.append("serve_forever")
+
+        def server_close(self) -> None:
+            events.append("server_close")
+
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.server = _FakeServer()
+
+    original = web_main.run_local_server
+    web_main.run_local_server = lambda: _FakeRuntime()
+    try:
+        assert web_main.main() == 0
+        assert events == ["serve_forever", "server_close"]
+    finally:
+        web_main.run_local_server = original
+
+
+def test_package_metadata_exposes_uv_ready_console_entrypoint() -> None:
+    from sourcetrace.web.__main__ import main
+
+    assert callable(main)
 
 
 def test_delivery_service_runs_and_inspects_verification_path() -> None:

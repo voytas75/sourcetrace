@@ -149,7 +149,9 @@ Confirmed now:
 - a first in-memory runtime path is in place for persistence, lexical retrieval, and verification orchestration
 - a minimal analyst delivery surface is in place in `web/` with a pure-stdlib WSGI/API, a case HTML view, and report JSON/Markdown output
 - that delivery surface now exposes evidence summary fields, explicit missing/invalid status payloads, and a thin-path end-to-end test pack over the in-memory flow
+- that same delivery surface now also has a local runnable front door: `python -m sourcetrace.web` (and installed console script `sourcetrace-web`) start a stdlib WSGI server over the same in-memory runtime for thin smoke runs
 - local verification after the 10.x rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`
+- local setup is now also standardized through a minimal `pyproject.toml` and `uv` workflow: `uv sync --dev`, `uv run pytest -q`, `uv run python -m sourcetrace.web`
 - local verification after the bounded LLM.x layer + extraction integration rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`
 - local verification after storage-backed extraction persistence on the LLM application path: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
 

@@ -2,8 +2,10 @@
 
 import json
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
+from wsgiref.simple_server import WSGIServer, make_server
 
 from sourcetrace.web.delivery import (
     SourceTraceDelivery,
@@ -21,6 +23,16 @@ from sourcetrace.web.delivery import (
 
 StartResponse = Callable[[str, list[tuple[str, str]]], None]
 WsgiEnviron = dict[str, Any]
+
+
+@dataclass(frozen=True)
+class SourceTraceServerRuntime:
+    """Small local server bundle for running the WSGI app."""
+
+    host: str
+    port: int
+    app: "SourceTraceWSGIApp"
+    server: WSGIServer
 
 
 @dataclass(frozen=True)
@@ -198,6 +210,52 @@ def create_wsgi_app(
     return SourceTraceWSGIApp(delivery=delivery or create_default_delivery())
 
 
+def create_wsgi_server(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    delivery: SourceTraceDelivery | None = None,
+) -> SourceTraceServerRuntime:
+    """Create a local stdlib WSGI server around the default app."""
+
+    app = create_wsgi_app(delivery=delivery)
+    server = make_server(host, port, app)
+    return SourceTraceServerRuntime(
+        host=host,
+        port=port,
+        app=app,
+        server=server,
+    )
+
+
+def run_local_server(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    delivery: SourceTraceDelivery | None = None,
+    announce: Callable[[str], None] = print,
+) -> SourceTraceServerRuntime:
+    """Create and announce the local SourceTrace server runtime."""
+
+    runtime = create_wsgi_server(host=host, port=port, delivery=delivery)
+    bound_port = runtime.server.server_port
+    runtime = SourceTraceServerRuntime(
+        host=runtime.host,
+        port=bound_port,
+        app=runtime.app,
+        server=runtime.server,
+    )
+    try:
+        announce(
+            f"SourceTrace local server listening on http://{runtime.host}:{runtime.port}"
+        )
+        return runtime
+    except Exception:
+        with suppress(Exception):
+            runtime.server.server_close()
+        raise
+
+
 def _read_json(environ: WsgiEnviron) -> dict[str, object]:
     try:
         content_length = int(environ.get("CONTENT_LENGTH") or "0")
@@ -275,6 +333,9 @@ def _optional_str(value: object) -> str | None:
 
 
 __all__ = [
+    "SourceTraceServerRuntime",
     "SourceTraceWSGIApp",
     "create_wsgi_app",
+    "create_wsgi_server",
+    "run_local_server",
 ]

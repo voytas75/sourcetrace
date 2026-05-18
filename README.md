@@ -37,6 +37,8 @@ Confirmed now:
 - the same LiteLLM adapter boundary now also wires those resolved bootstrap inputs into provider-facing callables: `build_litellm_completion_caller(...)`, `build_litellm_text_generator(...)`, and `build_litellm_structured_generator(...)` inject `api_key`/`base_url` without widening request or application surfaces, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `176 passed`
 - the LLM layer now also exposes a small runtime assembly entrypoint: `build_llm_runtime(...)` resolves env bootstrap, binds the LiteLLM structured generator, and assembles a claim-extraction-ready runtime bundle without adding `.env` loading or provider leakage to higher layers, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `178 passed`
 - that same runtime assembly now depends only on the public `build_claim_extraction_gateway(...)` factory rather than reaching into a private extraction symbol, keeping the composition boundary explicit without changing behavior or widening surfaces
+- a minimal local front door now exists for the delivery surface: `python -m sourcetrace.web` (and installed console script `sourcetrace-web`) starts a pure-stdlib WSGI server against the in-memory delivery/runtime path for thin local end-to-end smoke runs
+- the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
@@ -54,6 +56,17 @@ The intended workflow is now:
 3. patch SSOT and execution blueprint when assumptions change
 4. execute bounded contract-first slices for agreed layers
 5. only then move into runtime adapters, storage engines, and retrieval implementations
+
+## Local environment bootstrap
+Recommended local developer bootstrap now:
+1. `uv sync --dev`
+2. `uv run pytest -q`
+3. `uv run python -m sourcetrace.web`
+
+Notes:
+- the repo now declares a minimal `pyproject.toml` and uses `src/` package layout
+- `.env` is still not loaded by the repo; any required external secrets must come from the process environment only
+- the local web run is still a thin in-memory/dev path, not a production server shape
 
 ## Near-term focus
 - keep repo-facing docs aligned with the delivered post-LLM.x baseline

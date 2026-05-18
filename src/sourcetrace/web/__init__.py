@@ -1,6 +1,12 @@
 """Web and API delivery layer."""
 
-from sourcetrace.web.api import SourceTraceWSGIApp, create_wsgi_app
+from sourcetrace.web.api import (
+    SourceTraceServerRuntime,
+    SourceTraceWSGIApp,
+    create_wsgi_app,
+    create_wsgi_server,
+    run_local_server,
+)
 from sourcetrace.web.delivery import (
     PersistenceReportAssembler,
     SourceTraceDelivery,
@@ -23,6 +29,7 @@ from sourcetrace.web.delivery import (
 __all__ = [
     "PersistenceReportAssembler",
     "SourceTraceDelivery",
+    "SourceTraceServerRuntime",
     "SourceTraceWSGIApp",
     "VerificationDeliveryRequest",
     "VerificationInspection",
@@ -30,6 +37,8 @@ __all__ = [
     "claim_to_payload",
     "create_default_delivery",
     "create_wsgi_app",
+    "create_wsgi_server",
+    "run_local_server",
     "evidence_link_to_payload",
     "render_case_review_html",
     "render_report_markdown",

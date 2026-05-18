@@ -52,7 +52,9 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
 - That delivery surface now carries explicit inspection evidence summaries, explicit missing/invalid status payloads, and thin-path end-to-end regression coverage.
+- That same delivery surface now also has a local runnable front door: `python -m sourcetrace.web` (and installed console script `sourcetrace-web`) start a stdlib WSGI server over the same in-memory runtime for thin local smoke runs.
 - Local baseline after the 10.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`.
+- Local setup is now also standardized through a minimal `pyproject.toml` and `uv` workflow: `uv sync --dev`, `uv run pytest -q`, `uv run python -m sourcetrace.web`.
 - Local baseline after the bounded LLM.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`.
 - Local baseline after storage-backed extraction persistence on the LLM application path is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`.
 
