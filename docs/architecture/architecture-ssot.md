@@ -37,6 +37,7 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - A bounded LLM integration layer is now present under `src/sourcetrace/llm/` with SourceTrace-owned models, config, normalized errors, structured-generation seams, and a first claim-extraction gateway.
 - The application layer now includes an LLM-backed claim extraction runtime seam for mapping structured extraction payloads into application claim outcomes.
 - That extraction runtime now supports optional persistence of extracted claims through the existing `ClaimRepository` boundary, keeping storage wiring explicit and provider-free.
+- That same runtime now emits initial `ClaimEvidenceLink` records per extracted claim and optionally persists them through the same `ClaimRepository` boundary, preserving the existing storage seam instead of introducing a parallel path.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.

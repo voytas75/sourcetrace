@@ -95,7 +95,16 @@ def test_build_llm_claim_extractor_maps_gateway_payload_to_application_outcome()
     assert tuple(claim.claim_id for claim in outcome.claims) == ("claim-1", "claim-2")
     assert outcome.claims[0].chunk_id == "chunk-1"
     assert outcome.claims[0].system_verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE
-    assert outcome.evidence_links == ()
+    assert tuple(link.claim_id for link in outcome.evidence_links) == (
+        "claim-1",
+        "claim-2",
+    )
+    assert outcome.evidence_links[0].document_id == "doc-1"
+    assert outcome.evidence_links[0].chunk_id == "chunk-1"
+    assert outcome.evidence_links[0].evidence_rank == 1
+    assert outcome.evidence_links[0].evidence_verdict is VerificationVerdict.SUPPORT
+    assert outcome.evidence_links[0].snippet == "The network expanded in 2025."
+    assert outcome.evidence_links[0].score is None
     assert outcome.document is document
     assert outcome.chunks == chunks
 
@@ -213,3 +222,4 @@ def test_build_llm_claim_extractor_persists_extracted_claims_when_repository_is_
     )
 
     assert claims.list_claims_for_case("case-1") == outcome.claims
+    assert claims.list_evidence_links_for_claim("claim-1") == outcome.evidence_links

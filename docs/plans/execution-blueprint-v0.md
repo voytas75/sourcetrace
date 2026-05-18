@@ -30,6 +30,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - A bounded LLM integration layer is now in place under `src/sourcetrace/llm/`, keeping models, config, normalized errors, LiteLLM-style adapters, and task gateways behind SourceTrace-owned boundaries.
 - The application layer now includes an explicit LLM-backed extraction runtime seam that maps structured extraction payloads into `ClaimExtractionOutcome`.
 - That LLM-backed extraction runtime now optionally persists extracted claims through `ClaimRepository`, keeping the write path inside existing storage seams rather than creating a provider-specific shortcut.
+- That same LLM-backed extraction runtime now also emits initial `ClaimEvidenceLink` records and optionally persists them through `ClaimRepository`, keeping claim/evidence writes on the same storage seam.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.

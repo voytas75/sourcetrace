@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 from sourcetrace.application.extraction import ClaimExtractionOutcome, ClaimExtractionRequest
-from sourcetrace.domain import Claim, Document, DocumentChunk
+from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
 
 if TYPE_CHECKING:
@@ -53,12 +53,15 @@ class _LlmClaimExtractor:
         )
         if self._claim_repository is not None:
             claims = self._claim_repository.save_claims(claims)
+        evidence_links = _build_initial_evidence_links(claims)
+        if self._claim_repository is not None:
+            evidence_links = self._claim_repository.save_evidence_links(evidence_links)
         return ClaimExtractionOutcome(
             request=request,
             document=document,
             chunks=chunks,
             claims=claims,
-            evidence_links=(),
+            evidence_links=evidence_links,
         )
 
 
@@ -85,6 +88,24 @@ def _span_reference_for(
         if chunk is not None and chunk.position_reference is not None:
             return chunk.position_reference
     return "chunk-span:unknown"
+
+
+def _build_initial_evidence_links(
+    claims: tuple[Claim, ...],
+) -> tuple[ClaimEvidenceLink, ...]:
+    return tuple(
+        ClaimEvidenceLink(
+            claim_id=claim.claim_id,
+            document_id=claim.document_id,
+            chunk_id=claim.chunk_id,
+            evidence_rank=1,
+            evidence_verdict=VerificationVerdict.SUPPORT,
+            rationale="Extracted from source chunk.",
+            snippet=claim.exact_text or None,
+            score=None,
+        )
+        for claim in claims
+    )
 
 
 def build_llm_claim_extractor(
