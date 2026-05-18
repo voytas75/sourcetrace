@@ -9,7 +9,7 @@ from sourcetrace.llm.config import (
     SourceTraceLlmConfig,
     resolve_llm_bootstrap_config,
 )
-from sourcetrace.llm.extraction import _ClaimExtractionGateway
+from sourcetrace.llm.extraction import build_claim_extraction_gateway
 from sourcetrace.llm.interfaces import ClaimExtractionGateway, StructuredGenerationRuntime
 from sourcetrace.llm.litellm_client import build_litellm_structured_generator
 from sourcetrace.llm.structured_generation import build_structured_generation_execution
@@ -44,7 +44,7 @@ def build_llm_runtime(
     structured_runtime = StructuredGenerationRuntime(
         generate_structured=structured_execution.generate_structured,
     )
-    claim_extraction = _ClaimExtractionGateway(execution=structured_runtime)
+    claim_extraction = build_claim_extraction_gateway(execution=structured_runtime)
     return SourceTraceLlmRuntime(
         config=config,
         bootstrap=bootstrap,
