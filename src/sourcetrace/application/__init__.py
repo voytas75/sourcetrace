@@ -18,10 +18,12 @@ from sourcetrace.application.extraction import (
     ClaimExtractionOutcome,
     ClaimExtractionRequest,
 )
+from sourcetrace.application.extraction_runtime import build_llm_claim_extractor
 from sourcetrace.application.interfaces import (
     CaseCreationExecution,
     CaseCreator,
     ClaimExtractionExecution,
+    ClaimExtractionRuntime,
     ClaimExtractor,
     ClaimReviewExecution,
     ClaimReviewer,
@@ -57,6 +59,7 @@ __all__ = [
     "ClaimExtractionExecution",
     "ClaimExtractionOutcome",
     "ClaimExtractionRequest",
+    "ClaimExtractionRuntime",
     "ClaimExtractor",
     "ClaimReviewExecution",
     "ClaimReviewOutcome",
@@ -82,4 +85,5 @@ __all__ = [
     "SourceIngestionOutcome",
     "SourceIngestionRequest",
     "SourceIngestor",
+    "build_llm_claim_extractor",
 ]

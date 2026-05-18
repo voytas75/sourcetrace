@@ -27,11 +27,14 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - Domain contract coverage is in place for cases, documents, chunks, retrieval, claim verification flow, and case-level report output.
 - Application contract coverage is in place for case intake, document preparation, claim extraction, claim verification, human review, report assembly, and credibility assessment.
 - Application-side execution seam coverage is in place for those same use-case areas via `application.interfaces`.
+- A bounded LLM integration layer is now in place under `src/sourcetrace/llm/`, keeping models, config, normalized errors, LiteLLM-style adapters, and task gateways behind SourceTrace-owned boundaries.
+- The application layer now includes an explicit LLM-backed extraction runtime seam that maps structured extraction payloads into `ClaimExtractionOutcome`.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
 - That delivery surface now carries explicit inspection evidence summaries, explicit missing/invalid status payloads, and thin-path end-to-end regression coverage.
 - Local baseline after the 10.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`.
+- Local baseline after the bounded LLM.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.
@@ -203,10 +206,10 @@ Status now:
 - a first bounded delivery surface is in place
 
 Remaining outputs:
-- synced repo-facing docs that describe the delivered post-10.x baseline truthfully
+- synced repo-facing docs that describe the delivered post-LLM.x baseline truthfully
 - candidate stack freeze for iteration 1 beyond the in-memory baseline
 - explicit MVP review workflow hardening
-- bounded follow-up plan for stabilizing the current runtime semantics and analyst path
+- bounded follow-up plan for deeper LLM-backed orchestration, extraction persistence, and analyst path integration
 
 ### Phase C — bounded MVP implementation
 Status now:
@@ -239,6 +242,12 @@ Questions:
 - What minimum support checks are required before a claim becomes report-eligible?
 - How are supportive versus contradictory versus insufficient links represented?
 - Which exact entailment/NLI component will power the first verifier?
+
+Recommended v1 LLM integration direction:
+- LLM communication should live behind a dedicated backend gateway layer, not inside domain or application contracts directly.
+- Preferred provider abstraction for v1: LiteLLM.
+- Application/use-case code should depend on SourceTrace-owned gateways (for example claim extraction or structured generation gateways), while provider/model routing stays inside the LLM integration layer.
+- LLMs should primarily support extraction, normalization, and drafting tasks; final verification should still be grounded in retrieval evidence, explicit rules, NLI, and human review.
 
 ### Gate 4: delivery surface freeze
 Questions:

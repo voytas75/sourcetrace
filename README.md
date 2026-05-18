@@ -19,6 +19,7 @@ Confirmed now:
 - delivery routes now distinguish invalid requests and missing verification/report artifacts explicitly
 - the in-memory retrieval/runtime path is hardened for duplicate document selection and thin-path end-to-end coverage
 - local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`
+- bounded LLM integration is now implemented under `src/sourcetrace/llm/`, with an application extraction runtime seam and local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
@@ -38,6 +39,6 @@ The intended workflow is now:
 5. only then move into runtime adapters, storage engines, and retrieval implementations
 
 ## Near-term focus
-- keep repo-facing docs aligned with the delivered post-10.x baseline
-- pressure-test the current in-memory runtime and delivery path before picking heavier infra
+- keep repo-facing docs aligned with the delivered post-LLM.x baseline
+- decide the next bounded integration slice for the LLM-backed path: deeper runtime orchestration, storage-backed extraction persistence, or web/API integration
 - keep the MVP architecture small, auditable, and implementation-light until heavier runtime choices are explicit

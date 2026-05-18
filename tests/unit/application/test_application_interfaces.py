@@ -2,6 +2,7 @@ from sourcetrace.application import (
     CaseCreationExecution,
     CaseCreator,
     ClaimExtractionExecution,
+    ClaimExtractionRuntime,
     ClaimExtractor,
     ClaimReviewExecution,
     ClaimReviewer,
@@ -24,6 +25,9 @@ from sourcetrace.application.interfaces import (
 )
 from sourcetrace.application.interfaces import (
     ClaimExtractionExecution as InterfacesClaimExtractionExecution,
+)
+from sourcetrace.application.interfaces import (
+    ClaimExtractionRuntime as InterfacesClaimExtractionRuntime,
 )
 from sourcetrace.application.interfaces import (
     ClaimExtractor as InterfacesClaimExtractor,
@@ -74,6 +78,7 @@ def test_application_package_re_exports_execution_seams() -> None:
     assert DocumentPreparationExecution is InterfacesDocumentPreparationExecution
     assert DocumentPreparer is InterfacesDocumentPreparer
     assert ClaimExtractionExecution is InterfacesClaimExtractionExecution
+    assert ClaimExtractionRuntime is InterfacesClaimExtractionRuntime
     assert ClaimExtractor is InterfacesClaimExtractor
     assert ClaimVerificationExecution is InterfacesClaimVerificationExecution
     assert ClaimVerifier is InterfacesClaimVerifier
@@ -90,11 +95,13 @@ def test_application_execution_container_shapes_are_frozen_dataclasses() -> None
     assert getattr(SourceIngestionExecution, "__dataclass_fields__", None) is not None
     assert getattr(DocumentPreparationExecution, "__dataclass_fields__", None) is not None
     assert getattr(ClaimExtractionExecution, "__dataclass_fields__", None) is not None
+    assert getattr(ClaimExtractionRuntime, "__dataclass_fields__", None) is not None
     assert getattr(ClaimVerificationExecution, "__dataclass_fields__", None) is not None
     assert getattr(ClaimReviewExecution, "__dataclass_fields__", None) is not None
     assert getattr(ReportAssemblyExecution, "__dataclass_fields__", None) is not None
     assert getattr(CredibilityAssessmentExecution, "__dataclass_fields__", None) is not None
     assert tuple(ClaimExtractionExecution.__dataclass_fields__) == ("extract_claims",)
+    assert tuple(ClaimExtractionRuntime.__dataclass_fields__) == ("extract_claims",)
     assert tuple(ClaimVerificationExecution.__dataclass_fields__) == ("verify_claim",)
     assert tuple(ClaimReviewExecution.__dataclass_fields__) == ("review_claim",)
     assert tuple(ReportAssemblyExecution.__dataclass_fields__) == ("assemble_report",)

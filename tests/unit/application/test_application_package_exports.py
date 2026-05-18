@@ -3,6 +3,7 @@ from sourcetrace.application import (
     CaseCreationRequest,
     ClaimExtractionOutcome,
     ClaimExtractionRequest,
+    build_llm_claim_extractor,
     ClaimReviewOutcome,
     ClaimReviewRequest,
     ClaimVerificationOutcome,
@@ -46,6 +47,7 @@ from sourcetrace.application.extraction import (
 from sourcetrace.application.extraction import (
     ClaimExtractionRequest as ExtractionClaimExtractionRequest,
 )
+from sourcetrace.application.extraction_runtime import build_llm_claim_extractor as RuntimeBuildLlmClaimExtractor
 from sourcetrace.application.reporting import (
     ReportAssemblyOutcome as ReportingReportAssemblyOutcome,
 )
@@ -82,6 +84,7 @@ def test_application_package_re_exports_document_preparation_contracts() -> None
 def test_application_package_re_exports_claim_extraction_contracts() -> None:
     assert ClaimExtractionRequest is ExtractionClaimExtractionRequest
     assert ClaimExtractionOutcome is ExtractionClaimExtractionOutcome
+    assert build_llm_claim_extractor is RuntimeBuildLlmClaimExtractor
 
 
 def test_application_package_re_exports_human_review_contracts() -> None:

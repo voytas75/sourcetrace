@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from sourcetrace.domain.cases import Case
 from sourcetrace.domain.documents import Document
+from sourcetrace.domain.chunks import DocumentChunk
 
 from sourcetrace.application.cases import (
     CaseCreationOutcome,
@@ -91,6 +91,26 @@ class ClaimExtractionExecution:
     extract_claims: ClaimExtractor
 
 
+class ClaimExtractionRuntimeExtractor(Protocol):
+    """Execution seam for extracting claims from prepared document context via runtime dependencies."""
+
+    def __call__(
+        self,
+        request: ClaimExtractionRequest,
+        *,
+        document: Document,
+        chunks: tuple[DocumentChunk, ...],
+    ) -> ClaimExtractionOutcome:
+        ...
+
+
+@dataclass(frozen=True)
+class ClaimExtractionRuntime:
+    """Runtime seam bundle for extraction paths needing prepared document context."""
+
+    extract_claims: ClaimExtractionRuntimeExtractor
+
+
 class ClaimVerifier(Protocol):
     """Execution seam for verifying one extracted claim against retrieved evidence."""
 
@@ -154,6 +174,8 @@ __all__ = [
     "CaseCreationExecution",
     "CaseCreator",
     "ClaimExtractionExecution",
+    "ClaimExtractionRuntime",
+    "ClaimExtractionRuntimeExtractor",
     "ClaimExtractor",
     "ClaimReviewExecution",
     "ClaimReviewer",

@@ -34,6 +34,8 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - Human review state must remain separate from system verdicts.
 - Domain contract layer is now present for cases, documents, chunks, retrieval, claims, review decisions, report entries, and case reports.
 - Application contract layer is now present for case intake, document preparation, claim extraction, claim verification, human review, report assembly, and credibility assessment.
+- A bounded LLM integration layer is now present under `src/sourcetrace/llm/` with SourceTrace-owned models, config, normalized errors, structured-generation seams, and a first claim-extraction gateway.
+- The application layer now includes an LLM-backed claim extraction runtime seam for mapping structured extraction payloads into application claim outcomes.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.
@@ -129,9 +131,20 @@ Confirmed now:
 - a minimal analyst delivery surface is in place in `web/` with a pure-stdlib WSGI/API, a case HTML view, and report JSON/Markdown output
 - that delivery surface now exposes evidence summary fields, explicit missing/invalid status payloads, and a thin-path end-to-end test pack over the in-memory flow
 - local verification after the 10.x rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`
+- local verification after the bounded LLM.x layer + extraction integration rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`
+
+Recommended target stack for the next architectural phase:
+- Python backend with FastAPI + Pydantic v2 + SQLAlchemy/Alembic
+- PostgreSQL + pgvector for primary persistence and vector search
+- hybrid retrieval rather than lexical-only retrieval
+- Redis-backed background work (RQ preferred for simplicity)
+- server-rendered analyst UI with Jinja2 + HTMX
+- a dedicated LLM integration layer behind SourceTrace-owned gateways
+- LiteLLM as the preferred provider abstraction for LLM communication
+- LLM usage focused on extraction, normalization, and drafting; final verification remains grounded in retrieval evidence, NLI/rules, and human review
 
 Next recommended step:
-- sync repo-facing docs and blueprint to the real post-10.x implementation state
-- use the stabilized in-memory runtime + delivery path to decide whether heavier storage/retrieval/frontend choices are actually warranted
-- keep follow-up slices bounded around analyst usefulness and explicit runtime semantics
-- do not jump into broad platformization before the current MVP path is pressure-tested further
+- sync repo-facing docs to the bounded LLM.x baseline so the current architecture truthfully includes the new `llm/` layer and extraction runtime seam
+- only then decide whether the next slice is deeper runtime orchestration, storage-backed extraction persistence, or web/API integration for the LLM-backed path
+- keep LiteLLM hidden behind the local boundary and avoid leaking provider details upward while broadening integration
+- do not jump into broad platformization before those boundaries stay explicit in both code and docs
