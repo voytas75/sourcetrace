@@ -47,6 +47,9 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - That normalization is now also trim-aware for string fields: whitespace-only claim/evidence values no longer count as usable signals, accepted strings are stripped before mapping, and the existing fallback/dropped-item behavior runs against those normalized values.
 - Source-span fallback is now slightly refined for single-chunk extraction requests: if a normalized claim item has no usable `source_span_reference` or `chunk_id`, the runtime may reuse the lone request chunk’s `position_reference`; multi-chunk requests still keep the conservative `chunk-span:unknown` fallback.
 - The internal normalization helpers are now also tidier: repeated trim-aware string lookups are funneled through small local helpers so the runtime is easier to extend without changing extraction semantics.
+- The current LLM config boundary is still intentionally narrow: `SourceTraceLlmConfig` only routes task-level model settings (`model`, `temperature`, `max_output_tokens`), while provider bootstrap details such as API keys, base URLs, or env loading are not yet part of the SourceTrace contract.
+- The repository does not currently load `.env` itself and does not define official project env names for provider bootstrap; any real provider wiring remains an external launcher/runtime concern until a dedicated configuration slice formalizes it.
+- `src/sourcetrace/llm/litellm_client.py` should currently be read as a response/error normalization adapter shape, not as proof that LiteLLM bootstrap or `LITELLM_*` environment variables are already part of the implemented runtime contract.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.
@@ -152,11 +155,11 @@ Recommended target stack for the next architectural phase:
 - Redis-backed background work (RQ preferred for simplicity)
 - server-rendered analyst UI with Jinja2 + HTMX
 - a dedicated LLM integration layer behind SourceTrace-owned gateways
-- LiteLLM as the preferred provider abstraction for LLM communication
+- LiteLLM as the preferred provider abstraction direction for LLM communication, but not yet as a frozen bootstrap contract for env/config loading
 - LLM usage focused on extraction, normalization, and drafting; final verification remains grounded in retrieval evidence, NLI/rules, and human review
 
 Next recommended step:
-- sync repo-facing docs to the post-persistence baseline so the current architecture truthfully includes the optional `ClaimRepository` write-through on the LLM extraction runtime seam
-- only then decide whether the next slice is deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
+- freeze the LLM runtime configuration contract first: decide whether SourceTrace ever loads `.env` itself, whether env injection belongs only to the launcher/shell, and which variables become official project-facing inputs
 - keep LiteLLM hidden behind the local boundary and avoid leaking provider details upward while broadening integration
+- only after that contract is frozen decide whether the next slice is real provider bootstrap wiring, deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
 - do not jump into broad platformization before those boundaries stay explicit in both code and docs

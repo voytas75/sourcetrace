@@ -40,6 +40,9 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - That cleanup is now also trim-aware for string payload fields: whitespace-only values are treated as missing, surviving strings are stripped before entering claims/evidence links, and the existing normalization diagnostics count against those trimmed semantics.
 - For the specific single-chunk extraction case, source-span fallback is now a bit more informative: when normalized claim span fields are blank, the runtime can reuse the sole request chunk’s `position_reference`; multi-chunk requests still keep the old conservative unknown-span fallback.
 - The same runtime code is now also slightly cleaner internally: repeated trim-aware string access paths were collapsed into small helper functions, keeping the slice behaviorally neutral while reducing local duplication.
+- The current LLM bootstrap contract is still deliberately unfinished: local config/routes only cover task-level model settings, while provider bootstrap inputs such as API keys, base URLs, and env loading are still outside the implemented SourceTrace boundary.
+- The repo currently does not load `.env` and does not define official project env names for LLM bootstrap; live provider wiring is still expected to arrive through an external launcher/runtime decision rather than hidden coupling in `src/sourcetrace/llm/`.
+- The existing `litellm_client.py` module should therefore be treated as an internal adapter shape for LiteLLM-style calls, not as evidence that LiteLLM bootstrap or `LITELLM_*` variables are already part of the frozen project contract.
 - Lower-level retrieval and persistence seams are now in place via `pipeline.interfaces` and `storage.interfaces`.
 - A first in-memory runtime path is now in place for persistence, lexical retrieval, and verification orchestration.
 - A minimal analyst-facing delivery surface is now in place in `web/` via a pure-stdlib WSGI/API baseline plus HTML/Markdown output helpers.
@@ -58,7 +61,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - MVP review queue can use explicit item states such as `new`, `triaged`, `in_review`, `on_hold`, `resolved`, `escalated`.
 
 ## Do weryfikacji
-- final tech stack choices for parser, LLM provider mode, and retrieval/reranking details
+- final tech stack choices for parser, LLM provider mode/bootstrap contract, and retrieval/reranking details
 - whether review UX should be server-rendered first or API + separate frontend
 - what minimum source set defines MVP readiness
 - which exact entailment/NLI path is sufficient for the first usable build
@@ -257,8 +260,9 @@ Questions:
 
 Recommended v1 LLM integration direction:
 - LLM communication should live behind a dedicated backend gateway layer, not inside domain or application contracts directly.
-- Preferred provider abstraction for v1: LiteLLM.
+- Preferred provider abstraction direction for v1: LiteLLM.
 - Application/use-case code should depend on SourceTrace-owned gateways (for example claim extraction or structured generation gateways), while provider/model routing stays inside the LLM integration layer.
+- Before real provider bootstrap work starts, freeze a separate configuration contract covering `.env` ownership, launcher-vs-repo env responsibility, and the official provider-facing variable names (if any).
 - LLMs should primarily support extraction, normalization, and drafting tasks; final verification should still be grounded in retrieval evidence, explicit rules, NLI, and human review.
 
 ### Gate 4: delivery surface freeze
@@ -287,9 +291,9 @@ then patch:
 ---
 
 ## Current recommended next research / implementation slice
-1. keep repo-facing docs synced to the delivered post-10.x baseline
-2. use the current in-memory runtime + delivery path to evaluate whether richer review semantics or heavier infra are actually needed next
-3. only after that, decide how much heavier retrieval, storage, and frontend depth is actually required for iteration 1
+1. freeze and document the LLM runtime configuration contract (`.env` ownership, launcher responsibility, official env names, LiteLLM bootstrap status)
+2. keep repo-facing docs synced to the delivered post-LLM.next.11 baseline
+3. only after that, use the current in-memory runtime + delivery path to evaluate whether the next slice should be real provider bootstrap wiring, deeper runtime orchestration, richer review semantics, or heavier infra
 
 ## Later at execution start
 When implementation is explicitly approved, create a new implementation-ready plan that includes:
