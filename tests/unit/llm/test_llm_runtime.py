@@ -1,4 +1,5 @@
 import pytest
+from os import environ
 
 from sourcetrace.llm import (
     ClaimExtractionGateway,
@@ -17,10 +18,12 @@ from sourcetrace.llm import (
     LlmStructuredGenerationResult,
     LlmTaskConfig,
     LlmTimeoutError,
+    ResolvedLlmBootstrapConfig,
     SourceTraceLlmConfig,
     StructuredLlmGenerationExecution,
     build_claim_extraction_gateway,
     build_structured_generation_execution,
+    resolve_llm_bootstrap_config,
 )
 from sourcetrace.llm.errors import map_litellm_error
 from sourcetrace.llm.models import TokenUsage
@@ -109,6 +112,50 @@ def test_source_trace_llm_config_defaults_to_no_bootstrap_env_vars() -> None:
     config = SourceTraceLlmConfig(tasks={})
 
     assert config.bootstrap_env_var_names() == ()
+
+
+def test_bootstrap_resolver_returns_empty_values_when_no_env_vars_are_declared() -> None:
+    resolved = resolve_llm_bootstrap_config(LlmBootstrapConfig())
+
+    assert resolved == ResolvedLlmBootstrapConfig()
+
+
+def test_bootstrap_resolver_raises_for_missing_declared_env_var() -> None:
+    bootstrap = LlmBootstrapConfig(api_key_env_var="SOURCETRACE_LLM_API_KEY")
+    original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
+
+    try:
+        environ.pop("SOURCETRACE_LLM_API_KEY", None)
+
+        with pytest.raises(
+            LlmConfigurationError,
+            match="missing required LLM bootstrap env var for api_key: SOURCETRACE_LLM_API_KEY",
+        ):
+            resolve_llm_bootstrap_config(bootstrap)
+    finally:
+        if original_api_key is None:
+            environ.pop("SOURCETRACE_LLM_API_KEY", None)
+        else:
+            environ["SOURCETRACE_LLM_API_KEY"] = original_api_key
+
+
+def test_bootstrap_resolver_raises_for_blank_declared_env_var() -> None:
+    bootstrap = LlmBootstrapConfig(base_url_env_var="SOURCETRACE_LLM_BASE_URL")
+    original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+
+    try:
+        environ["SOURCETRACE_LLM_BASE_URL"] = "   "
+
+        with pytest.raises(
+            LlmConfigurationError,
+            match="missing required LLM bootstrap env var for base_url: SOURCETRACE_LLM_BASE_URL",
+        ):
+            resolve_llm_bootstrap_config(bootstrap)
+    finally:
+        if original_base_url is None:
+            environ.pop("SOURCETRACE_LLM_BASE_URL", None)
+        else:
+            environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
 
 
 def test_structured_generation_execution_builds_schema_aware_request_and_parses_payload() -> None:

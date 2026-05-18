@@ -1,6 +1,12 @@
 """SourceTrace-owned LLM integration boundary."""
 
-from sourcetrace.llm.config import LlmBootstrapConfig, LlmTaskConfig, SourceTraceLlmConfig
+from sourcetrace.llm.config import (
+    LlmBootstrapConfig,
+    LlmTaskConfig,
+    ResolvedLlmBootstrapConfig,
+    SourceTraceLlmConfig,
+    resolve_llm_bootstrap_config,
+)
 from sourcetrace.llm.errors import (
     LlmConfigurationError,
     LlmError,
@@ -49,6 +55,7 @@ __all__ = [
     "LlmTextGenerationExecution",
     "LlmTextGenerator",
     "LlmTimeoutError",
+    "ResolvedLlmBootstrapConfig",
     "SourceTraceLlmConfig",
     "StructuredGenerationRuntime",
     "StructuredLlmGenerationExecution",
@@ -56,4 +63,5 @@ __all__ = [
     "TokenUsage",
     "build_claim_extraction_gateway",
     "build_structured_generation_execution",
+    "resolve_llm_bootstrap_config",
 ]

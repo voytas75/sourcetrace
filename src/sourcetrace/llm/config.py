@@ -1,6 +1,7 @@
 """SourceTrace-owned task routing and bootstrap config for LLM work."""
 
 from dataclasses import dataclass, field
+from os import environ
 
 from sourcetrace.llm.errors import LlmConfigurationError
 
@@ -19,6 +20,42 @@ class LlmBootstrapConfig:
         if self.base_url_env_var is not None:
             names.append(self.base_url_env_var)
         return tuple(names)
+
+
+@dataclass(frozen=True)
+class ResolvedLlmBootstrapConfig:
+    """Resolved bootstrap inputs read from the current process environment."""
+
+    api_key: str | None = None
+    base_url: str | None = None
+
+
+def resolve_llm_bootstrap_config(
+    bootstrap: LlmBootstrapConfig,
+) -> ResolvedLlmBootstrapConfig:
+    """Resolve declared bootstrap env-var names against the current process env."""
+
+    api_key = _resolve_required_env_value(
+        bootstrap.api_key_env_var,
+        field_label="api_key",
+    )
+    base_url = _resolve_required_env_value(
+        bootstrap.base_url_env_var,
+        field_label="base_url",
+    )
+    return ResolvedLlmBootstrapConfig(api_key=api_key, base_url=base_url)
+
+
+def _resolve_required_env_value(env_var_name: str | None, *, field_label: str) -> str | None:
+    if env_var_name is None:
+        return None
+
+    value = environ.get(env_var_name)
+    if value is None or not value.strip():
+        raise LlmConfigurationError(
+            f"missing required LLM bootstrap env var for {field_label}: {env_var_name}"
+        )
+    return value
 
 
 @dataclass(frozen=True)
@@ -66,5 +103,7 @@ class SourceTraceLlmConfig:
 __all__ = [
     "LlmBootstrapConfig",
     "LlmTaskConfig",
+    "ResolvedLlmBootstrapConfig",
     "SourceTraceLlmConfig",
+    "resolve_llm_bootstrap_config",
 ]
