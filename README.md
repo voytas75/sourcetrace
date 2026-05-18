@@ -68,6 +68,30 @@ Notes:
 - `.env` is still not loaded by the repo; any required external secrets must come from the process environment only
 - the local web run is still a thin in-memory/dev path, not a production server shape
 
+## Local smoke flow
+1. Start the local server:
+   - `uv run python -m sourcetrace.web`
+2. In another terminal, submit a minimal verification request:
+   - `curl -X POST http://127.0.0.1:8000/api/verify \
+     -H 'Content-Type: application/json' \
+     -d '{
+       "claim": {
+         "claim_id": "claim-1",
+         "case_id": "case-1",
+         "document_id": "doc-1",
+         "chunk_id": "chunk-1",
+         "exact_text": "The bridge reopened after inspection.",
+         "source_span_reference": "p1",
+         "system_verdict": "insufficient_evidence",
+         "rationale": null
+       },
+       "requested_k": 2
+     }'`
+3. Inspect the verification artifact:
+   - `curl http://127.0.0.1:8000/api/claims/claim-1/verification`
+4. Export the markdown report after review/report assembly work has populated the case report surface:
+   - `curl http://127.0.0.1:8000/api/reports/case-1.md`
+
 ## Near-term focus
 - keep repo-facing docs aligned with the delivered post-LLM.x baseline
 - decide the next bounded integration slice for the LLM-backed path after the runtime composition cleanup: whether to broaden the assembled runtime to additional task gateways without widening request/application surfaces or pulling `.env` loading into the repo
