@@ -2,6 +2,7 @@
 
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
+from os import environ
 
 import pytest
 
@@ -24,6 +25,8 @@ from sourcetrace.application.interfaces import (
     CredibilityAssessor as InterfacesCredibilityAssessor,
 )
 from sourcetrace.domain import Document, DocumentCredibilityAssessment
+from sourcetrace.llm import LlmBootstrapConfig, LlmTaskConfig, SourceTraceLlmConfig, build_llm_runtime
+from sourcetrace.llm.models import LlmGenerationResult
 from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance
 
 
@@ -121,3 +124,103 @@ def test_credibility_assessment_contracts_are_immutable() -> None:
 
     with pytest.raises(FrozenInstanceError):
         setattr(request, "assessment_method", "other")
+
+
+
+def test_build_llm_runtime_credibility_draft_gateway_can_drive_application_assessment_callable() -> None:
+    config = SourceTraceLlmConfig(
+        bootstrap=LlmBootstrapConfig(
+            api_key_env_var="SOURCETRACE_LLM_API_KEY",
+            base_url_env_var="SOURCETRACE_LLM_BASE_URL",
+        ),
+        tasks={
+            "claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0),
+            "credibility_draft": LlmTaskConfig(model="gpt-4.1-mini", temperature=0.2),
+        },
+    )
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher="Example News",
+        author="Analyst",
+        title="Network report",
+        published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+    original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
+    original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        if kwargs.get("response_format") == {"type": "json_object"}:
+            return {
+                "model": kwargs["model"],
+                "choices": [
+                    {
+                        "message": {"parsed": {"claims": []}},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+        return {
+            "model": kwargs["model"],
+            "choices": [
+                {
+                    "message": {"content": "Corroborated by two independent reports."},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    try:
+        environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
+        environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+        runtime = build_llm_runtime(completion_fn=completion_fn, config=config)
+
+        def assess_credibility(
+            request: CredibilityAssessmentRequest,
+        ) -> CredibilityAssessmentOutcome:
+            draft = runtime.credibility_draft(
+                f"Assess credibility for document {request.document.document_id}."
+            )
+            assessment = DocumentCredibilityAssessment(
+                assessment_id="cred-1",
+                document_id=request.document.document_id,
+                source_reliability=CredibilityBand.MEDIUM,
+                information_credibility=CredibilityBand.MEDIUM,
+                source_reliability_factors=("publisher_history",),
+                information_credibility_factors=("partial_corroboration",),
+                provenance_distance=ProvenanceDistance.NEAR_PRIMARY,
+                method=request.assessment_method or "llm_draft_v1",
+                notes=draft.text,
+                assessed_by="system",
+                assessed_at=datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+                override=False,
+            )
+            return CredibilityAssessmentOutcome(request=request, assessment=assessment)
+
+        execution = CredibilityAssessmentExecution(assess_credibility=assess_credibility)
+        outcome = execution.assess_credibility(
+            CredibilityAssessmentRequest(
+                document=document,
+                assessment_method="llm_draft_v1",
+            )
+        )
+
+        assert outcome.request.document is document
+        assert outcome.assessment.document_id == document.document_id
+        assert outcome.assessment.method == "llm_draft_v1"
+        assert outcome.assessment.notes == "Corroborated by two independent reports."
+    finally:
+        if original_api_key is None:
+            environ.pop("SOURCETRACE_LLM_API_KEY", None)
+        else:
+            environ["SOURCETRACE_LLM_API_KEY"] = original_api_key
+
+        if original_base_url is None:
+            environ.pop("SOURCETRACE_LLM_BASE_URL", None)
+        else:
+            environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
