@@ -12,3 +12,9 @@ def test_application_contract_module_exists() -> None:
     root = Path(__file__).resolve().parents[2] / "src" / "sourcetrace" / "application"
     assert (root / "__init__.py").is_file()
     assert (root / "verification.py").is_file()
+
+
+def test_lower_level_interface_modules_exist() -> None:
+    root = Path(__file__).resolve().parents[2] / "src" / "sourcetrace"
+    assert (root / "pipeline" / "interfaces.py").is_file()
+    assert (root / "storage" / "interfaces.py").is_file()
