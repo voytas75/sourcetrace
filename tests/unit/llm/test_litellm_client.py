@@ -6,6 +6,10 @@ from sourcetrace.llm import (
     LlmProviderError,
     LlmStructuredGenerationRequest,
     LlmTimeoutError,
+    ResolvedLlmBootstrapConfig,
+    build_litellm_completion_caller,
+    build_litellm_structured_generator,
+    build_litellm_text_generator,
 )
 from sourcetrace.llm.litellm_client import (
     call_structured_generation,
@@ -65,6 +69,55 @@ def test_call_text_generation_maps_provider_error() -> None:
         call_text_generation(completion_fn=completion_fn, request=request)
 
 
+def test_build_litellm_completion_caller_injects_resolved_bootstrap_inputs() -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    caller = build_litellm_completion_caller(
+        completion_fn=completion_fn,
+        bootstrap=ResolvedLlmBootstrapConfig(
+            api_key="test-api-key",
+            base_url="https://llm.example.test",
+        ),
+    )
+
+    caller(model="gpt-4o-mini", messages=[])
+
+    assert captured_kwargs["api_key"] == "test-api-key"
+    assert captured_kwargs["base_url"] == "https://llm.example.test"
+    assert captured_kwargs["model"] == "gpt-4o-mini"
+
+
+def test_build_litellm_text_generator_keeps_bootstrap_outside_request_surface() -> None:
+    request = LlmGenerationRequest(
+        messages=(LlmMessage(role="user", content="summarize"),),
+        model="gpt-4o-mini",
+        max_output_tokens=200,
+    )
+    captured_kwargs: dict[str, object] = {}
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return {
+            "model": "gpt-4o-mini",
+            "choices": [{"message": {"content": "normalized answer"}}],
+        }
+
+    generator = build_litellm_text_generator(
+        completion_fn=completion_fn,
+        bootstrap=ResolvedLlmBootstrapConfig(api_key="test-api-key"),
+    )
+    result = generator(request)
+
+    assert result.text == "normalized answer"
+    assert captured_kwargs["api_key"] == "test-api-key"
+    assert captured_kwargs["model"] == "gpt-4o-mini"
+    assert not hasattr(request, "api_key")
+
+
 def test_call_structured_generation_prefers_parsed_payload_when_present() -> None:
     request = LlmStructuredGenerationRequest(
         messages=(LlmMessage(role="user", content="extract claims"),),
@@ -112,3 +165,35 @@ def test_call_structured_generation_maps_unknown_provider_error_to_provider_erro
 
     with pytest.raises(LlmProviderError, match="RuntimeError"):
         call_structured_generation(completion_fn=completion_fn, request=request)
+
+
+def test_build_litellm_structured_generator_keeps_bootstrap_outside_request_surface() -> None:
+    request = LlmStructuredGenerationRequest(
+        messages=(LlmMessage(role="user", content="extract claims"),),
+        model="gpt-4o-mini",
+        schema_name="ClaimExtractionPayload",
+    )
+    captured_kwargs: dict[str, object] = {}
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return {
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "message": {"parsed": {"claims": [{"claim_id": "claim-1"}]}},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    generator = build_litellm_structured_generator(
+        completion_fn=completion_fn,
+        bootstrap=ResolvedLlmBootstrapConfig(base_url="https://llm.example.test"),
+    )
+    result = generator(request)
+
+    assert result.payload == {"claims": [{"claim_id": "claim-1"}]}
+    assert captured_kwargs["base_url"] == "https://llm.example.test"
+    assert captured_kwargs["response_format"] == {"type": "json_object"}
+    assert not hasattr(request, "base_url")

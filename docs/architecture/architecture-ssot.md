@@ -52,6 +52,7 @@ Build a system that helps an analyst gather sources, preserve raw evidence, extr
 - `src/sourcetrace/llm/litellm_client.py` should currently be read as a response/error normalization adapter shape, not as proof that LiteLLM bootstrap or `LITELLM_*` environment variables are already part of the implemented runtime contract.
 - A first minimal bootstrap contract is now in place inside that same LLM boundary: `LlmBootstrapConfig` lets SourceTrace declare the expected external env var names while keeping them outside request models and outside the application layer.
 - That same LLM boundary now also owns a small process-env resolver: `resolve_llm_bootstrap_config(...)` reads only the declared env var names from the current process environment, fails fast on missing or blank values, and still does not load `.env` inside the repo.
+- The LiteLLM adapter boundary now also owns the first real provider-bootstrap wiring helpers: `build_litellm_completion_caller(...)`, `build_litellm_text_generator(...)`, and `build_litellm_structured_generator(...)` inject resolved `api_key` / `base_url` values only at the adapter edge, keeping request models and application seams provider-neutral.
 
 ## Working hypotheses
 - Postgres plus pgvector is a sufficient MVP persistence baseline.
@@ -163,5 +164,5 @@ Recommended target stack for the next architectural phase:
 Next recommended step:
 - keep `.env` loading outside the repo unless a later slice explicitly changes that boundary; SourceTrace now only declares external env names via `LlmBootstrapConfig`
 - keep LiteLLM hidden behind the local boundary and avoid leaking provider details upward while broadening integration
-- next decide how real provider bootstrap wiring should consume the new process-env resolver before deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
+- next decide whether to add higher-level runtime assembly/factory wiring over the new LiteLLM bootstrap helpers before deeper runtime orchestration, richer evidence-link persistence, or web/API integration for the LLM-backed path
 - do not jump into broad platformization before those boundaries stay explicit in both code and docs

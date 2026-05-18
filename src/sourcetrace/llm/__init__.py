@@ -26,6 +26,11 @@ from sourcetrace.llm.interfaces import (
     StructuredLlmGenerationExecution,
     StructuredLlmGenerator,
 )
+from sourcetrace.llm.litellm_client import (
+    build_litellm_completion_caller,
+    build_litellm_structured_generator,
+    build_litellm_text_generator,
+)
 from sourcetrace.llm.models import (
     LlmGenerationRequest,
     LlmGenerationResult,
@@ -62,6 +67,9 @@ __all__ = [
     "StructuredLlmGenerator",
     "TokenUsage",
     "build_claim_extraction_gateway",
+    "build_litellm_completion_caller",
+    "build_litellm_structured_generator",
+    "build_litellm_text_generator",
     "build_structured_generation_execution",
     "resolve_llm_bootstrap_config",
 ]

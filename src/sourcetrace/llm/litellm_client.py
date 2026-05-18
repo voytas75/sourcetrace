@@ -3,7 +3,9 @@
 from collections.abc import Callable
 from typing import Any
 
+from sourcetrace.llm.config import ResolvedLlmBootstrapConfig
 from sourcetrace.llm.errors import map_litellm_error
+from sourcetrace.llm.interfaces import LlmTextGenerator, StructuredLlmGenerator
 from sourcetrace.llm.models import (
     LlmGenerationRequest,
     LlmGenerationResult,
@@ -29,6 +31,61 @@ def _extract_message_content(message: dict[str, Any]) -> str:
     if isinstance(content, str):
         return content
     return ""
+
+
+def build_litellm_completion_caller(
+    *,
+    completion_fn: Callable[..., dict[str, Any]],
+    bootstrap: ResolvedLlmBootstrapConfig,
+) -> Callable[..., dict[str, Any]]:
+    """Bind resolved bootstrap inputs into a LiteLLM-style completion callable."""
+
+    def caller(**kwargs: Any) -> dict[str, Any]:
+        if bootstrap.api_key is not None:
+            kwargs["api_key"] = bootstrap.api_key
+        if bootstrap.base_url is not None:
+            kwargs["base_url"] = bootstrap.base_url
+        return completion_fn(**kwargs)
+
+    return caller
+
+
+def build_litellm_text_generator(
+    *,
+    completion_fn: Callable[..., dict[str, Any]],
+    bootstrap: ResolvedLlmBootstrapConfig,
+) -> LlmTextGenerator:
+    """Create a provider-neutral text generator bound to resolved LiteLLM bootstrap."""
+
+    caller = build_litellm_completion_caller(
+        completion_fn=completion_fn,
+        bootstrap=bootstrap,
+    )
+
+    def generate_text(request: LlmGenerationRequest) -> LlmGenerationResult:
+        return call_text_generation(completion_fn=caller, request=request)
+
+    return generate_text
+
+
+def build_litellm_structured_generator(
+    *,
+    completion_fn: Callable[..., dict[str, Any]],
+    bootstrap: ResolvedLlmBootstrapConfig,
+) -> StructuredLlmGenerator:
+    """Create a provider-neutral structured generator bound to resolved LiteLLM bootstrap."""
+
+    caller = build_litellm_completion_caller(
+        completion_fn=completion_fn,
+        bootstrap=bootstrap,
+    )
+
+    def generate_structured(
+        request: LlmStructuredGenerationRequest,
+    ) -> LlmStructuredGenerationResult:
+        return call_structured_generation(completion_fn=caller, request=request)
+
+    return generate_structured
 
 
 def call_text_generation(
@@ -96,6 +153,9 @@ def call_structured_generation(
 
 
 __all__ = [
+    "build_litellm_completion_caller",
+    "build_litellm_structured_generator",
+    "build_litellm_text_generator",
     "call_structured_generation",
     "call_text_generation",
 ]
