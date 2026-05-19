@@ -307,7 +307,10 @@ def test_wsgi_app_exposes_configured_credibility_assessment_route() -> None:
 
 
 def test_wsgi_app_can_seed_document_then_run_credibility_assessment_route() -> None:
+    prompts: list[str] = []
+
     def draft_credibility(prompt: str) -> LlmGenerationResult:
+        prompts.append(prompt)
         return LlmGenerationResult(
             text="Seeded credibility note.",
             model="gpt-4.1-mini",
@@ -364,6 +367,7 @@ def test_wsgi_app_can_seed_document_then_run_credibility_assessment_route() -> N
     }
     assert status == "200 OK"
     assert ("Content-Type", "application/json; charset=utf-8") in headers
+    assert "doc-1" in prompts[0]
     assert json.loads(body)["credibility_assessment"] == {
         "assessment_id": "credibility-doc-1",
         "document_id": "doc-1",

@@ -25,15 +25,25 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility" in readme
     assert "Expected: `200 OK` with JSON containing `credibility_assessment.notes`" in readme
+    assert "The current `llm_draft_v1` output should be treated as an advisory draft" in readme
+    assert "It currently relies mostly on document metadata, source identity, and topic context" in readme
+    assert "not yet on full article-text analysis or claim-by-claim verification" in readme
     assert "## Example: run credibility on your own document payload" in readme
     assert 'document_id": "doc-custom-1"' in readme
     assert 'source_url": "https://example.test/your-article"' in readme
     assert 'title": "Your article title"' in readme
+    assert ".venv/bin/sourcetrace-www-start" in readme
+    assert ".venv/bin/sourcetrace-www-wait" in readme
+    assert ".venv/bin/sourcetrace-www-status" in readme
+    assert ".venv/bin/sourcetrace-www-stop" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/dev/documents" in readme
     assert 'curl -X POST http://127.0.0.1:8000/api/documents/doc-custom-1/credibility' in readme
     assert "Expected: `201 Created` with JSON echoing `document.document_id`" in readme
     assert "Expected: `200 OK` with JSON containing `credibility_assessment.notes` and `method`" in readme
     assert "## Reusable payload template" in readme
+    assert "## systemd --user example" in readme
+    assert ".venv/bin/sourcetrace-www-write-user-unit" in readme
+    assert "systemctl --user daemon-reload" in readme
     assert '"document_id": "{{document_id}}"' in readme
     assert '"source_url": "{{source_url}}"' in readme
     assert '"publisher": "{{publisher}}"' in readme

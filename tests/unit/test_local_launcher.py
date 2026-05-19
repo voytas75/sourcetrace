@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from os import environ
+from sys import executable
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,7 @@ from sourcetrace.local_launcher import (
     main,
 )
 from sourcetrace.web.delivery import SourceTraceDelivery
+from sourcetrace.www_control import start_main, status_main, stop_main, wait_main
 
 
 @dataclass
@@ -318,6 +320,122 @@ def test_main_serves_and_closes_runtime(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert main() == 0
     assert events == ["serve_forever", "server_close"]
+
+
+def test_www_start_main_writes_pid_file_and_preserves_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pid_file = tmp_path / "www.pid"
+    log_file = tmp_path / "www.log"
+    captured: dict[str, object] = {}
+
+    class _FakeProcess:
+        pid = 42424
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr("sourcetrace.www_control.Popen", fake_popen)
+    monkeypatch.setattr("sourcetrace.www_control._process_exists", lambda pid: False)
+    monkeypatch.setenv("SOURCETRACE_LLM_API_KEY", "from-env")
+
+    exit_code = start_main([
+        "--pid-file",
+        str(pid_file),
+        "--log-file",
+        str(log_file),
+    ])
+
+    out = capsys.readouterr().out
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    env = kwargs["env"]
+    assert isinstance(env, dict)
+
+    assert exit_code == 0
+    assert pid_file.read_text(encoding="utf-8") == "42424\n"
+    assert captured["command"] == [executable, "-m", "sourcetrace.local_launcher"]
+    assert env["SOURCETRACE_LLM_API_KEY"] == "from-env"
+    assert env["PYTHONPATH"].endswith("/src")
+    assert "Started Sourcetrace WWW (local-launcher) with PID 42424." in out
+
+
+def test_www_stop_main_removes_stale_pid_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pid_file = tmp_path / "www.pid"
+    pid_file.write_text("52525\n", encoding="utf-8")
+    monkeypatch.setattr("sourcetrace.www_control._process_exists", lambda pid: False)
+
+    exit_code = stop_main(["--pid-file", str(pid_file)])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert not pid_file.exists()
+    assert "Stale PID file removed" in out
+
+
+def test_www_status_main_reports_running_process(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pid_file = tmp_path / "www.pid"
+    pid_file.write_text("60606\n", encoding="utf-8")
+    monkeypatch.setattr("sourcetrace.www_control._process_exists", lambda pid: True)
+    monkeypatch.setattr("sourcetrace.www_control._http_ready", lambda host, port, timeout_seconds=0.5: True)
+
+    exit_code = status_main([
+        "--pid-file",
+        str(pid_file),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+    ])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "running" in out
+    assert "ready=yes" in out
+
+
+def test_www_status_main_reports_missing_process(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pid_file = tmp_path / "www.pid"
+    monkeypatch.setattr("sourcetrace.www_control._process_exists", lambda pid: False)
+
+    exit_code = status_main(["--pid-file", str(pid_file)])
+
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert "not running" in out
+
+
+def test_www_wait_main_succeeds_when_ready(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    attempts = {"count": 0}
+
+    def fake_ready(host: str, port: int, timeout_seconds: float = 0.5) -> bool:
+        attempts["count"] += 1
+        return attempts["count"] >= 2
+
+    monkeypatch.setattr("sourcetrace.www_control._http_ready", fake_ready)
+
+    exit_code = wait_main(["--timeout-seconds", "1", "--interval-seconds", "0.01"])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert attempts["count"] >= 2
+    assert "ready" in out
 
 
 def test_module_entrypoint_raises_system_exit_zero(monkeypatch: pytest.MonkeyPatch) -> None:

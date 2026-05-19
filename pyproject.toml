@@ -19,6 +19,11 @@ dev = [
 [project.scripts]
 sourcetrace-web = "sourcetrace.web.__main__:main"
 sourcetrace-local = "sourcetrace.local_launcher:main"
+sourcetrace-www-start = "sourcetrace.www_control:start_main"
+sourcetrace-www-status = "sourcetrace.www_control:status_main"
+sourcetrace-www-stop = "sourcetrace.www_control:stop_main"
+sourcetrace-www-wait = "sourcetrace.www_control:wait_main"
+sourcetrace-www-write-user-unit = "sourcetrace.www_control:write_systemd_unit_main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

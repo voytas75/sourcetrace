@@ -200,10 +200,16 @@ Do weryfikacji:
       -H 'Content-Type: application/json' \
       -d '{"assessment_method":"llm_draft_v1"}'`
    - Expected: `200 OK` with JSON containing `credibility_assessment.notes`
+   - The current `llm_draft_v1` output should be treated as an advisory draft.
+   - It currently relies mostly on document metadata, source identity, and topic context, not yet on full article-text analysis or claim-by-claim verification.
 
 ## Example: run credibility on your own document payload
 1. Start the repo-owned launcher so the in-memory document repository and LLM-backed credibility path live in the same process:
    - `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher'`
+   - or use the wrapper: `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-start'`
+   - readiness probe: `bash -lc 'cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-wait'`
+   - status: `bash -lc 'cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-status'`
+   - stop it later with: `bash -lc 'cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-stop'`
 2. Seed your own document payload into that running process:
    - `curl -X POST http://127.0.0.1:8000/api/dev/documents \
        -H 'Content-Type: application/json' \
@@ -229,10 +235,22 @@ Do weryfikacji:
 4. Repeat with another payload by changing only `document_id`, `case_id`, and the document metadata block above.
 
 ## Reusable payload template
-Use this as a copy-paste starting point for your own runs:
+Use this as a copy-paste starting point for your own runs.
+
+## systemd --user example
+If another user should manage the WWW runtime with `systemctl --user`, write the unit file:
+- `bash -lc 'cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-write-user-unit'`
+
+Then reload and manage it:
+- `systemctl --user daemon-reload`
+- `systemctl --user enable --now sourcetrace-www.service`
+- `systemctl --user status sourcetrace-www.service`
+- `systemctl --user stop sourcetrace-www.service`
+
+The generated unit defaults to the `local-launcher` mode and sources `~/.bashrc` before start, so the managing user still needs the required `SOURCETRACE_LLM_*` bootstrap env in their shell init.
 
 ```json
-{
+
   "document_id": "{{document_id}}",
   "case_id": "{{case_id}}",
   "source_type": "url",
