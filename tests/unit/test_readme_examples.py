@@ -15,16 +15,44 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Use `Ctrl+C` to stop the server cleanly." in readme
     assert "## Local smoke flow" in readme
     assert "uv run python -m sourcetrace.web" in readme
+    assert "curl http://127.0.0.1:8000/api/health" in readme
+    assert "curl http://127.0.0.1:8000/api/ready" in readme
+    assert "curl http://127.0.0.1:8000/api/runtime" in readme
+    assert "curl http://127.0.0.1:8000/api/capabilities" in readme
+    assert "Expected: `200 OK` with JSON containing `status: ready` and `checks`" in readme
+    assert "Expected: `200 OK` with JSON containing `runtime.entrypoint`" in readme
+    assert "Expected: `200 OK` with JSON listing `routes.product`, `routes.dev`, and runtime capability flags" in readme
+    assert "curl -X POST http://127.0.0.1:8000/api/cases" in readme
+    assert "Expected: `201 Created` with JSON containing `case.case_id`" in readme
+    assert "curl -X POST http://127.0.0.1:8000/api/cases/case-1/documents" in readme
+    assert "Expected: `201 Created` with JSON containing `document.document_id`" in readme
+    assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare" in readme
+    assert "Expected: `200 OK` with JSON containing `chunks`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/verify" in readme
+    assert '"chunk_id": "doc-1:chunk-1"' in readme
+    assert "curl http://127.0.0.1:8000/api/cases" in readme
+    assert "curl http://127.0.0.1:8000/api/cases/case-1" in readme
+    assert "curl http://127.0.0.1:8000/api/cases/case-1/documents" in readme
+    assert "curl http://127.0.0.1:8000/api/documents/doc-1" in readme
+    assert "curl http://127.0.0.1:8000/api/documents/doc-1/chunks" in readme
+    assert "curl http://127.0.0.1:8000/api/cases/case-1/claims" in readme
+    assert "curl http://127.0.0.1:8000/api/claims/claim-1" in readme
     assert "Expected: `200 OK` with JSON containing `verification.verdict`" in readme
-    assert "Expected: `200 OK` with JSON containing `evidence_links` and `evidence_summary`" in readme
+    assert "curl http://127.0.0.1:8000/api/claims/claim-1/evidence" in readme
+    assert "Expected: each returns `200 OK` after the relevant upstream step is completed" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/reviews" in readme
     assert "Expected: `200 OK` with JSON containing the persisted review payload" in readme
+    assert "curl http://127.0.0.1:8000/api/claims/claim-1/review" in readme
+    assert "Expected: `200 OK` with JSON containing the persisted review artifact" in readme
     assert "curl http://127.0.0.1:8000/api/claims/claim-1/verification" in readme
+    assert "curl http://127.0.0.1:8000/api/reports/case-1" in readme
+    assert "Expected: `200 OK` with canonical report JSON" in readme
     assert "curl http://127.0.0.1:8000/api/reports/case-1.md" in readme
     assert "Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility" in readme
     assert "Expected: `200 OK` with JSON containing `credibility_assessment.notes`" in readme
+    assert "curl http://127.0.0.1:8000/api/documents/doc-1/credibility" in readme
+    assert "Expected: `200 OK` with the latest persisted `credibility_assessment`" in readme
     assert "The current `llm_draft_v1` output should be treated as an advisory draft" in readme
     assert "It currently relies mostly on document metadata, source identity, and topic context" in readme
     assert "not yet on full article-text analysis or claim-by-claim verification" in readme

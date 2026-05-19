@@ -160,7 +160,49 @@ Do weryfikacji:
    - installed script variant: `PYTHONPATH=src uv run sourcetrace-local`
 2. Open `http://127.0.0.1:8000/`
    - Expected: `200 OK` HTML landing page listing the available smoke-test routes
-3. In another terminal, submit a minimal verification request:
+3. Check operational routes first:
+   - `curl http://127.0.0.1:8000/api/health`
+   - Expected: `200 OK` with `{ "status": "ok" }`
+   - `curl http://127.0.0.1:8000/api/ready`
+   - Expected: `200 OK` with JSON containing `status: ready` and `checks`
+   - `curl http://127.0.0.1:8000/api/runtime`
+   - Expected: `200 OK` with JSON containing `runtime.entrypoint`
+   - `curl http://127.0.0.1:8000/api/capabilities`
+   - Expected: `200 OK` with JSON listing `routes.product`, `routes.dev`, and runtime capability flags
+4. Create a case:
+   - `curl -X POST http://127.0.0.1:8000/api/cases \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "case_id": "case-1",
+        "title": "Bridge reopening",
+        "description": "Track public claims."
+      }'`
+   - Expected: `201 Created` with JSON containing `case.case_id`
+5. Attach a document to that case:
+   - `curl -X POST http://127.0.0.1:8000/api/cases/case-1/documents \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "document_id": "doc-1",
+        "source_type": "url",
+        "source_url": "https://example.test/bridge",
+        "publisher": "Example News",
+        "author": "Analyst",
+        "title": "Bridge update",
+        "published_at": "2026-05-18T00:00:00+00:00",
+        "retrieved_at": "2026-05-18T00:05:00+00:00",
+        "content_hash": "sha256:abc123",
+        "language": "en"
+      }'`
+   - Expected: `201 Created` with JSON containing `document.document_id`
+6. Prepare chunks for the document:
+   - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "raw_text": "The bridge reopened after inspection.\n\nTraffic resumed.",
+        "chunking_method": "paragraph-v1"
+      }'`
+   - Expected: `200 OK` with JSON containing `chunks`
+7. In another terminal, submit a minimal verification request:
    - `curl -X POST http://127.0.0.1:8000/api/verify \
      -H 'Content-Type: application/json' \
      -d '{
@@ -168,7 +210,7 @@ Do weryfikacji:
          "claim_id": "claim-1",
          "case_id": "case-1",
          "document_id": "doc-1",
-         "chunk_id": "chunk-1",
+         "chunk_id": "doc-1:chunk-1",
          "exact_text": "The bridge reopened after inspection.",
          "source_span_reference": "p1",
          "system_verdict": "insufficient_evidence",
@@ -177,10 +219,18 @@ Do weryfikacji:
        "requested_k": 2
      }'`
    - Expected: `200 OK` with JSON containing `verification.verdict`
-3. Inspect the verification artifact:
+8. Inspect the resource reads:
+   - `curl http://127.0.0.1:8000/api/cases`
+   - `curl http://127.0.0.1:8000/api/cases/case-1`
+   - `curl http://127.0.0.1:8000/api/cases/case-1/documents`
+   - `curl http://127.0.0.1:8000/api/documents/doc-1`
+   - `curl http://127.0.0.1:8000/api/documents/doc-1/chunks`
+   - `curl http://127.0.0.1:8000/api/cases/case-1/claims`
+   - `curl http://127.0.0.1:8000/api/claims/claim-1`
    - `curl http://127.0.0.1:8000/api/claims/claim-1/verification`
-   - Expected: `200 OK` with JSON containing `evidence_links` and `evidence_summary`
-4. Record a minimal analyst review so the case report surface has reviewed content:
+   - `curl http://127.0.0.1:8000/api/claims/claim-1/evidence`
+   - Expected: each returns `200 OK` after the relevant upstream step is completed
+9. Record a minimal analyst review so the case report surface has reviewed content:
    - `curl -X POST http://127.0.0.1:8000/api/reviews \
      -H 'Content-Type: application/json' \
      -d '{
@@ -192,14 +242,20 @@ Do weryfikacji:
        "review_notes": "Accepted for report."
      }'`
    - Expected: `200 OK` with JSON containing the persisted review payload
-5. Export the markdown report:
+   - `curl http://127.0.0.1:8000/api/claims/claim-1/review`
+   - Expected: `200 OK` with JSON containing the persisted review artifact
+10. Export the report:
+   - `curl http://127.0.0.1:8000/api/reports/case-1`
+   - Expected: `200 OK` with canonical report JSON
    - `curl http://127.0.0.1:8000/api/reports/case-1.md`
    - Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`
-6. Draft advisory document credibility notes:
+11. Draft advisory document credibility notes:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility \
       -H 'Content-Type: application/json' \
       -d '{"assessment_method":"llm_draft_v1"}'`
    - Expected: `200 OK` with JSON containing `credibility_assessment.notes`
+   - `curl http://127.0.0.1:8000/api/documents/doc-1/credibility`
+   - Expected: `200 OK` with the latest persisted `credibility_assessment`
    - The current `llm_draft_v1` output should be treated as an advisory draft.
    - It currently relies mostly on document metadata, source identity, and topic context, not yet on full article-text analysis or claim-by-claim verification.
 
