@@ -1,21 +1,32 @@
 """Thin analyst-facing delivery service over the runtime path."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sourcetrace.application import (
+    CaseCreationOutcome,
+    CaseCreationRequest,
+    ClaimExtractionOutcome,
+    ClaimExtractionRequest,
+    ClaimExtractionRuntime,
     CredibilityAssessmentExecution,
     CredibilityAssessmentOutcome,
     CredibilityAssessmentRequest,
     ClaimVerificationExecution,
+    DocumentPreparationOutcome,
+    DocumentPreparationRequest,
     ReportAssemblyExecution,
     ReportAssemblyOutcome,
     ReportAssemblyRequest,
+    SourceIngestionOutcome,
+    SourceIngestionRequest,
     build_llm_credibility_assessor,
 )
+from sourcetrace.application.extraction_runtime import build_llm_claim_extractor
 from sourcetrace.domain import (
+    Case,
     CaseReport,
     Claim,
     ClaimEvidenceLink,
@@ -23,6 +34,7 @@ from sourcetrace.domain import (
     ClaimReviewDecision,
     ClaimVerification,
     Document,
+    DocumentChunk,
     DocumentCredibilityAssessment,
 )
 from sourcetrace.domain.types import (
@@ -42,7 +54,11 @@ from sourcetrace.storage import create_in_memory_persistence
 from sourcetrace.storage.interfaces import CorePersistence
 
 if TYPE_CHECKING:
-    from sourcetrace.llm.interfaces import CredibilityDraftGateway
+    from sourcetrace.llm.interfaces import (
+        ClaimExtractionGateway,
+        ClaimNormalizationGateway,
+        CredibilityDraftGateway,
+    )
 
 
 @dataclass(frozen=True)
@@ -73,12 +89,178 @@ class VerificationInspection:
 
 @dataclass(frozen=True)
 class SourceTraceDelivery:
-    """Minimal delivery surface for verification, review, and reports."""
+    """Delivery surface for product resources, verification, review, and reports."""
 
     persistence: CorePersistence
     verification_runtime: ClaimVerificationRuntime
     report_assembly: ReportAssemblyExecution
     credibility_assessment: CredibilityAssessmentExecution | None = None
+    claim_extraction_runtime: ClaimExtractionRuntime | None = None
+
+    def create_case(
+        self,
+        request: CaseCreationRequest,
+    ) -> CaseCreationOutcome:
+        """Create and persist a case resource."""
+
+        case = Case(
+            case_id=request.case_id,
+            title=request.title,
+            description=request.description,
+        )
+        case = self.persistence.cases.save_case(case)
+        return CaseCreationOutcome(request=request, case=case)
+
+    def list_cases(self) -> tuple[Case, ...]:
+        """List persisted case resources."""
+
+        return self.persistence.cases.list_cases()
+
+    def get_case(self, case_id: str) -> Case | None:
+        """Return one persisted case resource."""
+
+        return self.persistence.cases.get_case(case_id)
+
+    def ingest_document(
+        self,
+        request: SourceIngestionRequest,
+        document: Document,
+    ) -> SourceIngestionOutcome | None:
+        """Attach a document resource to an existing case."""
+
+        case = self.persistence.cases.get_case(request.case_id)
+        if case is None:
+            return None
+        document = self.persistence.documents.save_document(document)
+        self._remember_case_document(case, document.document_id)
+        return SourceIngestionOutcome(request=request, document=document)
+
+    def list_documents_for_case(self, case_id: str) -> tuple[Document, ...] | None:
+        """List persisted documents for an existing case."""
+
+        if self.persistence.cases.get_case(case_id) is None:
+            return None
+        return self.persistence.documents.list_documents_for_case(case_id)
+
+    def get_document(self, document_id: str) -> Document | None:
+        """Return one persisted document resource."""
+
+        return self.persistence.documents.get_document(document_id)
+
+    def prepare_document(
+        self,
+        request: DocumentPreparationRequest,
+        raw_text: str,
+    ) -> DocumentPreparationOutcome | None:
+        """Prepare caller-provided document text into persisted chunks."""
+
+        document = self.persistence.documents.get_document(request.document_id)
+        if document is None or document.case_id != request.case_id:
+            return None
+        chunks = self.persistence.documents.save_chunks(
+            _chunks_from_text(
+                case_id=request.case_id,
+                document_id=request.document_id,
+                raw_text=raw_text,
+            )
+        )
+        return DocumentPreparationOutcome(
+            request=request,
+            document=document,
+            chunks=chunks,
+        )
+
+    def list_chunks_for_document(
+        self,
+        document_id: str,
+    ) -> tuple[DocumentChunk, ...] | None:
+        """List prepared chunks for one document."""
+
+        document = self.persistence.documents.get_document(document_id)
+        if document is None:
+            return None
+        return self.persistence.documents.list_chunks_for_document(
+            document.case_id,
+            document.document_id,
+        )
+
+    def extract_claims(
+        self,
+        document_id: str,
+        *,
+        extraction_method: str | None = None,
+    ) -> ClaimExtractionOutcome | None:
+        """Run configured claim extraction over a prepared document."""
+
+        if self.claim_extraction_runtime is None:
+            return None
+        document = self.persistence.documents.get_document(document_id)
+        if document is None:
+            return None
+        chunks = self.persistence.documents.list_chunks_for_document(
+            document.case_id,
+            document.document_id,
+        )
+        request = ClaimExtractionRequest(
+            case_id=document.case_id,
+            document_id=document.document_id,
+            chunk_ids=tuple(chunk.chunk_id for chunk in chunks),
+            extraction_method=extraction_method,
+        )
+        outcome = self.claim_extraction_runtime.extract_claims(
+            request,
+            document=document,
+            chunks=chunks,
+        )
+        claims = self.persistence.claims.save_claims(outcome.claims)
+        evidence_links = self.persistence.claims.save_evidence_links(
+            outcome.evidence_links
+        )
+        self._remember_case_claims(
+            document.case_id,
+            tuple(claim.claim_id for claim in claims),
+        )
+        return ClaimExtractionOutcome(
+            request=outcome.request,
+            document=outcome.document,
+            chunks=outcome.chunks,
+            claims=claims,
+            evidence_links=evidence_links,
+            dropped_claim_items=outcome.dropped_claim_items,
+            dropped_evidence_items=outcome.dropped_evidence_items,
+        )
+
+    def list_claims_for_case(self, case_id: str) -> tuple[Claim, ...] | None:
+        """List persisted claims for an existing case."""
+
+        if self.persistence.cases.get_case(case_id) is None:
+            return None
+        return self.persistence.claims.list_claims_for_case(case_id)
+
+    def get_claim(self, claim_id: str) -> Claim | None:
+        """Return one persisted claim resource."""
+
+        return self.persistence.claims.get_claim(claim_id)
+
+    def get_claim_verification(self, claim_id: str) -> ClaimVerification | None:
+        """Return a persisted verification artifact for a claim."""
+
+        return self.persistence.claims.get_verification(claim_id)
+
+    def get_claim_review(self, claim_id: str) -> ClaimReviewDecision | None:
+        """Return a persisted review artifact for a claim."""
+
+        return self.persistence.claims.get_review_decision(claim_id)
+
+    def list_claim_evidence(
+        self,
+        claim_id: str,
+    ) -> tuple[ClaimEvidenceLink, ...] | None:
+        """List persisted evidence links for a claim."""
+
+        if self.persistence.claims.get_claim(claim_id) is None:
+            return None
+        return self.persistence.claims.list_evidence_links_for_claim(claim_id)
 
     def verify_claim(
         self,
@@ -86,7 +268,7 @@ class SourceTraceDelivery:
     ) -> ClaimVerificationRuntimeOutcome:
         """Run retrieval-backed verification and persist the resulting records."""
 
-        return self.verification_runtime(
+        outcome = self.verification_runtime(
             ClaimVerificationRuntimeRequest(
                 claim=request.claim,
                 requested_k=request.requested_k,
@@ -95,15 +277,17 @@ class SourceTraceDelivery:
                 document_ids=request.document_ids,
             )
         )
+        self._remember_case_claims(request.claim.case_id, (request.claim.claim_id,))
+        return outcome
 
     def inspect_verification(self, claim_id: str) -> VerificationInspection | None:
         """Return the persisted analyst inspection view for one verified claim."""
 
         claim = self.persistence.claims.get_claim(claim_id)
-        verification = _get_verification(self.persistence, claim_id)
+        verification = self.persistence.claims.get_verification(claim_id)
         if claim is None or verification is None:
             return None
-        evidence_links = _list_evidence_links(self.persistence, claim_id)
+        evidence_links = self.persistence.claims.list_evidence_links_for_claim(claim_id)
         review_decision = self.persistence.claims.get_review_decision(claim_id)
         return VerificationInspection(
             claim=claim,
@@ -157,11 +341,124 @@ class SourceTraceDelivery:
         document = self.persistence.documents.get_document(document_id)
         if document is None or self.credibility_assessment is None:
             return None
-        return self.credibility_assessment.assess_credibility(
+        outcome = self.credibility_assessment.assess_credibility(
             CredibilityAssessmentRequest(
                 document=document,
                 assessment_method=assessment_method,
             )
+        )
+        assessment = self.persistence.documents.save_credibility_assessment(
+            outcome.assessment
+        )
+        return CredibilityAssessmentOutcome(
+            request=outcome.request,
+            assessment=assessment,
+        )
+
+    def get_document_credibility(
+        self,
+        document_id: str,
+    ) -> DocumentCredibilityAssessment | None:
+        """Return the latest persisted credibility assessment for a document."""
+
+        return self.persistence.documents.get_credibility_assessment(document_id)
+
+    def readiness_payload(self) -> dict[str, object]:
+        """Return minimal operational readiness metadata."""
+
+        return {
+            "status": "ready",
+            "checks": {
+                "delivery": True,
+                "persistence": True,
+                "verification_runtime": True,
+                "claim_extraction": self.claim_extraction_runtime is not None,
+                "credibility_assessment": self.credibility_assessment is not None,
+            },
+        }
+
+    def runtime_payload(self) -> dict[str, object]:
+        """Return delivery/runtime composition metadata."""
+
+        return {
+            "runtime": {
+                "entrypoint": "wsgi",
+                "storage": self.persistence.__class__.__name__,
+                "verification_runtime": "enabled",
+                "claim_extraction": _enabled(self.claim_extraction_runtime),
+                "credibility_assessment": _enabled(self.credibility_assessment),
+                "reporting": "enabled",
+                "dev_routes": "enabled",
+            }
+        }
+
+    def capabilities_payload(self) -> dict[str, object]:
+        """Return supported HTTP resource and action capabilities."""
+
+        return {
+            "capabilities": {
+                "cases": ["create", "list", "get"],
+                "documents": ["create", "get", "list_for_case", "prepare", "chunks"],
+                "claims": ["list_for_case", "get", "extract", "verify"],
+                "evidence": ["list_for_claim"],
+                "reviews": ["create", "get"],
+                "credibility_assessments": ["create", "get"],
+                "reports": ["get_json", "get_markdown"],
+            },
+            "runtime": {
+                "claim_extraction": self.claim_extraction_runtime is not None,
+                "credibility_assessment": self.credibility_assessment is not None,
+            },
+            "routes": {
+                "product": [
+                    "/api/cases",
+                    "/api/cases/{case_id}",
+                    "/api/cases/{case_id}/documents",
+                    "/api/cases/{case_id}/claims",
+                    "/api/documents/{document_id}",
+                    "/api/documents/{document_id}/prepare",
+                    "/api/documents/{document_id}/chunks",
+                    "/api/documents/{document_id}/extract-claims",
+                    "/api/documents/{document_id}/credibility",
+                    "/api/claims/{claim_id}",
+                    "/api/claims/{claim_id}/verification",
+                    "/api/claims/{claim_id}/evidence",
+                    "/api/claims/{claim_id}/review",
+                    "/api/verify",
+                    "/api/reviews",
+                    "/api/reports/{case_id}",
+                    "/api/reports/{case_id}.json",
+                    "/api/reports/{case_id}.md",
+                ],
+                "dev": ["/api/dev/documents"],
+                "html": ["/", "/cases/{case_id}"],
+            },
+        }
+
+    def _remember_case_document(self, case: Case, document_id: str) -> None:
+        if document_id in case.document_ids:
+            return
+        self.persistence.cases.save_case(
+            replace(case, document_ids=case.document_ids + (document_id,))
+        )
+
+    def _remember_case_claims(
+        self,
+        case_id: str,
+        claim_ids: tuple[str, ...],
+    ) -> None:
+        case = self.persistence.cases.get_case(case_id)
+        if case is None:
+            return
+        new_claim_ids = tuple(
+            claim_id
+            for claim_id in claim_ids
+            if claim_id not in case.claim_ids
+        )
+        if not new_claim_ids:
+            return
+        self.persistence.cases.save_case(
+            replace(case, claim_ids=case.claim_ids + new_claim_ids)
         )
 
 
@@ -225,6 +522,9 @@ def create_default_delivery(
     persistence: CorePersistence | None = None,
     credibility_draft: "CredibilityDraftGateway | None" = None,
     credibility_assessed_at: Callable[[], datetime] | None = None,
+    claim_extraction: "ClaimExtractionGateway | None" = None,
+    claim_normalization: "ClaimNormalizationGateway | None" = None,
+    claim_extraction_runtime: ClaimExtractionRuntime | None = None,
 ) -> SourceTraceDelivery:
     """Create the default in-memory analyst delivery surface."""
 
@@ -245,12 +545,99 @@ def create_default_delivery(
         credibility_draft=credibility_draft,
         credibility_assessed_at=credibility_assessed_at,
     )
+    claim_extraction_runtime = claim_extraction_runtime or _build_claim_extraction_runtime(
+        claim_extraction=claim_extraction,
+        claim_normalization=claim_normalization,
+    )
     return SourceTraceDelivery(
         persistence=persistence,
         verification_runtime=verification_runtime,
         report_assembly=report_assembly,
         credibility_assessment=credibility_assessment,
+        claim_extraction_runtime=claim_extraction_runtime,
     )
+
+
+def case_to_payload(case: Case) -> dict[str, object]:
+    """Serialize a case for JSON API responses."""
+
+    return {
+        "case_id": case.case_id,
+        "title": case.title,
+        "description": case.description,
+        "document_ids": list(case.document_ids),
+        "claim_ids": list(case.claim_ids),
+    }
+
+
+def chunk_to_payload(chunk: DocumentChunk) -> dict[str, object]:
+    """Serialize a document chunk for JSON API responses."""
+
+    return {
+        "chunk_id": chunk.chunk_id,
+        "case_id": chunk.case_id,
+        "document_id": chunk.document_id,
+        "raw_text": chunk.raw_text,
+        "start_char": chunk.start_char,
+        "end_char": chunk.end_char,
+        "chunk_index": chunk.chunk_index,
+        "position_reference": chunk.position_reference,
+        "previous_chunk_id": chunk.previous_chunk_id,
+        "next_chunk_id": chunk.next_chunk_id,
+    }
+
+
+def review_decision_to_payload(
+    review_decision: ClaimReviewDecision,
+) -> dict[str, object]:
+    """Serialize a human review decision for JSON API responses."""
+
+    return {
+        "claim_id": review_decision.claim_id,
+        "case_id": review_decision.case_id,
+        "human_review_status": review_decision.human_review_status.value,
+        "analyst_disposition": (
+            review_decision.analyst_disposition.value
+            if review_decision.analyst_disposition is not None
+            else None
+        ),
+        "final_verdict": (
+            review_decision.final_verdict.value
+            if review_decision.final_verdict is not None
+            else None
+        ),
+        "review_notes": review_decision.review_notes,
+    }
+
+
+def document_preparation_outcome_to_payload(
+    outcome: DocumentPreparationOutcome,
+) -> dict[str, object]:
+    """Serialize a document preparation outcome for JSON API responses."""
+
+    return {
+        "document": document_to_payload(outcome.document),
+        "chunks": [chunk_to_payload(chunk) for chunk in outcome.chunks],
+    }
+
+
+def claim_extraction_outcome_to_payload(
+    outcome: ClaimExtractionOutcome,
+) -> dict[str, object]:
+    """Serialize a claim extraction outcome for JSON API responses."""
+
+    return {
+        "document": document_to_payload(outcome.document),
+        "chunks": [chunk_to_payload(chunk) for chunk in outcome.chunks],
+        "claims": [claim_to_payload(claim) for claim in outcome.claims],
+        "evidence_links": [
+            evidence_link_to_payload(link) for link in outcome.evidence_links
+        ],
+        "diagnostics": {
+            "dropped_claim_items": outcome.dropped_claim_items,
+            "dropped_evidence_items": outcome.dropped_evidence_items,
+        },
+    }
 
 
 def verification_inspection_to_payload(
@@ -398,6 +785,24 @@ def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
             ]
         )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def case_creation_request_from_payload(
+    payload: dict[str, object],
+) -> CaseCreationRequest:
+    """Deserialize a case creation payload."""
+
+    case_id = str(payload.get("case_id") or "").strip()
+    title = str(payload.get("title") or "").strip()
+    if not case_id:
+        raise ValueError("case_id is required.")
+    if not title:
+        raise ValueError("title is required.")
+    return CaseCreationRequest(
+        case_id=case_id,
+        title=title,
+        description=_optional_str(payload.get("description")),
+    )
 
 
 def claim_from_payload(payload: dict[str, object]) -> Claim:
@@ -549,6 +954,21 @@ def _build_credibility_assessment_execution(
     )
 
 
+def _build_claim_extraction_runtime(
+    *,
+    claim_extraction: "ClaimExtractionGateway | None",
+    claim_normalization: "ClaimNormalizationGateway | None",
+) -> ClaimExtractionRuntime | None:
+    if claim_extraction is None:
+        return None
+    return ClaimExtractionRuntime(
+        extract_claims=build_llm_claim_extractor(
+            extract_claims=claim_extraction,
+            normalize_claim=claim_normalization,
+        )
+    )
+
+
 def _get_verification(
     persistence: CorePersistence,
     claim_id: str,
@@ -577,6 +997,57 @@ def _list_evidence_links(
     if not callable(list_links):
         return ()
     return tuple(list_links(claim_id))
+
+
+def _chunks_from_text(
+    *,
+    case_id: str,
+    document_id: str,
+    raw_text: str,
+) -> tuple[DocumentChunk, ...]:
+    blocks = _text_blocks(raw_text)
+    chunks: list[DocumentChunk] = []
+    search_from = 0
+    for index, block in enumerate(blocks, start=1):
+        start_char = raw_text.find(block, search_from)
+        if start_char < 0:
+            start_char = search_from
+        end_char = start_char + len(block)
+        chunk_id = f"{document_id}:chunk-{index}"
+        chunks.append(
+            DocumentChunk(
+                chunk_id=chunk_id,
+                case_id=case_id,
+                document_id=document_id,
+                raw_text=block,
+                start_char=start_char,
+                end_char=end_char,
+                chunk_index=index - 1,
+                position_reference=f"p{index}",
+                previous_chunk_id=(
+                    f"{document_id}:chunk-{index - 1}" if index > 1 else None
+                ),
+                next_chunk_id=(
+                    f"{document_id}:chunk-{index + 1}"
+                    if index < len(blocks)
+                    else None
+                ),
+            )
+        )
+        search_from = end_char
+    return tuple(chunks)
+
+
+def _text_blocks(raw_text: str) -> tuple[str, ...]:
+    blocks = tuple(block.strip() for block in raw_text.split("\n\n") if block.strip())
+    if blocks:
+        return blocks
+    stripped = raw_text.strip()
+    return (stripped,) if stripped else ()
+
+
+def _enabled(value: object | None) -> str:
+    return "enabled" if value is not None else "disabled"
 
 
 def _count_evidence_links(
@@ -723,9 +1194,14 @@ __all__ = [
     "SourceTraceDelivery",
     "VerificationDeliveryRequest",
     "VerificationInspection",
+    "case_creation_request_from_payload",
+    "case_to_payload",
+    "chunk_to_payload",
+    "claim_extraction_outcome_to_payload",
     "claim_from_payload",
     "claim_to_payload",
     "create_default_delivery",
+    "document_preparation_outcome_to_payload",
     "document_from_payload",
     "document_to_payload",
     "evidence_link_to_payload",
@@ -734,6 +1210,7 @@ __all__ = [
     "report_entry_to_payload",
     "report_outcome_to_payload",
     "review_decision_from_payload",
+    "review_decision_to_payload",
     "verification_inspection_to_payload",
     "verification_outcome_to_payload",
     "verification_to_payload",

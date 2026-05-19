@@ -12,6 +12,7 @@ from sourcetrace.domain.claims import (
     ClaimVerification,
 )
 from sourcetrace.domain.documents import Document
+from sourcetrace.domain.documents import DocumentCredibilityAssessment
 
 
 class CaseRepository(Protocol):
@@ -21,6 +22,9 @@ class CaseRepository(Protocol):
         ...
 
     def get_case(self, case_id: str) -> Case | None:
+        ...
+
+    def list_cases(self) -> tuple[Case, ...]:
         ...
 
 
@@ -33,6 +37,9 @@ class DocumentRepository(Protocol):
     def get_document(self, document_id: str) -> Document | None:
         ...
 
+    def list_documents_for_case(self, case_id: str) -> tuple[Document, ...]:
+        ...
+
     def save_chunks(self, chunks: tuple[DocumentChunk, ...]) -> tuple[DocumentChunk, ...]:
         ...
 
@@ -41,6 +48,21 @@ class DocumentRepository(Protocol):
         case_id: str,
         document_id: str,
     ) -> tuple[DocumentChunk, ...]:
+        ...
+
+    def list_chunks_for_case(self, case_id: str) -> tuple[DocumentChunk, ...]:
+        ...
+
+    def save_credibility_assessment(
+        self,
+        assessment: DocumentCredibilityAssessment,
+    ) -> DocumentCredibilityAssessment:
+        ...
+
+    def get_credibility_assessment(
+        self,
+        document_id: str,
+    ) -> DocumentCredibilityAssessment | None:
         ...
 
 
@@ -65,10 +87,28 @@ class ClaimRepository(Protocol):
     def save_verification(self, verification: ClaimVerification) -> ClaimVerification:
         ...
 
+    def get_verification(self, claim_id: str) -> ClaimVerification | None:
+        ...
+
     def save_review_decision(
         self,
         review_decision: ClaimReviewDecision,
     ) -> ClaimReviewDecision:
+        ...
+
+    def get_review_decision(self, claim_id: str) -> ClaimReviewDecision | None:
+        ...
+
+    def list_review_decisions_for_case(
+        self,
+        case_id: str,
+    ) -> tuple[ClaimReviewDecision, ...]:
+        ...
+
+    def list_evidence_links_for_claim(
+        self,
+        claim_id: str,
+    ) -> tuple[ClaimEvidenceLink, ...]:
         ...
 
 

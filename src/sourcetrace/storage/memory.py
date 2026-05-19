@@ -9,6 +9,7 @@ from sourcetrace.domain.claims import (
     ClaimVerification,
 )
 from sourcetrace.domain.documents import Document
+from sourcetrace.domain.documents import DocumentCredibilityAssessment
 from sourcetrace.storage.interfaces import CorePersistence
 
 
@@ -25,6 +26,12 @@ class InMemoryCaseRepository:
     def get_case(self, case_id: str) -> Case | None:
         return self._cases.get(case_id)
 
+    def list_cases(self) -> tuple[Case, ...]:
+        return tuple(
+            self._cases[case_id]
+            for case_id in sorted(self._cases)
+        )
+
 
 class InMemoryDocumentRepository:
     """Document and chunk repository backed by process-local dictionaries."""
@@ -33,6 +40,7 @@ class InMemoryDocumentRepository:
         self._documents: dict[str, Document] = {}
         self._chunks_by_id: dict[str, DocumentChunk] = {}
         self._chunk_ids_by_document: dict[tuple[str, str], list[str]] = {}
+        self._credibility_assessments: dict[str, DocumentCredibilityAssessment] = {}
 
     def save_document(self, document: Document) -> Document:
         self._documents[document.document_id] = document
@@ -40,6 +48,14 @@ class InMemoryDocumentRepository:
 
     def get_document(self, document_id: str) -> Document | None:
         return self._documents.get(document_id)
+
+    def list_documents_for_case(self, case_id: str) -> tuple[Document, ...]:
+        documents = (
+            document
+            for document in self._documents.values()
+            if document.case_id == case_id
+        )
+        return tuple(sorted(documents, key=lambda document: document.document_id))
 
     def save_chunks(self, chunks: tuple[DocumentChunk, ...]) -> tuple[DocumentChunk, ...]:
         for chunk in chunks:
@@ -68,6 +84,19 @@ class InMemoryDocumentRepository:
         return tuple(
             sorted(chunks, key=lambda chunk: (chunk.document_id, chunk.chunk_index))
         )
+
+    def save_credibility_assessment(
+        self,
+        assessment: DocumentCredibilityAssessment,
+    ) -> DocumentCredibilityAssessment:
+        self._credibility_assessments[assessment.document_id] = assessment
+        return assessment
+
+    def get_credibility_assessment(
+        self,
+        document_id: str,
+    ) -> DocumentCredibilityAssessment | None:
+        return self._credibility_assessments.get(document_id)
 
 
 class InMemoryClaimRepository:
@@ -129,6 +158,17 @@ class InMemoryClaimRepository:
 
     def get_review_decision(self, claim_id: str) -> ClaimReviewDecision | None:
         return self._review_decisions.get(claim_id)
+
+    def list_review_decisions_for_case(
+        self,
+        case_id: str,
+    ) -> tuple[ClaimReviewDecision, ...]:
+        decisions = (
+            decision
+            for decision in self._review_decisions.values()
+            if decision.case_id == case_id
+        )
+        return tuple(sorted(decisions, key=lambda decision: decision.claim_id))
 
 
 def create_in_memory_persistence() -> CorePersistence:

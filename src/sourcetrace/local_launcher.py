@@ -50,7 +50,11 @@ def build_local_server_runtime(
         completion_fn=_resolve_completion_fn(completion_fn),
         config=build_default_llm_config(),
     )
-    delivery = create_default_delivery(credibility_draft=llm_runtime.credibility_draft)
+    delivery = create_default_delivery(
+        credibility_draft=llm_runtime.credibility_draft,
+        claim_extraction=llm_runtime.claim_extraction,
+        claim_normalization=llm_runtime.claim_normalization,
+    )
     return run_local_server(delivery=delivery)
 
 
