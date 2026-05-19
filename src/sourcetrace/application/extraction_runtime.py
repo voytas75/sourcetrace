@@ -27,7 +27,15 @@ _CONVERSATIONAL_CLAIM_PATTERNS = (
     "let me know if you need help",
     "let me know if you need",
     "thank you for your update",
+    "thank you for the update",
     "it looks like you mentioned",
+    "let me know how i can assist",
+    "please provide more context",
+    "so i can assist you better",
+    "are you asking for more details",
+    "here are a few ways you might do so",
+    "if you need to expand or clarify this statement",
+    "help drafting a report, summary, or announcement",
 )
 
 
@@ -122,6 +130,8 @@ def _claim_text_for(
     if normalize_claim is None or not exact_text:
         return exact_text
     normalized = normalize_claim(exact_text).text.strip()
+    if _looks_conversational_response(normalized):
+        return exact_text
     return normalized or exact_text
 
 
@@ -167,7 +177,11 @@ def _is_conversational_claim_payload(item: dict[str, object]) -> bool:
     claim_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS)
     if claim_text is None:
         return False
-    normalized = claim_text.casefold()
+    return _looks_conversational_response(claim_text)
+
+
+def _looks_conversational_response(text: str) -> bool:
+    normalized = text.casefold()
     return any(pattern in normalized for pattern in _CONVERSATIONAL_CLAIM_PATTERNS)
 
 
