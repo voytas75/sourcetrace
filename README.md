@@ -291,6 +291,8 @@ Do weryfikacji:
   - raw input paragraph
   - final persisted `exact_text`
   - whether the bad text appeared in all claims or only some
+- Recommended note-taking format:
+  - `docs/plans/test-use-observation-template.md`
 - Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles; the fallback is improved, but not fully solved.
 
 ## Example: run credibility on your own document payload
