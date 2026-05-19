@@ -1,4 +1,4 @@
-from sourcetrace.llm import LlmBootstrapConfig, LlmTaskConfig, SourceTraceLlmConfig
+from sourcetrace.llm import LlmBootstrapConfig, LlmProfileConfig, LlmTaskConfig, SourceTraceLlmConfig
 from sourcetrace.runtime_config import build_default_llm_config
 
 
@@ -13,19 +13,30 @@ def test_build_default_llm_config_returns_expected_bootstrap_and_task_defaults()
     )
     assert config.default_timeout_seconds == 30.0
     assert config.default_max_output_tokens == 1200
-    assert config.tasks == {
-        "claim_extraction": LlmTaskConfig(
+    assert config.profiles == {
+        "claim_extraction_default": LlmProfileConfig(
             model="azure/gpt-4.1",
             temperature=0.0,
         ),
-        "claim_normalization": LlmTaskConfig(
+        "claim_normalization_default": LlmProfileConfig(
             model="azure/gpt-4.1",
             temperature=0.0,
             max_output_tokens=400,
         ),
-        "credibility_draft": LlmTaskConfig(
+        "credibility_assessment_default": LlmProfileConfig(
             model="azure/gpt-5.4",
             temperature=0.2,
             max_output_tokens=600,
+        ),
+    }
+    assert config.tasks == {
+        "claim_extraction": LlmTaskConfig(
+            profile="claim_extraction_default",
+        ),
+        "claim_normalization": LlmTaskConfig(
+            profile="claim_normalization_default",
+        ),
+        "credibility_draft": LlmTaskConfig(
+            profile="credibility_assessment_default",
         ),
     }

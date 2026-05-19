@@ -31,7 +31,7 @@ Confirmed now:
 - extraction runtime string normalization is now trim-aware: whitespace-only claim/evidence fields are treated as missing, accepted strings are stripped before mapping, and dropped-item diagnostics stay aligned with that normalization, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `164 passed`
 - source-span fallback is now slightly refined for single-chunk extraction requests: when normalized claim span fields are blank, the runtime can fall back to the lone request chunk’s `position_reference` instead of `chunk-span:unknown`, while multi-chunk requests keep the previous conservative behavior, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
 - extraction runtime normalization helpers are now slightly cleaner internally: repeated trim-aware string lookups were consolidated behind small helper functions without changing claim/evidence filtering, diagnostics, or fallback behavior, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
-- the current LLM layer is still intentionally provider-bootstrap-light: SourceTrace-owned task config covers only task routing (`model`, `temperature`, `max_output_tokens`), the repo does not load `.env` itself, and LiteLLM remains only a hidden adapter shape until a separate runtime configuration contract is implemented, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
+- the current LLM layer is still intentionally provider-bootstrap-light: SourceTrace-owned task config binds task intent to logical profiles, profile config owns concrete routing (`model`, `temperature`, `max_output_tokens`), the repo does not load `.env` itself, and LiteLLM remains only a hidden adapter shape until a separate runtime configuration contract is implemented, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
 - a minimal LLM bootstrap contract is now present without breaking provider-neutral seams: `SourceTraceLlmConfig` can declare explicit external env var names through `LlmBootstrapConfig`, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `168 passed`
 - that same LLM boundary now also includes a small process-env bootstrap resolver: `resolve_llm_bootstrap_config(...)` reads only the declared env var names, fails fast on missing/blank values, still does not load `.env`, and keeps provider details outside request/application surfaces, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `173 passed`
 - the same LiteLLM adapter boundary now also wires those resolved bootstrap inputs into provider-facing callables: `build_litellm_completion_caller(...)`, `build_litellm_text_generator(...)`, and `build_litellm_structured_generator(...)` inject `api_key`/`base_url`/`api_version` without widening request or application surfaces, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `176 passed`
@@ -47,8 +47,8 @@ Confirmed now:
 - the runtime-config file `src/sourcetrace/runtime_config.py` is now the default place to set SourceTrace-owned task models for `claim_extraction`, `claim_normalization`, and `credibility_draft`
 - the local root route `GET /` now returns a small HTML landing page listing the available smoke-test routes instead of the previous `{"error": "not_found"}` JSON payload
 - the local web delivery path can now optionally compose that credibility helper through `create_default_delivery(..., credibility_draft=...)` and expose it via `POST /api/documents/{document_id}/credibility` for WSGI smoke coverage, without adding `.env` loading or provider fields to web requests
-- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `197 passed`
-- the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `200 passed`
+- the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev --extra dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
@@ -69,16 +69,18 @@ The intended workflow is now:
 
 ## Local environment bootstrap
 Run locally with uv:
-1. `uv sync --dev`
+1. `uv sync --dev --extra dev`
 2. `uv run pytest -q`
 3. `uv run python -m sourcetrace.web`
 
 Run the repo-owned launcher with runtime-config + LLM wiring:
-1. export `SOURCETRACE_LLM_API_KEY`
-2. export `SOURCETRACE_LLM_BASE_URL`
-3. export `SOURCETRACE_LLM_API_VERSION`
-4. `PYTHONPATH=src uv run python -m sourcetrace.local_launcher`
-   - or `PYTHONPATH=src uv run sourcetrace-local`
+1. `uv sync --dev --extra dev`
+2. export `SOURCETRACE_LLM_API_KEY`
+3. export `SOURCETRACE_LLM_BASE_URL`
+4. export `SOURCETRACE_LLM_API_VERSION`
+5. `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher'`
+   - or `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=src uv run sourcetrace-local'`
+   - the launcher sets `LITELLM_LOG=ERROR` by default unless you already exported a different value
 
 Expected startup: `SourceTrace local server listening on http://127.0.0.1:8000`
 Use `Ctrl+C` to stop the server cleanly.
@@ -86,7 +88,8 @@ Use `Ctrl+C` to stop the server cleanly.
 Notes:
 - the repo now declares a minimal `pyproject.toml` and uses `src/` package layout
 - `.env` is still not loaded by the repo; any required external secrets must come from the process environment only
-- `src/sourcetrace/runtime_config.py` is now the repo-owned place for task-level model settings
+- `src/sourcetrace/runtime_config.py` is now the repo-owned place for task-to-profile bindings and profile-level routing defaults
+- the local launcher auto-loads `litellm.completion` from the project `.venv`; if LiteLLM is missing, the launcher now fails early with a clear startup error instead of a later route-time `500`
 - the local launcher currently wires `credibility_draft` through the web delivery path; broader extraction/normalization web consumption is still do weryfikacji
 - the local web run is still a thin in-memory/dev path, not a production server shape
 
@@ -96,10 +99,15 @@ Production bootstrap lives outside the repo, in the process environment of whate
 - `SOURCETRACE_LLM_BASE_URL`
 - `SOURCETRACE_LLM_API_VERSION`
 
-For Azure / Microsoft Foundry GPT-5.x through LiteLLM, keep `model` inside `SourceTraceLlmConfig.tasks[...]` and keep bootstrap inputs only in `LlmBootstrapConfig`:
+For Azure / Microsoft Foundry GPT-5.x through LiteLLM, keep task semantics in `SourceTraceLlmConfig.tasks[...]`, keep concrete routing in `SourceTraceLlmConfig.profiles[...]`, and keep bootstrap inputs only in `LlmBootstrapConfig`:
 
 ```python
-from sourcetrace.llm import LlmBootstrapConfig, LlmTaskConfig, SourceTraceLlmConfig
+from sourcetrace.llm import (
+    LlmBootstrapConfig,
+    LlmProfileConfig,
+    LlmTaskConfig,
+    SourceTraceLlmConfig,
+)
 
 llm_config = SourceTraceLlmConfig(
     bootstrap=LlmBootstrapConfig(
@@ -109,27 +117,33 @@ llm_config = SourceTraceLlmConfig(
     ),
     default_timeout_seconds=30.0,
     default_max_output_tokens=1200,
-    tasks={
-        "claim_extraction": LlmTaskConfig(
+    profiles={
+        "claim_extraction_default": LlmProfileConfig(
             model="azure/gpt-5-mini",
             temperature=0.0,
         ),
-        "claim_normalization": LlmTaskConfig(
+        "claim_normalization_default": LlmProfileConfig(
             model="azure/gpt-5-mini",
             temperature=0.0,
             max_output_tokens=400,
         ),
-        "credibility_draft": LlmTaskConfig(
+        "credibility_assessment_default": LlmProfileConfig(
             model="azure/gpt-5",
             temperature=0.2,
             max_output_tokens=600,
         ),
     },
+    tasks={
+        "claim_extraction": LlmTaskConfig(profile="claim_extraction_default"),
+        "claim_normalization": LlmTaskConfig(profile="claim_normalization_default"),
+        "credibility_draft": LlmTaskConfig(profile="credibility_assessment_default"),
+    },
 )
 ```
 
 Operationally, that means:
-- `model` is app config owned by Sourcetrace (`SourceTraceLlmConfig` / `LlmTaskConfig`)
+- `tasks[...]` binds SourceTrace task intent to logical profiles
+- `profiles[...]` holds SourceTrace-owned routing defaults (`model`, `temperature`, `max_output_tokens`)
 - `api_key`, `base_url`, and `api_version` are runtime bootstrap owned by the external launcher/environment
 - `build_llm_runtime(...)` resolves bootstrap from `os.environ` and injects it only at the LiteLLM adapter edge
 - `create_default_delivery(..., credibility_draft=runtime.credibility_draft)` is the current local wiring point for the credibility web path

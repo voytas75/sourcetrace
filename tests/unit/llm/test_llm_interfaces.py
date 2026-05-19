@@ -11,6 +11,7 @@ from sourcetrace.llm import (
     LlmBootstrapConfig,
     LlmConfigurationError,
     LlmError,
+    LlmProfileConfig,
     LlmGenerationRequest,
     LlmGenerationResult,
     LlmMessage,
@@ -84,10 +85,17 @@ def test_llm_package_re_exports_models_and_execution_seams() -> None:
             ("api_key_env_var", "base_url_env_var", "api_version_env_var"),
         ),
         (ResolvedLlmBootstrapConfig, ("api_key", "base_url", "api_version")),
-        (LlmTaskConfig, ("model", "temperature", "max_output_tokens")),
+        (LlmProfileConfig, ("model", "temperature", "max_output_tokens")),
+        (LlmTaskConfig, ("profile",)),
         (
             SourceTraceLlmConfig,
-            ("default_timeout_seconds", "default_max_output_tokens", "bootstrap", "tasks"),
+            (
+                "default_timeout_seconds",
+                "default_max_output_tokens",
+                "bootstrap",
+                "profiles",
+                "tasks",
+            ),
         ),
         (
             SourceTraceLlmRuntime,
@@ -153,6 +161,7 @@ def test_llm_request_and_result_objects_keep_provider_details_outside_interface(
         LlmProviderError,
         LlmSchemaError,
         LlmConfigurationError,
+        LlmProfileConfig,
         LlmTaskConfig,
         SourceTraceLlmConfig,
     ):

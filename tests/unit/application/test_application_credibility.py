@@ -29,7 +29,7 @@ from sourcetrace.application.interfaces import (
     CredibilityAssessor as InterfacesCredibilityAssessor,
 )
 from sourcetrace.domain import Document, DocumentCredibilityAssessment
-from sourcetrace.llm import LlmBootstrapConfig, LlmTaskConfig, SourceTraceLlmConfig, build_llm_runtime
+from sourcetrace.llm import LlmBootstrapConfig, LlmProfileConfig, LlmTaskConfig, SourceTraceLlmConfig, build_llm_runtime
 from sourcetrace.llm.models import LlmGenerationResult
 from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance
 
@@ -191,9 +191,13 @@ def test_build_llm_runtime_credibility_draft_gateway_can_drive_application_asses
             api_key_env_var="SOURCETRACE_LLM_API_KEY",
             base_url_env_var="SOURCETRACE_LLM_BASE_URL",
         ),
+        profiles={
+            "fast_extract": LlmProfileConfig(model="gpt-4o-mini", temperature=0.0),
+            "reasoning": LlmProfileConfig(model="gpt-4.1-mini", temperature=0.2),
+        },
         tasks={
-            "claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0),
-            "credibility_draft": LlmTaskConfig(model="gpt-4.1-mini", temperature=0.2),
+            "claim_extraction": LlmTaskConfig(profile="fast_extract"),
+            "credibility_draft": LlmTaskConfig(profile="reasoning"),
         },
     )
     document = Document(

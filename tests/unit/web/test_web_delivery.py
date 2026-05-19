@@ -306,6 +306,80 @@ def test_wsgi_app_exposes_configured_credibility_assessment_route() -> None:
     assert "doc-1" in prompts[0]
 
 
+def test_wsgi_app_can_seed_document_then_run_credibility_assessment_route() -> None:
+    def draft_credibility(prompt: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text="Seeded credibility note.",
+            model="gpt-4.1-mini",
+        )
+
+    app = create_wsgi_app(
+        delivery=create_default_delivery(
+            credibility_draft=draft_credibility,
+            credibility_assessed_at=lambda: datetime(2026, 5, 19, 9, 50, tzinfo=UTC),
+        )
+    )
+
+    seed_status, seed_headers, seed_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/dev/documents",
+        payload={
+            "document_id": "doc-1",
+            "case_id": "case-1",
+            "source_type": "url",
+            "source_url": "https://example.test/report",
+            "publisher": "Example News",
+            "author": "Analyst",
+            "title": "Network report",
+            "published_at": "2026-05-18T00:00:00+00:00",
+            "retrieved_at": "2026-05-18T00:05:00+00:00",
+            "content_hash": "sha256:abc123",
+            "language": "en",
+        },
+    )
+    status, headers, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/doc-1/credibility",
+        payload={"assessment_method": "llm_draft_v1"},
+    )
+
+    assert seed_status == "201 Created"
+    assert ("Content-Type", "application/json; charset=utf-8") in seed_headers
+    assert json.loads(seed_body) == {
+        "document": {
+            "document_id": "doc-1",
+            "case_id": "case-1",
+            "source_type": "url",
+            "source_url": "https://example.test/report",
+            "publisher": "Example News",
+            "author": "Analyst",
+            "title": "Network report",
+            "published_at": "2026-05-18T00:00:00+00:00",
+            "retrieved_at": "2026-05-18T00:05:00+00:00",
+            "content_hash": "sha256:abc123",
+            "language": "en",
+        }
+    }
+    assert status == "200 OK"
+    assert ("Content-Type", "application/json; charset=utf-8") in headers
+    assert json.loads(body)["credibility_assessment"] == {
+        "assessment_id": "credibility-doc-1",
+        "document_id": "doc-1",
+        "source_reliability": "unknown",
+        "information_credibility": "unknown",
+        "source_reliability_factors": [],
+        "information_credibility_factors": [],
+        "provenance_distance": "unknown",
+        "method": "llm_draft_v1",
+        "notes": "Seeded credibility note.",
+        "assessed_by": "system",
+        "assessed_at": "2026-05-19T09:50:00+00:00",
+        "override": False,
+    }
+
+
 def test_wsgi_app_returns_status_payloads_for_missing_or_invalid_resources() -> None:
     app = create_wsgi_app(delivery=_seeded_delivery())
 

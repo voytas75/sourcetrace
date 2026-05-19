@@ -8,6 +8,7 @@ from sourcetrace.llm import (
     LlmBootstrapConfig,
     LlmConfigurationError,
     LlmError,
+    LlmProfileConfig,
     LlmGenerationRequest,
     LlmGenerationResult,
     LlmMessage,
@@ -78,16 +79,20 @@ def test_source_trace_llm_config_returns_task_mapping_without_provider_leakage()
             base_url_env_var="SOURCETRACE_LLM_BASE_URL",
             api_version_env_var="SOURCETRACE_LLM_API_VERSION",
         ),
-        tasks={
-            "claim_extraction": LlmTaskConfig(
+        profiles={
+            "fast_extract": LlmProfileConfig(
                 model="gpt-4o-mini",
                 temperature=0.0,
                 max_output_tokens=800,
             ),
-            "credibility_draft": LlmTaskConfig(
+            "reasoning": LlmProfileConfig(
                 model="gpt-4.1-mini",
                 temperature=0.2,
             ),
+        },
+        tasks={
+            "claim_extraction": LlmTaskConfig(profile="fast_extract"),
+            "credibility_draft": LlmTaskConfig(profile="reasoning"),
         },
     )
 
@@ -102,6 +107,16 @@ def test_source_trace_llm_config_returns_task_mapping_without_provider_leakage()
         "SOURCETRACE_LLM_API_VERSION",
     )
     assert not hasattr(extraction, "provider")
+
+
+def test_source_trace_llm_config_raises_for_unknown_profile_alias() -> None:
+    config = SourceTraceLlmConfig(
+        profiles={},
+        tasks={"claim_extraction": LlmTaskConfig(profile="missing-profile")},
+    )
+
+    with pytest.raises(LlmConfigurationError, match="missing LLM profile config"):
+        config.task("claim_extraction")
 
 
 def test_source_trace_llm_config_raises_for_unknown_task_alias() -> None:
@@ -187,7 +202,8 @@ def test_build_llm_runtime_assembles_bootstrap_structured_generation_and_claim_g
             base_url_env_var="SOURCETRACE_LLM_BASE_URL",
             api_version_env_var="SOURCETRACE_LLM_API_VERSION",
         ),
-        tasks={"claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0)},
+        profiles={"fast_extract": LlmProfileConfig(model="gpt-4o-mini", temperature=0.0)},
+        tasks={"claim_extraction": LlmTaskConfig(profile="fast_extract")},
     )
     original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
     original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
@@ -261,8 +277,12 @@ def test_build_llm_runtime_also_exposes_credibility_draft_gateway() -> None:
             api_version_env_var="SOURCETRACE_LLM_API_VERSION",
         ),
         tasks={
-            "claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0),
-            "credibility_draft": LlmTaskConfig(model="gpt-4.1-mini", temperature=0.2),
+            "claim_extraction": LlmTaskConfig(profile="fast_extract"),
+            "credibility_draft": LlmTaskConfig(profile="reasoning"),
+        },
+        profiles={
+            "fast_extract": LlmProfileConfig(model="gpt-4o-mini", temperature=0.0),
+            "reasoning": LlmProfileConfig(model="gpt-4.1-mini", temperature=0.2),
         },
     )
     original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
@@ -345,8 +365,12 @@ def test_build_llm_runtime_also_exposes_claim_normalization_gateway() -> None:
             api_version_env_var="SOURCETRACE_LLM_API_VERSION",
         ),
         tasks={
-            "claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0),
-            "claim_normalization": LlmTaskConfig(model="gpt-4.1-mini", temperature=0.1),
+            "claim_extraction": LlmTaskConfig(profile="fast_extract"),
+            "claim_normalization": LlmTaskConfig(profile="normalize"),
+        },
+        profiles={
+            "fast_extract": LlmProfileConfig(model="gpt-4o-mini", temperature=0.0),
+            "normalize": LlmProfileConfig(model="gpt-4.1-mini", temperature=0.1),
         },
     )
     original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
@@ -436,7 +460,10 @@ def test_structured_generation_execution_builds_schema_aware_request_and_parses_
 
     config = SourceTraceLlmConfig(
         tasks={
-            "claim_extraction": LlmTaskConfig(
+            "claim_extraction": LlmTaskConfig(profile="fast_extract")
+        },
+        profiles={
+            "fast_extract": LlmProfileConfig(
                 model="gpt-4o-mini",
                 temperature=0.0,
                 max_output_tokens=600,
@@ -469,7 +496,8 @@ def test_structured_generation_execution_maps_invalid_payload_to_schema_error() 
         return LlmStructuredGenerationResult(payload=None, model=request.model)
 
     config = SourceTraceLlmConfig(
-        tasks={"claim_extraction": LlmTaskConfig(model="gpt-4o-mini")}
+        profiles={"fast_extract": LlmProfileConfig(model="gpt-4o-mini")},
+        tasks={"claim_extraction": LlmTaskConfig(profile="fast_extract")}
     )
     execution = build_structured_generation_execution(
         generate_structured=generate_structured,
@@ -505,7 +533,8 @@ def test_claim_extraction_gateway_uses_structured_generation_contract() -> None:
         )
 
     config = SourceTraceLlmConfig(
-        tasks={"claim_extraction": LlmTaskConfig(model="gpt-4o-mini", temperature=0.0)}
+        profiles={"fast_extract": LlmProfileConfig(model="gpt-4o-mini", temperature=0.0)},
+        tasks={"claim_extraction": LlmTaskConfig(profile="fast_extract")}
     )
     execution = build_structured_generation_execution(
         generate_structured=generate_structured,

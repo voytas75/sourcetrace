@@ -22,6 +22,7 @@ from sourcetrace.domain import (
     ClaimReportEntry,
     ClaimReviewDecision,
     ClaimVerification,
+    Document,
     DocumentCredibilityAssessment,
 )
 from sourcetrace.domain.types import (
@@ -648,6 +649,75 @@ def _optional_str(value: object) -> str | None:
     return str(value)
 
 
+def _optional_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+    return _required_datetime(value, field_name="datetime")
+
+
+def _required_datetime(value: object, *, field_name: str) -> datetime:
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"{field_name} is required.")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a valid ISO-8601 datetime.") from exc
+
+
+def document_from_payload(payload: dict[str, object]) -> Document:
+    """Deserialize a document payload for dev/bootstrap API use."""
+
+    document_id = str(payload.get("document_id") or "").strip()
+    case_id = str(payload.get("case_id") or "").strip()
+    source_type = str(payload.get("source_type") or "").strip()
+    retrieved_at_raw = payload.get("retrieved_at")
+    content_hash = str(payload.get("content_hash") or "").strip()
+    if not document_id:
+        raise ValueError("document_id is required.")
+    if not case_id:
+        raise ValueError("case_id is required.")
+    if not source_type:
+        raise ValueError("source_type is required.")
+    if retrieved_at_raw is None:
+        raise ValueError("retrieved_at is required.")
+    if not content_hash:
+        raise ValueError("content_hash is required.")
+    return Document(
+        document_id=document_id,
+        case_id=case_id,
+        source_type=source_type,
+        source_url=_optional_str(payload.get("source_url")),
+        publisher=_optional_str(payload.get("publisher")),
+        author=_optional_str(payload.get("author")),
+        title=_optional_str(payload.get("title")),
+        published_at=_optional_datetime(payload.get("published_at")),
+        retrieved_at=_required_datetime(retrieved_at_raw, field_name="retrieved_at"),
+        content_hash=content_hash,
+        language=_optional_str(payload.get("language")),
+    )
+
+
+def document_to_payload(document: Document) -> dict[str, object]:
+    """Serialize a document for JSON API responses."""
+
+    return {
+        "document_id": document.document_id,
+        "case_id": document.case_id,
+        "source_type": document.source_type,
+        "source_url": document.source_url,
+        "publisher": document.publisher,
+        "author": document.author,
+        "title": document.title,
+        "published_at": (
+            document.published_at.isoformat() if document.published_at is not None else None
+        ),
+        "retrieved_at": document.retrieved_at.isoformat(),
+        "content_hash": document.content_hash,
+        "language": document.language,
+    }
+
+
 __all__ = [
     "PersistenceReportAssembler",
     "SourceTraceDelivery",
@@ -656,6 +726,8 @@ __all__ = [
     "claim_from_payload",
     "claim_to_payload",
     "create_default_delivery",
+    "document_from_payload",
+    "document_to_payload",
     "evidence_link_to_payload",
     "render_case_review_html",
     "render_report_markdown",

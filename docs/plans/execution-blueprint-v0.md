@@ -40,7 +40,7 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - That cleanup is now also trim-aware for string payload fields: whitespace-only values are treated as missing, surviving strings are stripped before entering claims/evidence links, and the existing normalization diagnostics count against those trimmed semantics.
 - For the specific single-chunk extraction case, source-span fallback is now a bit more informative: when normalized claim span fields are blank, the runtime can reuse the sole request chunk’s `position_reference`; multi-chunk requests still keep the old conservative unknown-span fallback.
 - The same runtime code is now also slightly cleaner internally: repeated trim-aware string access paths were collapsed into small helper functions, keeping the slice behaviorally neutral while reducing local duplication.
-- The current LLM bootstrap contract is still deliberately unfinished: local config/routes only cover task-level model settings, while provider bootstrap inputs such as API keys, base URLs, and env loading are still outside the implemented SourceTrace boundary.
+- The current LLM bootstrap contract is still deliberately unfinished: local config/routes now separate task intent from concrete routing through logical profiles, while provider bootstrap inputs such as API keys, base URLs, and env loading are still outside the implemented SourceTrace boundary.
 - The repo currently does not load `.env` and does not define official project env names for LLM bootstrap; live provider wiring is still expected to arrive through an external launcher/runtime decision rather than hidden coupling in `src/sourcetrace/llm/`.
 - The existing `litellm_client.py` module should therefore be treated as an internal adapter shape for LiteLLM-style calls, not as evidence that LiteLLM bootstrap or `LITELLM_*` variables are already part of the frozen project contract.
 - A first bounded bootstrap contract is now implemented anyway: `LlmBootstrapConfig` lets the LLM layer declare explicit external env var names without pushing them into application contracts, request models, or provider-specific runtime code.
@@ -65,7 +65,11 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - Local setup is now also standardized through a minimal `pyproject.toml` and `uv` workflow: `uv sync --dev`, `uv run pytest -q`, `uv run python -m sourcetrace.web`, and `PYTHONPATH=src uv run python -m sourcetrace.local_launcher` / `PYTHONPATH=src uv run sourcetrace-local`.
 - Local baseline after the bounded LLM.x rollout is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`.
 - Local baseline after storage-backed extraction persistence on the LLM application path is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`.
-- Local baseline after the credibility runtime launch path and local-launcher/root-route follow-ons is confirmed with `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `197 passed`.
+- Local baseline after the credibility runtime launch path and current launcher-readiness verification is confirmed with `./.venv/bin/python -m pytest -q` -> `197 passed in 0.29s`.
+- Local setup is currently verified with `uv sync --dev --extra dev`; in the current environment `uv sync --dev` alone did not restore the test extras.
+- The repo-owned launcher can now be started successfully from a shell that sources `/home/voytas/.bashrc`, where the required `SOURCETRACE_LLM_*` bootstrap vars are exported.
+- Live local smoke is confirmed for `GET /` and `POST /api/verify` on that running server.
+- A real LLM-backed HTTP route is still do weryfikacji; successful launcher startup has not yet proven a successful `credibility_draft` provider call.
 
 ## Working hypotheses
 - Iteration 1 can fit inside a single Python backend plus a minimal web UI.

@@ -71,12 +71,19 @@ def _resolve_required_env_value(env_var_name: str | None, *, field_label: str) -
 
 
 @dataclass(frozen=True)
-class LlmTaskConfig:
-    """Task-level provider-neutral routing defaults."""
+class LlmProfileConfig:
+    """Logical profile routing defaults resolved separately from task semantics."""
 
     model: str
     temperature: float | None = None
     max_output_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class LlmTaskConfig:
+    """Task-level logical profile binding."""
+
+    profile: str
 
 
 @dataclass(frozen=True)
@@ -86,6 +93,7 @@ class SourceTraceLlmConfig:
     default_timeout_seconds: float | None = None
     default_max_output_tokens: int | None = None
     bootstrap: LlmBootstrapConfig = field(default_factory=LlmBootstrapConfig)
+    profiles: dict[str, LlmProfileConfig] = field(default_factory=dict)
     tasks: dict[str, LlmTaskConfig] = field(default_factory=dict)
 
     def bootstrap_env_var_names(self) -> tuple[str, ...]:
@@ -93,27 +101,36 @@ class SourceTraceLlmConfig:
 
         return self.bootstrap.env_var_names()
 
-    def task(self, task_name: str) -> LlmTaskConfig:
-        """Return task routing config or raise a normalized config error."""
+    def profile(self, profile_name: str) -> LlmProfileConfig:
+        """Return logical profile routing config or raise a normalized config error."""
+
+        profile_config = self.profiles.get(profile_name)
+        if profile_config is None:
+            raise LlmConfigurationError(f"missing LLM profile config for {profile_name}")
+
+        if (
+            profile_config.max_output_tokens is None
+            and self.default_max_output_tokens is not None
+        ):
+            return LlmProfileConfig(
+                model=profile_config.model,
+                temperature=profile_config.temperature,
+                max_output_tokens=self.default_max_output_tokens,
+            )
+        return profile_config
+
+    def task(self, task_name: str) -> LlmProfileConfig:
+        """Return resolved task routing config or raise a normalized config error."""
 
         task_config = self.tasks.get(task_name)
         if task_config is None:
             raise LlmConfigurationError(f"missing LLM task config for {task_name}")
-
-        if (
-            task_config.max_output_tokens is None
-            and self.default_max_output_tokens is not None
-        ):
-            return LlmTaskConfig(
-                model=task_config.model,
-                temperature=task_config.temperature,
-                max_output_tokens=self.default_max_output_tokens,
-            )
-        return task_config
+        return self.profile(task_config.profile)
 
 
 __all__ = [
     "LlmBootstrapConfig",
+    "LlmProfileConfig",
     "LlmTaskConfig",
     "ResolvedLlmBootstrapConfig",
     "SourceTraceLlmConfig",

@@ -2,6 +2,7 @@
 
 from sourcetrace.llm.config import (
     LlmBootstrapConfig,
+    LlmProfileConfig,
     LlmTaskConfig,
     ResolvedLlmBootstrapConfig,
     SourceTraceLlmConfig,
@@ -52,6 +53,7 @@ __all__ = [
     "LlmGenerationRequest",
     "LlmGenerationResult",
     "LlmMessage",
+    "LlmProfileConfig",
     "LlmProviderError",
     "LlmRateLimitError",
     "LlmSchemaError",

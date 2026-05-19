@@ -13,6 +13,8 @@ from sourcetrace.web.delivery import (
     claim_from_payload,
     create_default_delivery,
     document_credibility_assessment_to_payload,
+    document_from_payload,
+    document_to_payload,
     render_case_review_html,
     render_report_markdown,
     report_outcome_to_payload,
@@ -70,6 +72,8 @@ class SourceTraceWSGIApp:
             return self._render_home(start_response)
         if method == "POST" and path == "/api/verify":
             return self._verify_claim(environ, start_response)
+        if method == "POST" and path == "/api/dev/documents":
+            return self._seed_document(environ, start_response)
         if method == "GET" and path.startswith("/api/claims/"):
             return self._inspect_claim(path, start_response)
         if method == "POST" and path == "/api/reviews":
@@ -177,6 +181,21 @@ class SourceTraceWSGIApp:
                     "review_notes": review_decision.review_notes,
                 }
             },
+        )
+
+    def _seed_document(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        payload = _read_json(environ)
+        document = self.delivery.persistence.documents.save_document(
+            document_from_payload(payload)
+        )
+        return _json_response(
+            start_response,
+            "201 Created",
+            {"document": document_to_payload(document)},
         )
 
     def _assess_document_credibility(
@@ -392,6 +411,7 @@ def _render_home_html() -> str:
         "<p>Available routes:</p>"
         "<ul>"
         "<li><code>POST /api/verify</code></li>"
+        "<li><code>POST /api/dev/documents</code></li>"
         "<li><code>GET /api/claims/{claim_id}/verification</code></li>"
         "<li><code>POST /api/reviews</code></li>"
         "<li><code>GET /api/reports/{case_id}.json</code></li>"

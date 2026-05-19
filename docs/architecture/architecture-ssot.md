@@ -163,7 +163,11 @@ Confirmed now:
 - local setup is now also standardized through a minimal `pyproject.toml` and `uv` workflow: `uv sync --dev`, `uv run pytest -q`, `uv run python -m sourcetrace.web`
 - local verification after the bounded LLM.x layer + extraction integration rollout: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`
 - local verification after storage-backed extraction persistence on the LLM application path: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
-- local verification after the credibility runtime launch path: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `190 passed`
+- local verification after the credibility runtime launch path and the current launcher-readiness pass: `./.venv/bin/python -m pytest -q` -> `197 passed in 0.29s`
+- local dev bootstrap is currently verified with `uv sync --dev --extra dev`; `uv sync --dev` alone did not restore the test extras in the current environment
+- the repo-owned local launcher can now be started successfully from a shell that sources `/home/voytas/.bashrc`, where `SOURCETRACE_LLM_API_KEY`, `SOURCETRACE_LLM_BASE_URL`, and `SOURCETRACE_LLM_API_VERSION` are exported
+- live smoke is confirmed for `GET /` and `POST /api/verify` on the running local server
+- broader live LLM-backed HTTP use remains do weryfikacji; a successful server start has not yet proven a real `credibility_draft` provider call
 
 Recommended target stack for the next architectural phase:
 - Python backend with FastAPI + Pydantic v2 + SQLAlchemy/Alembic
@@ -178,5 +182,5 @@ Recommended target stack for the next architectural phase:
 Next recommended step:
 - keep `.env` loading outside the repo unless a later slice explicitly changes that boundary; SourceTrace now only declares external env names via `LlmBootstrapConfig`
 - keep LiteLLM hidden behind the local boundary and avoid leaking provider details upward while broadening integration
-- the credibility and normalization task gateways are now wired through bounded application/runtime seams; the next slice should build on those seams only where a concrete analyst workflow needs it
-- do not jump into broad platformization before those boundaries stay explicit in both code and docs
+- verify the first real LLM-backed local route through `POST /api/documents/{document_id}/credibility` before claiming broader launcher readiness
+- keep the current launcher-readiness SSOT in `docs/plans/local-launcher-readiness-ssot.md` as the canonical operator checkpoint for this path

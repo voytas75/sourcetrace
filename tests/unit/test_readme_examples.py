@@ -8,7 +8,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     readme = README_PATH.read_text(encoding="utf-8")
 
     assert "Run locally with uv:" in readme
-    assert "uv sync --dev" in readme
+    assert "uv sync --dev --extra dev" in readme
     assert "uv run pytest -q" in readme
     assert "uv run python -m sourcetrace.web" in readme
     assert "Expected startup: `SourceTrace local server listening on http://127.0.0.1:8000`" in readme
