@@ -65,6 +65,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "## Test-use checklist for collecting findings" in readme
     assert "whether extraction returned concise claim-like sentences or assistant-style prose" in readme
     assert "docs/plans/test-use-observation-template.md" in readme
+    assert "docs/plans/test-use-observation-example-bbc.md" in readme
     assert "Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles" in readme
     assert 'document_id": "doc-custom-1"' in readme
     assert 'source_url": "https://example.test/your-article"' in readme
