@@ -17,7 +17,12 @@ class _ClaimExtractionGateway:
                     role="user",
                     content=(
                         "Extract structured claims from the prepared source text. "
-                        "Return valid JSON that matches the ClaimExtractionPayload schema.\n\n"
+                        "Return valid JSON that matches the ClaimExtractionPayload schema. "
+                        "Output only factual claim candidates grounded in the source text. "
+                        "Use exact text from the source when possible. "
+                        "Do not ask follow-up questions. "
+                        "Do not ask for clarification. "
+                        "Do not write assistant replies, summaries, explanations, or advice.\n\n"
                         f"{prepared_text}"
                     ),
                 ),

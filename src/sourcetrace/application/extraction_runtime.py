@@ -18,6 +18,17 @@ _EVIDENCE_KEYS = ("evidence", "evidence_items", "supporting_evidence")
 _EVIDENCE_CHUNK_KEYS = ("chunk_id", "source_chunk_id", "chunk")
 _EVIDENCE_SNIPPET_KEYS = ("snippet", "text", "quote", "evidence")
 _EVIDENCE_RATIONALE_KEYS = ("rationale", "reason", "explanation")
+_CONVERSATIONAL_CLAIM_PATTERNS = (
+    "could you please clarify",
+    "could you clarify",
+    "if you need help",
+    "let me know and i can help",
+    "let me know and i can assist",
+    "let me know if you need help",
+    "let me know if you need",
+    "thank you for your update",
+    "it looks like you mentioned",
+)
 
 
 class _LlmClaimExtractor:
@@ -141,6 +152,8 @@ def _claim_items_for(payload: dict[str, object]) -> tuple[tuple[dict[str, object
 def _is_valid_claim_payload(item: object) -> bool:
     if not isinstance(item, dict):
         return False
+    if _is_conversational_claim_payload(item):
+        return False
     return _has_any_normalized_string(
         item,
         "claim_id",
@@ -148,6 +161,14 @@ def _is_valid_claim_payload(item: object) -> bool:
         *_CLAIM_TEXT_KEYS,
         *_SPAN_REFERENCE_KEYS,
     ) or bool(_evidence_items_for(item))
+
+
+def _is_conversational_claim_payload(item: dict[str, object]) -> bool:
+    claim_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS)
+    if claim_text is None:
+        return False
+    normalized = claim_text.casefold()
+    return any(pattern in normalized for pattern in _CONVERSATIONAL_CLAIM_PATTERNS)
 
 
 def _span_reference_for(

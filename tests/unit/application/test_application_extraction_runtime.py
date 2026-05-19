@@ -883,6 +883,72 @@ def test_build_llm_claim_extractor_treats_whitespace_only_payload_fields_as_miss
     assert outcome.dropped_evidence_items == 1
 
 
+def test_build_llm_claim_extractor_drops_conversational_helpdesk_claim_texts() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": (
+                            "Could you please clarify which network you mean? "
+                            "If you need help, let me know and I can assist."
+                        ),
+                    },
+                    {
+                        "claim_id": "claim-2",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The network expanded in 2025.",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The network expanded in 2025.",
+            start_char=0,
+            end_char=29,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert tuple(claim.exact_text for claim in outcome.claims) == (
+        "The network expanded in 2025.",
+    )
+    assert outcome.dropped_claim_items == 1
+
+
 def test_build_llm_claim_extractor_falls_back_to_single_request_chunk_span_when_claim_fields_are_blank() -> None:
     def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
         return LlmStructuredGenerationResult(
