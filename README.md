@@ -197,9 +197,67 @@ Do weryfikacji:
    - Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`
 6. Draft advisory document credibility notes:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility \
+      -H 'Content-Type: application/json' \
+      -d '{"assessment_method":"llm_draft_v1"}'`
+   - Expected: `200 OK` with JSON containing `credibility_assessment.notes`
+
+## Example: run credibility on your own document payload
+1. Start the repo-owned launcher so the in-memory document repository and LLM-backed credibility path live in the same process:
+   - `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher'`
+2. Seed your own document payload into that running process:
+   - `curl -X POST http://127.0.0.1:8000/api/dev/documents \
+       -H 'Content-Type: application/json' \
+       -d '{
+         "document_id": "doc-custom-1",
+         "case_id": "case-custom-1",
+         "source_type": "url",
+         "source_url": "https://example.test/your-article",
+         "publisher": "Your chosen publisher",
+         "author": "Your chosen author",
+         "title": "Your article title",
+         "published_at": "2026-05-19T10:00:00+00:00",
+         "retrieved_at": "2026-05-19T10:05:00+00:00",
+         "content_hash": "sha256:replace-me",
+         "language": "en"
+       }'`
+   - Expected: `201 Created` with JSON echoing `document.document_id`
+3. Run credibility on the exact document you seeded:
+   - `curl -X POST http://127.0.0.1:8000/api/documents/doc-custom-1/credibility \
        -H 'Content-Type: application/json' \
        -d '{"assessment_method":"llm_draft_v1"}'`
-   - Expected: `200 OK` with JSON containing `credibility_assessment.notes`
+   - Expected: `200 OK` with JSON containing `credibility_assessment.notes` and `method`
+4. Repeat with another payload by changing only `document_id`, `case_id`, and the document metadata block above.
+
+## Reusable payload template
+Use this as a copy-paste starting point for your own runs:
+
+```json
+{
+  "document_id": "{{document_id}}",
+  "case_id": "{{case_id}}",
+  "source_type": "url",
+  "source_url": "{{source_url}}",
+  "publisher": "{{publisher}}",
+  "author": "{{author}}",
+  "title": "{{title}}",
+  "published_at": "{{published_at_iso8601}}",
+  "retrieved_at": "{{retrieved_at_iso8601}}",
+  "content_hash": "{{content_hash}}",
+  "language": "{{language}}"
+}
+```
+
+Minimal fields you will usually want to change first:
+- `document_id`
+- `case_id`
+- `source_url`
+- `publisher`
+- `author`
+- `title`
+- `published_at`
+- `retrieved_at`
+- `content_hash`
+- `language`
 
 ## Minimal failure cases
 - Missing credibility assessment source document:
