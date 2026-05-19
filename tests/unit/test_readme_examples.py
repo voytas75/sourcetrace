@@ -28,6 +28,11 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Expected: `201 Created` with JSON containing `document.document_id`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare" in readme
     assert "Expected: `200 OK` with JSON containing `chunks`" in readme
+    assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/extract-claims" in readme
+    assert '"extraction_method":"llm_v1"' in readme
+    assert "Expected: `200 OK` with JSON containing `claims` and `diagnostics`" in readme
+    assert "Current verified guardrail: if claim normalization returns a conversational/helpdesk-style rewrite" in readme
+    assert "Sourcetrace keeps the original extracted claim text" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/verify" in readme
     assert '"chunk_id": "doc-1:chunk-1"' in readme
     assert "curl http://127.0.0.1:8000/api/cases" in readme
@@ -57,6 +62,9 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "It currently relies mostly on document metadata, source identity, and topic context" in readme
     assert "not yet on full article-text analysis or claim-by-claim verification" in readme
     assert "## Example: run credibility on your own document payload" in readme
+    assert "## Test-use checklist for collecting findings" in readme
+    assert "whether extraction returned concise claim-like sentences or assistant-style prose" in readme
+    assert "Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles" in readme
     assert 'document_id": "doc-custom-1"' in readme
     assert 'source_url": "https://example.test/your-article"' in readme
     assert 'title": "Your article title"' in readme

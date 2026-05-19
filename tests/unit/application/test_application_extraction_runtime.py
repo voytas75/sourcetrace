@@ -6,7 +6,7 @@ from sourcetrace.application.extraction_runtime import build_llm_claim_extractor
 from sourcetrace.application.extraction import ClaimExtractionRequest
 from sourcetrace.domain import Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
-from sourcetrace.llm import LlmStructuredGenerationResult
+from sourcetrace.llm import LlmGenerationResult, LlmStructuredGenerationResult
 from sourcetrace.storage import InMemoryClaimRepository
 
 
@@ -329,6 +329,77 @@ def test_build_llm_claim_extractor_ignores_conversational_normalization_output()
 
     assert captured_normalization_inputs == ["The network expanded in 2025."]
     assert outcome.claims[0].exact_text == "The network expanded in 2025."
+
+
+def test_build_llm_claim_extractor_ignores_multiline_markdown_normalization_output() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The climate warmed despite La Niña.",
+                        "source_span_reference": "p1",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    def normalize_claim(claim_text: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=(
+                "Your statement is accurate and reflects the current scientific consensus.\n\n"
+                "**Summary:**\n"
+                "- La Niña cooled temperatures slightly.\n"
+                "- Long-term warming still continued.\n\n"
+                "If you'd like, I can help expand this further."
+            ),
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The climate warmed despite La Niña.",
+            start_char=0,
+            end_char=36,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(
+        extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
+    )
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert outcome.claims[0].exact_text == "The climate warmed despite La Niña."
 
 
 def test_build_llm_claim_extractor_accepts_common_claim_payload_aliases() -> None:

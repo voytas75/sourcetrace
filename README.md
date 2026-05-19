@@ -202,7 +202,13 @@ Do weryfikacji:
         "chunking_method": "paragraph-v1"
       }'`
    - Expected: `200 OK` with JSON containing `chunks`
-7. In another terminal, submit a minimal verification request:
+7. Run claim extraction:
+   - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/extract-claims \
+      -H 'Content-Type: application/json' \
+      -d '{"extraction_method":"llm_v1"}'`
+   - Expected: `200 OK` with JSON containing `claims` and `diagnostics`
+   - Current verified guardrail: if claim normalization returns a conversational/helpdesk-style rewrite, Sourcetrace keeps the original extracted claim text instead of persisting the rewritten assistant-style text.
+8. In another terminal, submit a minimal verification request:
    - `curl -X POST http://127.0.0.1:8000/api/verify \
      -H 'Content-Type: application/json' \
      -d '{
@@ -219,7 +225,7 @@ Do weryfikacji:
        "requested_k": 2
      }'`
    - Expected: `200 OK` with JSON containing `verification.verdict`
-8. Inspect the resource reads:
+9. Inspect the resource reads:
    - `curl http://127.0.0.1:8000/api/cases`
    - `curl http://127.0.0.1:8000/api/cases/case-1`
    - `curl http://127.0.0.1:8000/api/cases/case-1/documents`
@@ -230,7 +236,7 @@ Do weryfikacji:
    - `curl http://127.0.0.1:8000/api/claims/claim-1/verification`
    - `curl http://127.0.0.1:8000/api/claims/claim-1/evidence`
    - Expected: each returns `200 OK` after the relevant upstream step is completed
-9. Record a minimal analyst review so the case report surface has reviewed content:
+10. Record a minimal analyst review so the case report surface has reviewed content:
    - `curl -X POST http://127.0.0.1:8000/api/reviews \
      -H 'Content-Type: application/json' \
      -d '{
@@ -244,12 +250,12 @@ Do weryfikacji:
    - Expected: `200 OK` with JSON containing the persisted review payload
    - `curl http://127.0.0.1:8000/api/claims/claim-1/review`
    - Expected: `200 OK` with JSON containing the persisted review artifact
-10. Export the report:
+11. Export the report:
    - `curl http://127.0.0.1:8000/api/reports/case-1`
    - Expected: `200 OK` with canonical report JSON
    - `curl http://127.0.0.1:8000/api/reports/case-1.md`
    - Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`
-11. Draft advisory document credibility notes:
+12. Draft advisory document credibility notes:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility \
       -H 'Content-Type: application/json' \
       -d '{"assessment_method":"llm_draft_v1"}'`
@@ -258,6 +264,34 @@ Do weryfikacji:
    - Expected: `200 OK` with the latest persisted `credibility_assessment`
    - The current `llm_draft_v1` output should be treated as an advisory draft.
    - It currently relies mostly on document metadata, source identity, and topic context, not yet on full article-text analysis or claim-by-claim verification.
+
+## Test-use checklist for collecting findings
+- Start with `python -m sourcetrace.local_launcher`, not the thin `sourcetrace.web` path, if you want real LLM-backed extraction/credibility behavior.
+- For each article, record:
+  - source URL
+  - publisher / title / retrieved_at
+  - whether extraction returned concise claim-like sentences or assistant-style prose
+  - `diagnostics.dropped_claim_items`
+  - whether credibility notes were useful or generic
+- Prefer 3 article types in the first pass:
+  - straightforward factual news brief
+  - longer analytical article
+  - article with quotes / caveats / mixed certainty
+- After `prepare`, always inspect chunks before judging extraction quality:
+  - `curl http://127.0.0.1:8000/api/documents/<doc-id>/chunks`
+- After `extract-claims`, inspect both:
+  - immediate route response
+  - persisted case claims via `GET /api/cases/<case-id>/claims`
+- Treat these as separate findings:
+  - extraction quality
+  - normalization quality
+  - credibility note quality
+  - verification usefulness
+- If you see assistant/helpdesk prose in claims, save:
+  - raw input paragraph
+  - final persisted `exact_text`
+  - whether the bad text appeared in all claims or only some
+- Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles; the fallback is improved, but not fully solved.
 
 ## Example: run credibility on your own document payload
 1. Start the repo-owned launcher so the in-memory document repository and LLM-backed credibility path live in the same process:

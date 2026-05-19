@@ -182,7 +182,16 @@ def _is_conversational_claim_payload(item: dict[str, object]) -> bool:
 
 def _looks_conversational_response(text: str) -> bool:
     normalized = text.casefold()
-    return any(pattern in normalized for pattern in _CONVERSATIONAL_CLAIM_PATTERNS)
+    if any(pattern in normalized for pattern in _CONVERSATIONAL_CLAIM_PATTERNS):
+        return True
+    line_count = sum(1 for line in text.splitlines() if line.strip())
+    if line_count >= 3:
+        return True
+    if any(marker in normalized for marker in ("if you'd like", "if you would like", "let me know", "here's a bit more context", "to elaborate", "summary:")):
+        return True
+    if text.count("**") >= 2:
+        return True
+    return False
 
 
 def _span_reference_for(
