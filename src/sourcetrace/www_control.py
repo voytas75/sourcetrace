@@ -215,7 +215,30 @@ def write_systemd_unit_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Manage the Sourcetrace WWW runtime.")
+    subparsers = parser.add_subparsers(dest="command")
+    for name in ("start", "stop", "status", "wait", "write-user-unit"):
+        subparsers.add_parser(name)
+
+    args, remaining = parser.parse_known_args(argv)
+    if args.command == "start":
+        return start_main(remaining)
+    if args.command == "stop":
+        return stop_main(remaining)
+    if args.command == "status":
+        return status_main(remaining)
+    if args.command == "wait":
+        return wait_main(remaining)
+    if args.command == "write-user-unit":
+        return write_systemd_unit_main(remaining)
+
+    parser.print_usage()
+    return 2
+
+
 __all__ = [
+    "main",
     "render_systemd_user_unit",
     "start_main",
     "status_main",
