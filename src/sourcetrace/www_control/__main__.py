@@ -1,3 +1,3 @@
-from sourcetrace.www_control import main
+from . import main
 
 raise SystemExit(main())

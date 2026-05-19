@@ -472,6 +472,21 @@ def test_www_control_main_dispatches_status(monkeypatch: pytest.MonkeyPatch) -> 
     assert www_control_main(["status"]) == 3
 
 
+def test_www_control_module_entrypoint_dispatches_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sourcetrace.www_control.start_main", lambda argv=None: 19)
+
+    namespace = {"__name__": "__main__"}
+    with pytest.raises(SystemExit, match="19"):
+        exec(
+            compile(
+                "from sourcetrace.www_control import main\nraise SystemExit(main(['start']))",
+                "<www_control_entrypoint>",
+                "exec",
+            ),
+            namespace,
+        )
+
+
 def test_www_control_main_requires_subcommand(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = www_control_main([])
     output = capsys.readouterr()
