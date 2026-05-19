@@ -256,6 +256,125 @@ def test_build_llm_claim_extractor_uses_claim_normalization_gateway_when_availab
     assert outcome.claims[0].exact_text == "Normalized claim text."
 
 
+def test_build_llm_claim_extractor_accepts_common_claim_payload_aliases() -> None:
+    captured_normalization_inputs: list[str] = []
+
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "text": "  The network expanded in 2025.  ",
+                        "chunk": " chunk-1 ",
+                        "span": " p1 ",
+                        "evidence_items": [
+                            {
+                                "chunk": " chunk-1 ",
+                                "text": "  Network expansion appears in section one.  ",
+                                "reason": "  Direct supporting extraction evidence.  ",
+                                "score": 0.82,
+                            }
+                        ],
+                    },
+                    {
+                        "statement": "The rollout reached two regions.",
+                        "source_chunk_id": "chunk-2",
+                        "evidence": {
+                            "source_chunk_id": "chunk-2",
+                            "quote": "The report lists two rollout regions.",
+                            "explanation": "Direct evidence quote.",
+                        },
+                    },
+                    {
+                        "claim": "Whitespace aliases still normalize.",
+                        "span_reference": "p3",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    def normalize_claim(claim_text: str):
+        captured_normalization_inputs.append(claim_text)
+        return type("_NormalizationResult", (), {"text": claim_text})()
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The network expanded in 2025.",
+            start_char=0,
+            end_char=29,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The rollout reached two regions.",
+            start_char=30,
+            end_char=63,
+            chunk_index=1,
+            position_reference="p2",
+        ),
+    )
+    extractor = build_llm_claim_extractor(
+        extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
+    )
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2"),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert tuple(claim.exact_text for claim in outcome.claims) == (
+        "The network expanded in 2025.",
+        "The rollout reached two regions.",
+        "Whitespace aliases still normalize.",
+    )
+    assert captured_normalization_inputs == [
+        "The network expanded in 2025.",
+        "The rollout reached two regions.",
+        "Whitespace aliases still normalize.",
+    ]
+    assert tuple(claim.chunk_id for claim in outcome.claims) == ("chunk-1", "chunk-2", "chunk-1")
+    assert tuple(claim.source_span_reference for claim in outcome.claims) == ("p1", "p2", "p3")
+    assert tuple(link.chunk_id for link in outcome.evidence_links) == (
+        "chunk-1",
+        "chunk-2",
+        "chunk-1",
+    )
+    assert outcome.evidence_links[0].snippet == "Network expansion appears in section one."
+    assert outcome.evidence_links[0].rationale == "Direct supporting extraction evidence."
+    assert outcome.evidence_links[0].score == 0.82
+    assert outcome.evidence_links[1].snippet == "The report lists two rollout regions."
+    assert outcome.evidence_links[1].rationale == "Direct evidence quote."
+    assert outcome.evidence_links[2].snippet == "Whitespace aliases still normalize."
+    assert outcome.dropped_claim_items == 0
+    assert outcome.dropped_evidence_items == 0
+
+
 def test_build_llm_claim_extractor_persists_extracted_claims_when_repository_is_provided() -> None:
     def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
         return LlmStructuredGenerationResult(

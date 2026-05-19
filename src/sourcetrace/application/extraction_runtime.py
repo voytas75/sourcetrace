@@ -11,6 +11,15 @@ if TYPE_CHECKING:
     from sourcetrace.storage.interfaces import ClaimRepository
 
 
+_CLAIM_TEXT_KEYS = ("exact_text", "text", "claim", "statement", "claim_text")
+_CLAIM_CHUNK_KEYS = ("chunk_id", "source_chunk_id", "chunk")
+_SPAN_REFERENCE_KEYS = ("source_span_reference", "span_reference", "span")
+_EVIDENCE_KEYS = ("evidence", "evidence_items", "supporting_evidence")
+_EVIDENCE_CHUNK_KEYS = ("chunk_id", "source_chunk_id", "chunk")
+_EVIDENCE_SNIPPET_KEYS = ("snippet", "text", "quote", "evidence")
+_EVIDENCE_RATIONALE_KEYS = ("rationale", "reason", "explanation")
+
+
 class _LlmClaimExtractor:
     def __init__(
         self,
@@ -76,7 +85,7 @@ class _LlmClaimExtractor:
 
 
 def _chunk_id_for(item: dict[str, object], request: ClaimExtractionRequest) -> str | None:
-    chunk_id = _normalized_string(item.get("chunk_id"))
+    chunk_id = _first_normalized_item_string(item, *_CLAIM_CHUNK_KEYS)
     if chunk_id is not None:
         return chunk_id
     if request.chunk_ids:
@@ -98,7 +107,7 @@ def _claim_text_for(
     item: dict[str, object],
     normalize_claim: "ClaimNormalizationGateway | None",
 ) -> str:
-    exact_text = _normalized_string(item.get("exact_text")) or ""
+    exact_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS) or ""
     if normalize_claim is None or not exact_text:
         return exact_text
     normalized = normalize_claim(exact_text).text.strip()
@@ -107,6 +116,14 @@ def _claim_text_for(
 
 def _normalized_item_string(item: dict[str, object], key: str) -> str | None:
     return _normalized_string(item.get(key))
+
+
+def _first_normalized_item_string(item: dict[str, object], *keys: str) -> str | None:
+    for key in keys:
+        normalized = _normalized_item_string(item, key)
+        if normalized is not None:
+            return normalized
+    return None
 
 
 def _has_any_normalized_string(item: dict[str, object], *keys: str) -> bool:
@@ -127,9 +144,9 @@ def _is_valid_claim_payload(item: object) -> bool:
     return _has_any_normalized_string(
         item,
         "claim_id",
-        "chunk_id",
-        "exact_text",
-        "source_span_reference",
+        *_CLAIM_CHUNK_KEYS,
+        *_CLAIM_TEXT_KEYS,
+        *_SPAN_REFERENCE_KEYS,
     ) or bool(_evidence_items_for(item))
 
 
@@ -139,10 +156,10 @@ def _span_reference_for(
     request: ClaimExtractionRequest,
     chunk_by_id: dict[str, DocumentChunk],
 ) -> str:
-    span_reference = _normalized_item_string(item, "source_span_reference")
+    span_reference = _first_normalized_item_string(item, *_SPAN_REFERENCE_KEYS)
     if span_reference is not None:
         return span_reference
-    chunk_id = _normalized_item_string(item, "chunk_id")
+    chunk_id = _first_normalized_item_string(item, *_CLAIM_CHUNK_KEYS)
     if chunk_id is not None:
         chunk = chunk_by_id.get(chunk_id)
         if chunk is not None and chunk.position_reference is not None:
@@ -188,7 +205,7 @@ def _count_dropped_evidence_items(items: tuple[dict[str, object], ...]) -> int:
 
 
 def _dropped_evidence_items_for(item: dict[str, object]) -> int:
-    evidence = item.get("evidence")
+    evidence = _evidence_payload_for(item)
     if isinstance(evidence, dict) or not isinstance(evidence, list):
         return 0
     return len(evidence) - len(_evidence_items_for(item))
@@ -214,7 +231,7 @@ def _build_initial_evidence_link(
 
 
 def _evidence_items_for(item: dict[str, object]) -> tuple[dict[str, object], ...]:
-    evidence = item.get("evidence")
+    evidence = _evidence_payload_for(item)
     if isinstance(evidence, dict):
         return (evidence,)
     if not isinstance(evidence, list):
@@ -222,10 +239,23 @@ def _evidence_items_for(item: dict[str, object]) -> tuple[dict[str, object], ...
     return tuple(entry for entry in evidence if _is_valid_evidence_payload(entry))
 
 
+def _evidence_payload_for(item: dict[str, object]) -> object:
+    for key in _EVIDENCE_KEYS:
+        evidence = item.get(key)
+        if isinstance(evidence, dict | list):
+            return evidence
+    return None
+
+
 def _is_valid_evidence_payload(entry: object) -> bool:
     if not isinstance(entry, dict):
         return False
-    return _has_any_normalized_string(entry, "chunk_id", "snippet", "rationale") or isinstance(
+    return _has_any_normalized_string(
+        entry,
+        *_EVIDENCE_CHUNK_KEYS,
+        *_EVIDENCE_SNIPPET_KEYS,
+        *_EVIDENCE_RATIONALE_KEYS,
+    ) or isinstance(
         entry.get("score"),
         int | float,
     )
@@ -236,7 +266,7 @@ def _evidence_chunk_id(
     *,
     claim: Claim,
 ) -> str | None:
-    chunk_id = _normalized_item_string(evidence_payload, "chunk_id")
+    chunk_id = _first_normalized_item_string(evidence_payload, *_EVIDENCE_CHUNK_KEYS)
     if chunk_id is not None:
         return chunk_id
     return claim.chunk_id
@@ -247,7 +277,7 @@ def _evidence_rationale(
     *,
     span_reference: str,
 ) -> str:
-    rationale = _normalized_item_string(evidence_payload, "rationale")
+    rationale = _first_normalized_item_string(evidence_payload, *_EVIDENCE_RATIONALE_KEYS)
     if rationale is not None:
         return rationale
     return f"Initial extraction link from chunk {span_reference}."
@@ -258,7 +288,7 @@ def _evidence_snippet(
     *,
     claim: Claim,
 ) -> str | None:
-    snippet = _normalized_item_string(evidence_payload, "snippet")
+    snippet = _first_normalized_item_string(evidence_payload, *_EVIDENCE_SNIPPET_KEYS)
     if snippet is not None:
         return snippet
     return _normalized_string(claim.exact_text)
