@@ -16,7 +16,8 @@ class _ClaimExtractionGateway:
                 LlmMessage(
                     role="user",
                     content=(
-                        "Extract structured claims from the prepared source text.\n\n"
+                        "Extract structured claims from the prepared source text. "
+                        "Return valid JSON that matches the ClaimExtractionPayload schema.\n\n"
                         f"{prepared_text}"
                     ),
                 ),

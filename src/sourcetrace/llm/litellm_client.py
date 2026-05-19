@@ -1,5 +1,6 @@
 """LiteLLM-facing adapter kept behind SourceTrace-owned seams."""
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -31,6 +32,20 @@ def _extract_message_content(message: dict[str, Any]) -> str:
     if isinstance(content, str):
         return content
     return ""
+
+
+def _extract_structured_payload(message: dict[str, Any]) -> Any:
+    payload = message.get("parsed")
+    if payload is not None:
+        return payload
+
+    content = message.get("content")
+    if isinstance(content, str):
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return content
+    return content
 
 
 def build_litellm_completion_caller(
@@ -143,11 +158,8 @@ def call_structured_generation(
 
     choice = response.get("choices", [{}])[0]
     message = choice.get("message", {})
-    payload = message.get("parsed")
-    if payload is None:
-        payload = message.get("content")
     return LlmStructuredGenerationResult(
-        payload=payload,
+        payload=_extract_structured_payload(message),
         model=response.get("model", request.model),
         finish_reason=choice.get("finish_reason"),
         usage=_usage_from_response(response),
