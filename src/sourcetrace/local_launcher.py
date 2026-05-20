@@ -4,6 +4,8 @@ from collections.abc import Callable
 from os import environ
 from typing import Any
 
+from sourcetrace.llm.errors import LlmConfigurationError
+
 from sourcetrace.llm import build_llm_runtime
 from sourcetrace.runtime_config import build_default_llm_config
 from sourcetrace.web.api import run_local_server
@@ -39,6 +41,23 @@ def _resolve_completion_fn(
     )
 
 
+def _mirror_legacy_azure_env() -> None:
+    if not environ.get("SOURCETRACE_LLM_API_KEY") and environ.get("AZURE_OPENAI_API_KEY"):
+        environ["SOURCETRACE_LLM_API_KEY"] = environ["AZURE_OPENAI_API_KEY"]
+    if not environ.get("SOURCETRACE_LLM_BASE_URL") and environ.get("AZURE_OPENAI_BASE_URL"):
+        environ["SOURCETRACE_LLM_BASE_URL"] = environ["AZURE_OPENAI_BASE_URL"]
+    if not environ.get("SOURCETRACE_LLM_API_VERSION") and environ.get("AZURE_OPENAI_API_VERSION"):
+        environ["SOURCETRACE_LLM_API_VERSION"] = environ["AZURE_OPENAI_API_VERSION"]
+
+
+def _build_runtime_config_with_legacy_env_fallback():
+    _mirror_legacy_azure_env()
+    try:
+        return build_default_llm_config()
+    except LlmConfigurationError:
+        raise
+
+
 def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
@@ -48,7 +67,7 @@ def build_local_server_runtime(
     environ.setdefault("LITELLM_LOG", "ERROR")
     llm_runtime = build_llm_runtime(
         completion_fn=_resolve_completion_fn(completion_fn),
-        config=build_default_llm_config(),
+        config=_build_runtime_config_with_legacy_env_fallback(),
     )
     delivery = create_default_delivery(
         credibility_draft=llm_runtime.credibility_draft,

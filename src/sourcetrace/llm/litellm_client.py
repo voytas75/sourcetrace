@@ -112,16 +112,19 @@ def call_text_generation(
 ) -> LlmGenerationResult:
     """Normalize a LiteLLM-style text completion into SourceTrace models."""
 
+    completion_kwargs = {
+        "model": request.model,
+        "messages": [
+            {"role": message.role, "content": message.content}
+            for message in request.messages
+        ],
+        "temperature": request.temperature,
+    }
+    if request.max_output_tokens is not None:
+        completion_kwargs[_max_output_tokens_param_name(request.model)] = request.max_output_tokens
+
     try:
-        response = completion_fn(
-            model=request.model,
-            messages=[
-                {"role": message.role, "content": message.content}
-                for message in request.messages
-            ],
-            temperature=request.temperature,
-            max_tokens=request.max_output_tokens,
-        )
+        response = completion_fn(**completion_kwargs)
     except Exception as error:  # pragma: no cover - exercised in tests via mapping
         raise map_litellm_error(error) from error
 
@@ -142,17 +145,22 @@ def call_structured_generation(
 ) -> LlmStructuredGenerationResult:
     """Normalize a LiteLLM-style structured completion into SourceTrace models."""
 
+    completion_kwargs = {
+        "model": request.model,
+        "messages": [
+            {"role": message.role, "content": message.content}
+            for message in request.messages
+        ],
+        "temperature": request.temperature,
+        "response_format": {"type": "json_object"},
+    }
+    if _should_omit_temperature(request.model):
+        completion_kwargs.pop("temperature", None)
+    if request.max_output_tokens is not None:
+        completion_kwargs[_max_output_tokens_param_name(request.model)] = request.max_output_tokens
+
     try:
-        response = completion_fn(
-            model=request.model,
-            messages=[
-                {"role": message.role, "content": message.content}
-                for message in request.messages
-            ],
-            temperature=request.temperature,
-            max_tokens=request.max_output_tokens,
-            response_format={"type": "json_object"},
-        )
+        response = completion_fn(**completion_kwargs)
     except Exception as error:  # pragma: no cover - exercised in tests via mapping
         raise map_litellm_error(error) from error
 
@@ -164,6 +172,18 @@ def call_structured_generation(
         finish_reason=choice.get("finish_reason"),
         usage=_usage_from_response(response),
     )
+
+
+def _max_output_tokens_param_name(model: str) -> str:
+    normalized_model = model.removeprefix("azure/").removeprefix("azure_ai/").lower()
+    if normalized_model.startswith(("gpt-5", "o1", "o3", "o4")):
+        return "max_completion_tokens"
+    return "max_tokens"
+
+
+def _should_omit_temperature(model: str) -> bool:
+    normalized_model = model.removeprefix("azure/").removeprefix("azure_ai/").lower()
+    return normalized_model.startswith(("gpt-5", "o1", "o3", "o4"))
 
 
 __all__ = [
