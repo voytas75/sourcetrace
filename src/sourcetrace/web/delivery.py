@@ -624,6 +624,7 @@ def document_preparation_outcome_to_payload(
     return {
         "document": document_to_payload(outcome.document),
         "chunks": [chunk_to_payload(chunk) for chunk in outcome.chunks],
+        "diagnostics": _prepare_diagnostics(outcome),
     }
 
 
@@ -639,10 +640,7 @@ def claim_extraction_outcome_to_payload(
         "evidence_links": [
             evidence_link_to_payload(link) for link in outcome.evidence_links
         ],
-        "diagnostics": {
-            "dropped_claim_items": outcome.dropped_claim_items,
-            "dropped_evidence_items": outcome.dropped_evidence_items,
-        },
+        "diagnostics": _claim_extraction_diagnostics(outcome),
     }
 
 
@@ -1174,6 +1172,47 @@ def _case_document_row_html(delivery: SourceTraceDelivery, document: Document) -
         f"<td><code>{_escape_html(next_action)}</code></td>"
         "</tr>"
     )
+
+
+def _prepare_diagnostics(outcome: DocumentPreparationOutcome) -> dict[str, object]:
+    chunk_count = len(outcome.chunks)
+    if chunk_count:
+        summary = f"Prepared {chunk_count} chunk(s)."
+        next_step = f"POST /api/documents/{outcome.document.document_id}/extract-claims"
+    else:
+        summary = "No chunks were prepared."
+        next_step = "Provide non-empty raw_text or attach inline content before preparing."
+    return {
+        "chunk_count": chunk_count,
+        "status": "ready" if chunk_count else "empty",
+        "summary": summary,
+        "next_step": next_step,
+    }
+
+
+def _claim_extraction_diagnostics(outcome: ClaimExtractionOutcome) -> dict[str, object]:
+    claim_count = len(outcome.claims)
+    chunk_count = len(outcome.chunks)
+    if claim_count:
+        summary = f"Extracted {claim_count} claim(s) from {chunk_count} chunk(s)."
+        next_step = f"GET /api/cases/{outcome.document.case_id}/claims"
+    elif not chunk_count:
+        summary = "No prepared chunks were available for extraction."
+        next_step = f"POST /api/documents/{outcome.document.document_id}/prepare"
+    else:
+        summary = "No claims were extracted from the prepared chunks."
+        next_step = (
+            "Inspect /api/documents/{document_id}/chunks and retry extraction with richer source text."
+        ).format(document_id=outcome.document.document_id)
+    return {
+        "claim_count": claim_count,
+        "chunk_count": chunk_count,
+        "dropped_claim_items": outcome.dropped_claim_items,
+        "dropped_evidence_items": outcome.dropped_evidence_items,
+        "status": "ready" if claim_count else "empty",
+        "summary": summary,
+        "next_step": next_step,
+    }
 
 
 def _escape_html(value: str) -> str:

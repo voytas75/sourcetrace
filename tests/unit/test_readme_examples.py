@@ -28,9 +28,11 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Expected: `201 Created` with JSON containing `document.document_id`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare" in readme
     assert "Expected: `200 OK` with JSON containing `chunks`" in readme
+    assert "Current verified diagnostics: the response also includes `diagnostics.chunk_count`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/extract-claims" in readme
     assert '"extraction_method":"llm_v1"' in readme
     assert "Expected: `200 OK` with JSON containing `claims` and `diagnostics`" in readme
+    assert "Current verified diagnostics: `diagnostics` now includes `claim_count`, `chunk_count`, `status`, `summary`, and `next_step`" in readme
     assert "Current verified guardrail: if claim normalization returns a conversational/helpdesk-style rewrite" in readme
     assert "Sourcetrace keeps the original extracted claim text" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/verify" in readme

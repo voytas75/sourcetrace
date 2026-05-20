@@ -121,7 +121,10 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
     assert document_status == "201 Created"
     assert json.loads(document_body)["document"]["case_id"] == "case-1"
     assert prepare_status == "200 OK"
-    assert json.loads(prepare_body)["chunks"][0]["chunk_id"] == "doc-1:chunk-1"
+    prepare_payload = json.loads(prepare_body)
+    assert prepare_payload["chunks"][0]["chunk_id"] == "doc-1:chunk-1"
+    assert prepare_payload["diagnostics"]["chunk_count"] == 2
+    assert prepare_payload["diagnostics"]["status"] == "ready"
     assert verify_status == "200 OK"
     assert cases_status == "200 OK"
     assert json.loads(cases_body)["cases"][0]["case_id"] == "case-1"
@@ -217,10 +220,71 @@ def test_wsgi_extract_claims_route_uses_configured_runtime() -> None:
     payload = json.loads(body)
     assert payload["claims"][0]["claim_id"] == "claim-1"
     assert payload["evidence_links"][0]["rationale"] == "Initial extraction link."
+    assert payload["diagnostics"]["claim_count"] == 1
+    assert payload["diagnostics"]["status"] == "ready"
     assert claim_status == "200 OK"
     assert json.loads(claim_body)["claim"]["exact_text"] == (
         "The bridge reopened after inspection."
     )
+
+
+
+def test_wsgi_extract_claims_route_reports_empty_diagnostics_when_runtime_returns_no_claims() -> None:
+    document = _document()
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Very short ambiguous note.",
+            start_char=0,
+            end_char=26,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+
+    def extract_claims(
+        request: ClaimExtractionRequest,
+        *,
+        document: Document,
+        chunks: tuple[DocumentChunk, ...],
+    ) -> ClaimExtractionOutcome:
+        return ClaimExtractionOutcome(
+            request=request,
+            document=document,
+            chunks=chunks,
+            claims=(),
+            evidence_links=(),
+        )
+
+    delivery = create_default_delivery(
+        claim_extraction_runtime=ClaimExtractionRuntime(extract_claims=extract_claims)
+    )
+    delivery.persistence.documents.save_document(document)
+    delivery.persistence.documents.save_chunks(chunks)
+    app = SourceTraceWSGIApp(delivery=delivery)
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/doc-1/extract-claims",
+        payload={"extraction_method": "test-runtime"},
+    )
+
+    assert status == "200 OK"
+    payload = json.loads(body)
+    assert payload["claims"] == []
+    assert payload["diagnostics"]["claim_count"] == 0
+    assert payload["diagnostics"]["chunk_count"] == 1
+    assert payload["diagnostics"]["status"] == "empty"
+    assert payload["diagnostics"]["summary"] == (
+        "No claims were extracted from the prepared chunks."
+    )
+    assert payload["diagnostics"]["next_step"] == (
+        "Inspect /api/documents/doc-1/chunks and retry extraction with richer source text."
+    )
+
 
 
 def test_wsgi_persists_and_reads_credibility_assessment() -> None:
