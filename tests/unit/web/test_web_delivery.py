@@ -273,7 +273,12 @@ def test_wsgi_app_exposes_configured_credibility_assessment_route() -> None:
                 '{"summary":"Source is tentative.",' 
                 '"strengths":["Named publisher"],' 
                 '"concerns":["No raw dataset linked"],' 
-                '"verification_checks":["Find the original filing"]}'
+                '"verification_checks":["Find the original filing"],' 
+                '"source_reliability":"medium",' 
+                '"information_credibility":"low",' 
+                '"source_reliability_factors":["named_publisher"],' 
+                '"information_credibility_factors":["raw_dataset_missing"],' 
+                '"provenance_distance":"secondary"}'
             ),
             model="gpt-4.1-mini",
         )
@@ -297,11 +302,11 @@ def test_wsgi_app_exposes_configured_credibility_assessment_route() -> None:
     assert payload["credibility_assessment"] == {
         "assessment_id": "credibility-doc-1",
         "document_id": "doc-1",
-        "source_reliability": "unknown",
-        "information_credibility": "unknown",
-        "source_reliability_factors": [],
-        "information_credibility_factors": [],
-        "provenance_distance": "unknown",
+        "source_reliability": "medium",
+        "information_credibility": "low",
+        "source_reliability_factors": ["named_publisher"],
+        "information_credibility_factors": ["raw_dataset_missing"],
+        "provenance_distance": "secondary",
         "method": "llm_draft_v1",
         "notes": "Summary: Source is tentative.\nStrengths: Named publisher\nConcerns: No raw dataset linked\nVerification checks: Find the original filing",
         "summary": "Source is tentative.",

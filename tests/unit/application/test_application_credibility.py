@@ -206,7 +206,12 @@ def test_build_llm_credibility_assessor_normalizes_json_blob_into_human_readable
                 '{"summary":"Lead only; provenance remains weak.",' 
                 '"strengths":["Publisher is identified"],' 
                 '"concerns":["No underlying dataset is linked"],' 
-                '"verification_checks":["Confirm with the original ministry release"]}'
+                '"verification_checks":["Confirm with the original ministry release"],' 
+                '"source_reliability":"medium",' 
+                '"information_credibility":"low",' 
+                '"source_reliability_factors":["publisher_identified"],' 
+                '"information_credibility_factors":["dataset_missing"],' 
+                '"provenance_distance":"secondary"}'
             ),
             model="gpt-5.4",
             finish_reason="stop",
@@ -233,6 +238,11 @@ def test_build_llm_credibility_assessor_normalizes_json_blob_into_human_readable
     assert outcome.assessment.verification_checks == (
         "Confirm with the original ministry release",
     )
+    assert outcome.assessment.source_reliability is CredibilityBand.MEDIUM
+    assert outcome.assessment.information_credibility is CredibilityBand.LOW
+    assert outcome.assessment.source_reliability_factors == ("publisher_identified",)
+    assert outcome.assessment.information_credibility_factors == ("dataset_missing",)
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
 
 
 def test_build_llm_credibility_assessor_normalizes_live_nested_json_blob_into_human_readable_notes() -> None:
@@ -262,6 +272,18 @@ def test_build_llm_credibility_assessor_normalizes_live_nested_json_blob_into_hu
                         "summary": "This appears to be an unattributed note.",
                         "strengths": ["May contain useful analytical framing."],
                         "weaknesses": ["No identified author or publisher."],
+                        "source_reliability_assessment": {
+                            "rating": "low",
+                            "notes": ["No identified author or publisher."]
+                        },
+                        "information_credibility_assessment": {
+                            "rating": "medium",
+                            "notes": ["May contain useful analytical framing."]
+                        },
+                        "provenance_assessment": {
+                            "distance": "secondary",
+                            "notes": ["Unverified provenance"]
+                        },
                         "risk_flags": ["Unverified provenance"],
                         "recommended_handling": ["Use only as a lead until corroborated."],
                         "verification_steps": ["Locate the original source or publication page."],
@@ -297,6 +319,15 @@ def test_build_llm_credibility_assessor_normalizes_live_nested_json_blob_into_hu
     assert outcome.assessment.verification_checks == (
         "Locate the original source or publication page.",
     )
+    assert outcome.assessment.source_reliability is CredibilityBand.LOW
+    assert outcome.assessment.information_credibility is CredibilityBand.MEDIUM
+    assert outcome.assessment.source_reliability_factors == (
+        "No identified author or publisher.",
+    )
+    assert outcome.assessment.information_credibility_factors == (
+        "May contain useful analytical framing.",
+    )
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
 
 
 def test_build_llm_credibility_assessor_best_effort_parses_truncated_live_json_blob() -> None:
@@ -365,6 +396,11 @@ def test_build_llm_credibility_assessor_best_effort_parses_truncated_live_json_b
         "Risk flags: No identifiable publisher or issuing institution.; No named author or responsible organization.\n"
         "Recommended handling: As a lead for further research.; To extract names, dates, policy terms, or claims to verify elsewhere.; Not recommended as: A sole source for factual assertions.; Not recommended as: Definitive evidence of institutional position unless independently authenticated."
     )
+    assert outcome.assessment.source_reliability is CredibilityBand.UNKNOWN
+    assert outcome.assessment.information_credibility is CredibilityBand.UNKNOWN
+    assert outcome.assessment.source_reliability_factors == ()
+    assert outcome.assessment.information_credibility_factors == ()
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.UNKNOWN
 
 
 

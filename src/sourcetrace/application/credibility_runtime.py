@@ -23,6 +23,11 @@ class StructuredCredibilityNotes(TypedDict):
     strengths: tuple[str, ...]
     concerns: tuple[str, ...]
     verification_checks: tuple[str, ...]
+    source_reliability: CredibilityBand
+    information_credibility: CredibilityBand
+    source_reliability_factors: tuple[str, ...]
+    information_credibility_factors: tuple[str, ...]
+    provenance_distance: ProvenanceDistance
 
 
 class _LlmCredibilityAssessor:
@@ -47,11 +52,11 @@ class _LlmCredibilityAssessor:
         assessment = DocumentCredibilityAssessment(
             assessment_id=f"credibility-{document.document_id}",
             document_id=document.document_id,
-            source_reliability=CredibilityBand.UNKNOWN,
-            information_credibility=CredibilityBand.UNKNOWN,
-            source_reliability_factors=(),
-            information_credibility_factors=(),
-            provenance_distance=ProvenanceDistance.UNKNOWN,
+            source_reliability=structured["source_reliability"],
+            information_credibility=structured["information_credibility"],
+            source_reliability_factors=structured["source_reliability_factors"],
+            information_credibility_factors=structured["information_credibility_factors"],
+            provenance_distance=structured["provenance_distance"],
             method=request.assessment_method or "llm_draft_v1",
             notes=structured["notes"],
             summary=structured["summary"],
@@ -81,6 +86,11 @@ def _structured_credibility_notes(text: str) -> StructuredCredibilityNotes:
         "strengths": (),
         "concerns": (),
         "verification_checks": (),
+        "source_reliability": CredibilityBand.UNKNOWN,
+        "information_credibility": CredibilityBand.UNKNOWN,
+        "source_reliability_factors": (),
+        "information_credibility_factors": (),
+        "provenance_distance": ProvenanceDistance.UNKNOWN,
     }
     if not normalized:
         return empty
@@ -155,6 +165,39 @@ def _render_credibility_payload(payload: dict[str, object]) -> StructuredCredibi
         "verification_checks",
         "verification_steps",
     )
+    source_reliability = _credibility_band_from_payload(
+        payload,
+        "source_reliability",
+        "source_reliability_band",
+        nested=("source_reliability_assessment", "rating"),
+    )
+    information_credibility = _credibility_band_from_payload(
+        payload,
+        "information_credibility",
+        "information_credibility_band",
+        nested=("information_credibility_assessment", "rating"),
+    )
+    provenance_distance = _provenance_distance_from_payload(payload)
+    source_reliability_factors = _first_nonempty_string_list(
+        payload,
+        "source_reliability_factors",
+        "source_strengths",
+    )
+    if not source_reliability_factors:
+        source_reliability_factors = _nested_notes_tuple(
+            payload,
+            "source_reliability_assessment",
+        )
+    information_credibility_factors = _first_nonempty_string_list(
+        payload,
+        "information_credibility_factors",
+        "information_strengths",
+    )
+    if not information_credibility_factors:
+        information_credibility_factors = _nested_notes_tuple(
+            payload,
+            "information_credibility_assessment",
+        )
 
     lines: list[str] = []
     if summary is not None:
@@ -194,6 +237,11 @@ def _render_credibility_payload(payload: dict[str, object]) -> StructuredCredibi
         "strengths": strengths,
         "concerns": concerns,
         "verification_checks": verification_checks,
+        "source_reliability": source_reliability,
+        "information_credibility": information_credibility,
+        "source_reliability_factors": source_reliability_factors,
+        "information_credibility_factors": information_credibility_factors,
+        "provenance_distance": provenance_distance,
     }
 
 
@@ -261,12 +309,46 @@ def _best_effort_structured_credibility_notes(text: str) -> StructuredCredibilit
     if citation_advice is not None:
         lines.append(f"Citation advice: {citation_advice}")
 
+    source_reliability = _credibility_band_from_text(
+        text,
+        field_names=("source_reliability", "source_reliability_band"),
+        nested_name="source_reliability_assessment",
+    )
+    information_credibility = _credibility_band_from_text(
+        text,
+        field_names=("information_credibility", "information_credibility_band"),
+        nested_name="information_credibility_assessment",
+    )
+    provenance_distance = _provenance_distance_from_text(text)
+    source_reliability_factors = _extract_string_list(text, "source_reliability_factors")
+    if not source_reliability_factors:
+        source_reliability_factors = _extract_nested_string_list(
+            text,
+            "source_reliability_assessment",
+            "notes",
+        )
+    information_credibility_factors = _extract_string_list(
+        text,
+        "information_credibility_factors",
+    )
+    if not information_credibility_factors:
+        information_credibility_factors = _extract_nested_string_list(
+            text,
+            "information_credibility_assessment",
+            "notes",
+        )
+
     return {
         "notes": "\n".join(lines) if lines else None,
         "summary": summary,
         "strengths": strengths,
         "concerns": concerns,
         "verification_checks": verification_checks,
+        "source_reliability": source_reliability,
+        "information_credibility": information_credibility,
+        "source_reliability_factors": source_reliability_factors,
+        "information_credibility_factors": information_credibility_factors,
+        "provenance_distance": provenance_distance,
     }
 
 
@@ -331,6 +413,108 @@ def _extract_all_strings(fragment: str) -> tuple[str, ...]:
         for raw in pattern.findall(fragment)
         if (decoded := _decode_json_string_fragment(raw)) is not None
     )
+
+
+def _credibility_band_from_payload(
+    payload: dict[str, object],
+    *field_names: str,
+    nested: tuple[str, str] | None = None,
+) -> CredibilityBand:
+    candidates: list[str] = []
+    for field_name in field_names:
+        value = _string_or_none(payload.get(field_name))
+        if value is not None:
+            candidates.append(value)
+    if nested is not None:
+        nested_object = payload.get(nested[0])
+        if isinstance(nested_object, dict):
+            nested_value = _string_or_none(nested_object.get(nested[1]))
+            if nested_value is not None:
+                candidates.append(nested_value)
+    return _credibility_band_from_candidates(candidates)
+
+
+def _credibility_band_from_text(
+    text: str,
+    *,
+    field_names: tuple[str, ...],
+    nested_name: str | None = None,
+) -> CredibilityBand:
+    candidates: list[str] = []
+    for field_name in field_names:
+        value = _extract_first_string_field(text, field_name)
+        if value is not None:
+            candidates.append(value)
+    if nested_name is not None:
+        nested_rating = _extract_nested_first_string_field(text, nested_name, "rating")
+        if nested_rating is not None:
+            candidates.append(nested_rating)
+    return _credibility_band_from_candidates(candidates)
+
+
+def _credibility_band_from_candidates(candidates: list[str]) -> CredibilityBand:
+    normalized = [item.strip().casefold().replace("-", "_").replace(" ", "_") for item in candidates]
+    if any(item in {"high", "strong", "reliable"} for item in normalized):
+        return CredibilityBand.HIGH
+    if any(item in {"medium", "moderate", "mixed"} for item in normalized):
+        return CredibilityBand.MEDIUM
+    if any(item in {"low", "weak", "limited", "poor"} for item in normalized):
+        return CredibilityBand.LOW
+    return CredibilityBand.UNKNOWN
+
+
+def _provenance_distance_from_payload(payload: dict[str, object]) -> ProvenanceDistance:
+    candidates: list[str] = []
+    for field_name in ("provenance_distance", "provenance"):
+        value = _string_or_none(payload.get(field_name))
+        if value is not None:
+            candidates.append(value)
+    nested_object = payload.get("provenance_assessment")
+    if isinstance(nested_object, dict):
+        for nested_name in ("distance", "provenance_distance", "rating"):
+            value = _string_or_none(nested_object.get(nested_name))
+            if value is not None:
+                candidates.append(value)
+    return _provenance_distance_from_candidates(candidates)
+
+
+def _provenance_distance_from_text(text: str) -> ProvenanceDistance:
+    candidates: list[str] = []
+    for field_name in ("provenance_distance", "provenance"):
+        value = _extract_first_string_field(text, field_name)
+        if value is not None:
+            candidates.append(value)
+    for nested_name in ("distance", "provenance_distance", "rating"):
+        value = _extract_nested_first_string_field(text, "provenance_assessment", nested_name)
+        if value is not None:
+            candidates.append(value)
+    return _provenance_distance_from_candidates(candidates)
+
+
+def _provenance_distance_from_candidates(candidates: list[str]) -> ProvenanceDistance:
+    normalized = [item.strip().casefold().replace("-", "_").replace(" ", "_") for item in candidates]
+    if any(item in {"primary", "direct", "original"} for item in normalized):
+        return ProvenanceDistance.PRIMARY
+    if any(item in {"near_primary", "near-primary", "close_to_primary"} for item in normalized):
+        return ProvenanceDistance.NEAR_PRIMARY
+    if any(item in {"secondary", "indirect", "reported"} for item in normalized):
+        return ProvenanceDistance.SECONDARY
+    return ProvenanceDistance.UNKNOWN
+
+
+def _nested_notes_tuple(payload: dict[str, object], key: str) -> tuple[str, ...]:
+    nested = payload.get(key)
+    if not isinstance(nested, dict):
+        return ()
+    return _string_list(nested.get("notes"))
+
+
+def _extract_nested_first_string_field(text: str, object_name: str, field_name: str) -> str | None:
+    object_pattern = re.compile(rf'"{re.escape(object_name)}"\s*:\s*\{{(.*?)\n\s*\}}', re.DOTALL)
+    match = object_pattern.search(text)
+    if match is None:
+        return None
+    return _extract_first_string_field(match.group(1), field_name)
 
 
 def _decode_json_string_fragment(value: str) -> str | None:
