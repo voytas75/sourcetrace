@@ -69,6 +69,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "structured fields (`summary`, `strengths`, `concerns`, `verification_checks`)" in readme
     assert "maps semantic assessment fields" in readme
     assert "hardened toward semantic JSON output" in readme
+    assert "stabilisation scenarios in test coverage" in readme
     assert "curl http://127.0.0.1:8000/api/documents/doc-1/credibility" in readme
     assert "Expected: `200 OK` with the latest persisted `credibility_assessment`" in readme
     assert "The current `llm_draft_v1` output should be treated as an advisory draft" in readme

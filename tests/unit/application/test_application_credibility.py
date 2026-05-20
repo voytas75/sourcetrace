@@ -454,6 +454,116 @@ def test_build_llm_credibility_assessor_condenses_markdown_prose_into_compact_no
 
 
 
+def test_build_llm_credibility_assessor_maps_primary_source_semantics() -> None:
+    document = Document(
+        document_id="doc-primary",
+        case_id="case-1",
+        source_type="press_release",
+        source_url="https://example.test/ministry-release",
+        publisher="Ministry of Health",
+        author=None,
+        title="Official release",
+        published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:primary123",
+        language="en",
+    )
+
+    def draft_credibility(_: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=json.dumps(
+                {
+                    "summary": "Official primary release with named ministry publisher.",
+                    "strengths": ["Named ministry publisher", "Direct publication URL"],
+                    "concerns": ["Needs independent confirmation of downstream impact claims"],
+                    "verification_checks": ["Confirm quoted figures against annex table"],
+                    "source_reliability": "high",
+                    "information_credibility": "medium",
+                    "source_reliability_factors": ["official_publisher", "primary_release"],
+                    "information_credibility_factors": ["impact_claim_needs_confirmation"],
+                    "provenance_distance": "primary",
+                }
+            ),
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.source_reliability is CredibilityBand.HIGH
+    assert outcome.assessment.information_credibility is CredibilityBand.MEDIUM
+    assert outcome.assessment.source_reliability_factors == (
+        "official_publisher",
+        "primary_release",
+    )
+    assert outcome.assessment.information_credibility_factors == (
+        "impact_claim_needs_confirmation",
+    )
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.PRIMARY
+
+
+
+def test_build_llm_credibility_assessor_maps_secondary_summary_semantics() -> None:
+    document = Document(
+        document_id="doc-secondary",
+        case_id="case-1",
+        source_type="news_article",
+        source_url="https://example.test/news-summary",
+        publisher="Example News",
+        author="Reporter",
+        title="Summary of ministry release",
+        published_at=datetime(2026, 5, 18, 1, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 5, 18, 1, 5, tzinfo=UTC),
+        content_hash="sha256:secondary123",
+        language="en",
+    )
+
+    def draft_credibility(_: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=json.dumps(
+                {
+                    "summary": "Secondary news write-up of an official release.",
+                    "strengths": ["Named reporter", "Named outlet"],
+                    "concerns": ["No direct dataset link"],
+                    "verification_checks": ["Find linked primary release"],
+                    "source_reliability": "medium",
+                    "information_credibility": "medium",
+                    "source_reliability_factors": ["named_outlet"],
+                    "information_credibility_factors": ["secondary_summary", "dataset_not_linked"],
+                    "provenance_distance": "secondary",
+                }
+            ),
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 1, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.source_reliability is CredibilityBand.MEDIUM
+    assert outcome.assessment.information_credibility is CredibilityBand.MEDIUM
+    assert outcome.assessment.source_reliability_factors == ("named_outlet",)
+    assert outcome.assessment.information_credibility_factors == (
+        "secondary_summary",
+        "dataset_not_linked",
+    )
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
+
+
+
 def test_build_llm_credibility_assessor_includes_prepared_text_in_prompt() -> None:
     document = Document(
         document_id="doc-1",
