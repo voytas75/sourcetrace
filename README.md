@@ -64,6 +64,7 @@ Confirmed now:
 - current live smoke confirmed that extraction preserves attribution-bearing claim text on a simple quoted/caveated note (`The minister said ...`, `A watchdog said ...`) and that the same claims appear consistently in both `GET /api/cases/{case_id}/claims` and `GET /cases/{case_id}` HTML
 - current live smoke also confirmed that advisory credibility output reaches `POST /api/documents/{document_id}/credibility` on the real provider path, and live markdown/prose responses are now condensed more readably into compact `Summary` / `Strengths` / `Concerns` notes instead of always surfacing as a long raw draft block
 - minimal inline case/document ingest is now less hostile for product-level smoke runs: `POST /api/cases` can auto-generate `case_id`, `POST /api/cases/{case_id}/documents` can accept inline `title` + `content` or `text` and auto-fill `document_id` / `source_type` / `retrieved_at` / `content_hash`, and `POST /api/documents/{document_id}/prepare` now falls back to the previously stored inline document text when the request body omits `raw_text`
+- the analyst-facing HTML case view now also renders a short inline document snippet preview in each document row, preferring stored inline text and otherwise falling back to the first prepared chunk so continuity/debug smoke runs are visible directly in `/cases/{case_id}`
 - current live smoke also confirmed that credibility assessment now consumes prepared inline document text instead of only metadata, producing content-aware notes (e.g. Apollo 11 summary/strengths/verification checks) while still flagging weak provenance for unattributed inline notes
 - the latest weak-source smoke also confirmed that unattributed notes now settle into low/low/unknown semantics more consistently, while weak scraped snippets reliably land in low credibility bands even when provenance distance still conservatively falls back to `unknown`
 - the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev --extra dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
@@ -263,7 +264,7 @@ Do weryfikacji:
    - `curl http://127.0.0.1:8000/api/claims/claim-1/evidence`
    - `curl http://127.0.0.1:8000/cases/case-1`
    - Expected: each returns `200 OK` after the relevant upstream step is completed
-   - Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table with chunk count, claim count, credibility state, and a concrete next-action endpoint instead of only showing an empty claims table.
+   - Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table with chunk count, claim count, credibility state, a concrete next-action endpoint, and a short `Snippet:` preview sourced from inline text (or the first prepared chunk when inline text is unavailable).
 10. Record a minimal analyst review so the case report surface has reviewed content:
    - `curl -X POST http://127.0.0.1:8000/api/reviews \
      -H 'Content-Type: application/json' \

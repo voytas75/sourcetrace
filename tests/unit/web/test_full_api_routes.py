@@ -424,6 +424,8 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "Bridge reopening" in body
     assert "Track public claims." in body
     assert "Bridge note" in body
+    assert "Snippet:" in body
+    assert "The bridge reopened after inspection." in body
     assert "prepared" in body
     assert "no claims yet" in body
     assert "no credibility yet" in body

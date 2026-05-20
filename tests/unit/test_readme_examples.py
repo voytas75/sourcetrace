@@ -56,6 +56,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "curl http://127.0.0.1:8000/cases/case-1" in readme
     assert "Expected: each returns `200 OK` after the relevant upstream step is completed" in readme
     assert "Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table" in readme
+    assert "a short `Snippet:` preview sourced from inline text" in readme
     assert "shows summary/strengths/concerns/verification checks" in readme
     assert "returns a real `404` for missing cases instead of rendering `Case None`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/reviews" in readme

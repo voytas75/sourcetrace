@@ -38,6 +38,7 @@ from sourcetrace.web.delivery import (
     VerificationDeliveryRequest as ModuleVerificationDeliveryRequest,
 )
 from sourcetrace.web.delivery import create_default_delivery as module_create_default_delivery
+from sourcetrace.web.delivery import render_case_review_html
 
 
 def test_web_package_re_exports_delivery_surface() -> None:
@@ -548,6 +549,37 @@ def test_wsgi_app_attach_document_accepts_text_alias_and_prepare_without_body_re
     assert len(prepare_payload["chunks"]) >= 1
     assert "OpenAI announced a major partnership" in prepare_payload["chunks"][0]["raw_text"]
 
+
+
+
+def test_render_case_review_html_shows_document_snippet_preview() -> None:
+    delivery = create_default_delivery()
+    delivery.persistence.cases.save_case(
+        Case(case_id="case-snippet", title="Snippet case", description="HTML preview")
+    )
+    delivery.persistence.documents.save_document(
+        Document(
+            document_id="doc-snippet",
+            case_id="case-snippet",
+            source_type="inline_text",
+            source_url=None,
+            publisher=None,
+            author=None,
+            title="Snippet doc",
+            published_at=None,
+            retrieved_at=datetime(2026, 5, 20, 12, 0, tzinfo=UTC),
+            content_hash="sha256:snippet",
+            language="en",
+            inline_content="OpenAI announced a major partnership with Example University to improve AI safety research. The announcement described a multi-year research program and related governance commitments.",
+        )
+    )
+
+    html = render_case_review_html(delivery, "case-snippet")
+
+    assert "Snippet doc" in html
+    assert "Snippet:" in html
+    assert "OpenAI announced a major partnership with Example University" in html
+    assert "..." in html
 
 def test_document_from_payload_slugifies_polish_title_to_ascii_safe_document_id() -> None:
     from sourcetrace.web.delivery import document_from_payload

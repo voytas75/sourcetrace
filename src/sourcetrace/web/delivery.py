@@ -1224,9 +1224,10 @@ def _case_document_row_html(delivery: SourceTraceDelivery, document: Document) -
     )
     credibility_detail = _credibility_html_summary(assessment)
     title = _escape_html(document.title or document.document_id)
+    snippet_html = _document_snippet_html(document, chunks)
     return (
         "<tr>"
-        f"<td>{title}<br><small>{_escape_html(document.document_id)}</small></td>"
+        f"<td>{title}<br><small>{_escape_html(document.document_id)}</small>{snippet_html}</td>"
         f"<td>{_escape_html(document.source_type)}</td>"
         f"<td>{len(chunks)}</td>"
         f"<td>{len(claims)}</td>"
@@ -1234,6 +1235,24 @@ def _case_document_row_html(delivery: SourceTraceDelivery, document: Document) -
         f"<td>{_escape_html(', '.join(status_parts))}</td>"
         f"<td><code>{_escape_html(next_action)}</code></td>"
         "</tr>"
+    )
+
+
+def _document_snippet_html(
+    document: Document,
+    chunks: tuple[DocumentChunk, ...],
+) -> str:
+    source_text = document.inline_content or (chunks[0].raw_text if chunks else None)
+    if source_text is None:
+        return ""
+    snippet = " ".join(source_text.split()).strip()
+    if not snippet:
+        return ""
+    if len(snippet) > 160:
+        snippet = snippet[:157].rstrip() + "..."
+    return (
+        '<div class="document-snippet"><strong>Snippet:</strong> '
+        f"{_escape_html(snippet)}</div>"
     )
 
 
