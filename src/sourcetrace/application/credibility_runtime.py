@@ -544,7 +544,12 @@ def _credibility_prompt(request: CredibilityAssessmentRequest) -> str:
         f"Requested method: {request.assessment_method or 'llm_draft_v1'}",
         "Prepared source text excerpt:",
         _prepared_text_excerpt(request.prepared_chunks) or "No prepared source text was provided.",
-        "Respond as concise JSON with keys summary, strengths, concerns, recommended_handling, verification_checks, citation_advice.",
+        "Respond as concise JSON only.",
+        "Required top-level keys: summary, strengths, concerns, verification_checks, source_reliability, information_credibility, source_reliability_factors, information_credibility_factors, provenance_distance.",
+        "Allowed values: source_reliability/information_credibility = high|medium|low|unknown; provenance_distance = primary|near_primary|secondary|unknown.",
+        "If evidence is missing or ambiguous, explicitly return unknown instead of guessing.",
+        "Keep strengths/concerns/factor fields as short string arrays, not paragraphs.",
+        "Return valid JSON with double-quoted keys and no markdown fences.",
         "If prepared source text is available, assess both metadata limitations and what the actual text suggests about specificity, attribution, and verification needs.",
     ]
     return "\n".join(lines)

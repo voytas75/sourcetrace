@@ -504,6 +504,9 @@ def test_build_llm_credibility_assessor_includes_prepared_text_in_prompt() -> No
     assert "Prepared source text excerpt:" in prompts[0]
     assert "Apollo 11 landed on the Moon in 1969." in prompts[0]
     assert "No prepared source text was provided." not in prompts[0]
+    assert "Required top-level keys: summary, strengths, concerns, verification_checks, source_reliability, information_credibility, source_reliability_factors, information_credibility_factors, provenance_distance." in prompts[0]
+    assert "Allowed values: source_reliability/information_credibility = high|medium|low|unknown; provenance_distance = primary|near_primary|secondary|unknown." in prompts[0]
+    assert "Return valid JSON with double-quoted keys and no markdown fences." in prompts[0]
     assert outcome.assessment.notes == "Summary: Uses provided text."
 
 
