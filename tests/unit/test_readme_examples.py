@@ -70,11 +70,16 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "maps semantic assessment fields" in readme
     assert "hardened toward semantic JSON output" in readme
     assert "stabilisation scenarios in test coverage" in readme
+    assert "unattributed notes, anonymous reposts, and weak scraped snippets" in readme
+    assert "secondary news summaries stay secondary unless they clearly embed the primary material" in readme
     assert "curl http://127.0.0.1:8000/api/documents/doc-1/credibility" in readme
     assert "Expected: `200 OK` with the latest persisted `credibility_assessment`" in readme
     assert "The current `llm_draft_v1` output should be treated as an advisory draft" in readme
     assert "It currently relies mostly on document metadata, source identity, and topic context" in readme
     assert "not yet on full article-text analysis or claim-by-claim verification" in readme
+    assert "unattributed notes now settle into low/low/unknown semantics more consistently" in readme
+    assert "weak scraped snippets reliably land in low credibility bands" in readme
+    assert "provenance distance still conservatively falls back to `unknown`" in readme
     assert "## Example: run credibility on your own document payload" in readme
     assert "## Test-use checklist for collecting findings" in readme
     assert "whether extraction returned concise claim-like sentences or assistant-style prose" in readme
