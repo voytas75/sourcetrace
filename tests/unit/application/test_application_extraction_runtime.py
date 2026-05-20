@@ -402,6 +402,104 @@ def test_build_llm_claim_extractor_ignores_multiline_markdown_normalization_outp
     assert outcome.claims[0].exact_text == "The climate warmed despite La Niña."
 
 
+def test_build_llm_claim_extractor_preserves_attribution_and_caveat_rich_claims() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": (
+                            "According to the central bank, inflation fell to 3.1 percent in April, "
+                            "but the agency warned the figure may be revised after late survey responses."
+                        ),
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-2",
+                        "chunk_id": "chunk-1",
+                        "exact_text": (
+                            "The ministry said household energy subsidies remain temporary and no "
+                            "implementation timetable has been published."
+                        ),
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-3",
+                        "chunk_id": "chunk-1",
+                        "exact_text": (
+                            "Analysts said the announcement should not be treated as evidence that "
+                            "long-term price pressures have ended."
+                        ),
+                        "source_span_reference": "p1",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    normalization_outputs = iter(
+        (
+            "Inflation fell to 3.1 percent in April.",
+            "Household energy subsidies are still temporary.",
+            "The announcement does not prove long-term price pressures have ended.",
+        )
+    )
+
+    def normalize_claim(claim_text: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=next(normalization_outputs),
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Macro update chunk.",
+            start_char=0,
+            end_char=18,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(
+        extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
+    )
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert tuple(claim.exact_text for claim in outcome.claims) == (
+        "According to the central bank, inflation fell to 3.1 percent in April, but the agency warned the figure may be revised after late survey responses.",
+        "The ministry said household energy subsidies remain temporary and no implementation timetable has been published.",
+        "Analysts said the announcement should not be treated as evidence that long-term price pressures have ended.",
+    )
+
+
 def test_build_llm_claim_extractor_accepts_common_claim_payload_aliases() -> None:
     captured_normalization_inputs: list[str] = []
 

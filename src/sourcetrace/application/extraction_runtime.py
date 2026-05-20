@@ -36,6 +36,11 @@ _CONVERSATIONAL_CLAIM_PATTERNS = (
     "here are a few ways you might do so",
     "if you need to expand or clarify this statement",
     "help drafting a report, summary, or announcement",
+    "glad to hear",
+    "i can help you draft",
+    "customer notice",
+    "incident summary",
+    "outage update",
 )
 
 
@@ -66,6 +71,7 @@ class _LlmClaimExtractor:
         )
         result = self._extract_claims(prepared_text)
         claim_items, dropped_claim_items = _claim_items_for(result.payload)
+        claim_items = _deduplicate_claim_items(claim_items)
         claims = tuple(
             Claim(
                 claim_id=_normalized_string(item.get("claim_id")) or f"claim-{index + 1}",
@@ -132,7 +138,42 @@ def _claim_text_for(
     normalized = normalize_claim(exact_text).text.strip()
     if _looks_conversational_response(normalized):
         return exact_text
+    if _drops_attribution_or_caveat(source_text=exact_text, normalized_text=normalized):
+        return exact_text
     return normalized or exact_text
+
+
+def _drops_attribution_or_caveat(*, source_text: str, normalized_text: str) -> bool:
+    source = source_text.casefold()
+    normalized = normalized_text.casefold()
+    for marker in (
+        " said ",
+        " according to ",
+        " warned ",
+        " claimed ",
+        " stated ",
+        " reported ",
+        " analysts ",
+        " analyst ",
+        " ministry ",
+        " agency ",
+        " central bank",
+        " should not be treated as",
+        " remain temporary",
+        " remains temporary",
+        " no implementation timetable",
+        " but ",
+        " however ",
+        " although ",
+        " despite ",
+        " no dataset",
+        " no evidence",
+        " has not been published",
+        " has not been released",
+    ):
+        if marker in source and marker not in normalized:
+            return True
+    return False
 
 
 def _normalized_item_string(item: dict[str, object], key: str) -> str | None:
@@ -159,6 +200,51 @@ def _claim_items_for(payload: dict[str, object]) -> tuple[tuple[dict[str, object
     return normalized, len(claims) - len(normalized)
 
 
+def _deduplicate_claim_items(
+    items: tuple[dict[str, object], ...],
+) -> tuple[dict[str, object], ...]:
+    deduplicated: list[dict[str, object]] = []
+    for item in items:
+        claim_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS)
+        if claim_text is None:
+            deduplicated.append(item)
+            continue
+        for index, existing in enumerate(deduplicated):
+            existing_text = _first_normalized_item_string(existing, *_CLAIM_TEXT_KEYS)
+            if existing_text is None:
+                continue
+            if _is_near_duplicate_claim_text(existing_text, claim_text):
+                if len(claim_text) > len(existing_text):
+                    deduplicated[index] = item
+                break
+        else:
+            deduplicated.append(item)
+    return tuple(deduplicated)
+
+
+def _is_near_duplicate_claim_text(left: str, right: str) -> bool:
+    left_tokens = _claim_text_tokens(left)
+    right_tokens = _claim_text_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+    shorter, longer = (left_tokens, right_tokens)
+    if len(shorter) > len(longer):
+        shorter, longer = longer, shorter
+    overlap = sum(1 for token in shorter if token in longer)
+    return overlap / len(shorter) >= 0.9
+
+
+def _claim_text_tokens(text: str) -> tuple[str, ...]:
+    return tuple(
+        token
+        for token in (
+            normalized.strip(".,;:!?()[]{}\"'")
+            for normalized in text.casefold().split()
+        )
+        if token
+    )
+
+
 def _is_valid_claim_payload(item: object) -> bool:
     if not isinstance(item, dict):
         return False
@@ -183,6 +269,28 @@ def _is_conversational_claim_payload(item: dict[str, object]) -> bool:
 def _looks_conversational_response(text: str) -> bool:
     normalized = text.casefold()
     if any(pattern in normalized for pattern in _CONVERSATIONAL_CLAIM_PATTERNS):
+        return True
+    if "if you want" in normalized and "i can help" in normalized:
+        return True
+    if any(
+        marker in normalized
+        for marker in (
+            "status update",
+            "draft a report",
+            "draft an update",
+            "draft a status update",
+            "customer notice",
+            "incident summary",
+        )
+    ) and any(
+        marker in normalized
+        for marker in (
+            "i can help",
+            "i can assist",
+            "if you want",
+            "let me know",
+        )
+    ):
         return True
     line_count = sum(1 for line in text.splitlines() if line.strip())
     if line_count >= 3:

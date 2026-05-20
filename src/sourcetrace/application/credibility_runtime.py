@@ -1,5 +1,7 @@
 """Minimal application runtime for LLM-backed credibility assessment."""
 
+import json
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -42,7 +44,7 @@ class _LlmCredibilityAssessor:
             information_credibility_factors=(),
             provenance_distance=ProvenanceDistance.UNKNOWN,
             method=request.assessment_method or "llm_draft_v1",
-            notes=draft.text.strip() or None,
+            notes=_normalize_credibility_notes(draft.text),
             assessed_by=self._assessed_by,
             assessed_at=self._assessed_at(),
             override=False,
@@ -52,6 +54,188 @@ class _LlmCredibilityAssessor:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _normalize_credibility_notes(text: str) -> str | None:
+    normalized = text.strip()
+    if not normalized:
+        return None
+    try:
+        payload = json.loads(normalized)
+    except json.JSONDecodeError:
+        best_effort = _best_effort_credibility_notes(normalized)
+        return best_effort or normalized
+    if not isinstance(payload, dict):
+        return normalized
+
+    rendered = _render_credibility_payload(payload)
+    return rendered or normalized
+
+
+def _string_or_none(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _string_list(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    items = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip()
+        if normalized:
+            items.append(normalized)
+    return tuple(items)
+
+
+def _first_nonempty_string_list(payload: dict[str, object], *keys: str) -> tuple[str, ...]:
+    for key in keys:
+        items = _string_list(payload.get(key))
+        if items:
+            return items
+    return ()
+
+
+def _render_credibility_payload(payload: dict[str, object]) -> str | None:
+    advisory_payload = payload.get("advisory_credibility_notes")
+    if isinstance(advisory_payload, dict):
+        payload = advisory_payload
+
+    lines: list[str] = []
+    summary = _string_or_none(payload.get("summary"))
+    if summary is not None:
+        lines.append(f"Summary: {summary}")
+
+    strengths = _first_nonempty_string_list(payload, "strengths")
+    if strengths:
+        lines.append(f"Strengths: {'; '.join(strengths)}")
+
+    concerns = _first_nonempty_string_list(payload, "concerns", "weaknesses")
+    if concerns:
+        lines.append(f"Concerns: {'; '.join(concerns)}")
+    else:
+        provenance = payload.get("provenance_assessment")
+        if isinstance(provenance, dict):
+            provenance_notes = _string_list(provenance.get("notes"))
+            if provenance_notes:
+                lines.append(f"Concerns: {'; '.join(provenance_notes)}")
+
+    risk_flags = _first_nonempty_string_list(payload, "risk_flags")
+    if risk_flags:
+        lines.append(f"Risk flags: {'; '.join(risk_flags)}")
+
+    recommended_handling = _first_nonempty_string_list(payload, "recommended_handling")
+    if not recommended_handling:
+        recommended_use = payload.get("recommended_use")
+        if isinstance(recommended_use, dict):
+            recommended_handling = _string_list(recommended_use.get("appropriate_uses"))
+            not_recommended = _string_list(recommended_use.get("not_recommended_as"))
+            if not_recommended:
+                recommended_handling = recommended_handling + tuple(
+                    f"Not recommended as: {item}" for item in not_recommended
+                )
+    if recommended_handling:
+        lines.append(f"Recommended handling: {'; '.join(recommended_handling)}")
+
+    verification_checks = _first_nonempty_string_list(
+        payload,
+        "verification_checks",
+        "verification_steps",
+    )
+    if verification_checks:
+        lines.append(f"Verification checks: {'; '.join(verification_checks)}")
+
+    citation_advice = _string_or_none(payload.get("citation_advice"))
+    if citation_advice is not None:
+        lines.append(f"Citation advice: {citation_advice}")
+    return "\n".join(lines) if lines else None
+
+
+def _best_effort_credibility_notes(text: str) -> str | None:
+    lines: list[str] = []
+
+    summary = _extract_first_string_field(text, "summary")
+    if summary is not None:
+        lines.append(f"Summary: {summary}")
+
+    concerns = _extract_string_list(text, "concerns") or _extract_string_list(text, "weaknesses")
+    if not concerns:
+        concerns = _extract_nested_string_list(text, "provenance_assessment", "notes")
+    if concerns:
+        lines.append(f"Concerns: {'; '.join(concerns)}")
+
+    risk_flags = _extract_string_list(text, "risk_flags")
+    if risk_flags:
+        lines.append(f"Risk flags: {'; '.join(risk_flags)}")
+
+    recommended_handling = _extract_string_list(text, "recommended_handling")
+    if not recommended_handling:
+        recommended_handling = _extract_nested_string_list(text, "recommended_use", "appropriate_uses")
+        not_recommended = _extract_nested_string_list(text, "recommended_use", "not_recommended_as")
+        if not_recommended:
+            recommended_handling = recommended_handling + tuple(
+                f"Not recommended as: {item}" for item in not_recommended
+            )
+    if recommended_handling:
+        lines.append(f"Recommended handling: {'; '.join(recommended_handling)}")
+
+    verification_checks = _extract_string_list(text, "verification_checks")
+    if not verification_checks:
+        verification_checks = _extract_string_list(text, "verification_steps")
+    if verification_checks:
+        lines.append(f"Verification checks: {'; '.join(verification_checks)}")
+
+    citation_advice = _extract_first_string_field(text, "citation_advice")
+    if citation_advice is not None:
+        lines.append(f"Citation advice: {citation_advice}")
+
+    return "\n".join(lines) if lines else None
+
+
+def _extract_first_string_field(text: str, field_name: str) -> str | None:
+    pattern = re.compile(rf'"{re.escape(field_name)}"\s*:\s*"((?:\\.|[^"\\])*)"')
+    match = pattern.search(text)
+    if match is None:
+        return None
+    return _decode_json_string_fragment(match.group(1))
+
+
+def _extract_string_list(text: str, field_name: str) -> tuple[str, ...]:
+    pattern = re.compile(rf'"{re.escape(field_name)}"\s*:\s*\[(.*?)\]', re.DOTALL)
+    match = pattern.search(text)
+    if match is None:
+        return ()
+    return _extract_all_strings(match.group(1))
+
+
+def _extract_nested_string_list(text: str, object_name: str, field_name: str) -> tuple[str, ...]:
+    object_pattern = re.compile(rf'"{re.escape(object_name)}"\s*:\s*\{{(.*?)\n\s*\}}', re.DOTALL)
+    match = object_pattern.search(text)
+    if match is None:
+        return ()
+    return _extract_string_list(match.group(1), field_name)
+
+
+def _extract_all_strings(fragment: str) -> tuple[str, ...]:
+    pattern = re.compile(r'"((?:\\.|[^"\\])*)"')
+    return tuple(
+        decoded
+        for raw in pattern.findall(fragment)
+        if (decoded := _decode_json_string_fragment(raw)) is not None
+    )
+
+
+def _decode_json_string_fragment(value: str) -> str | None:
+    try:
+        decoded = json.loads(f'"{value}"')
+    except json.JSONDecodeError:
+        return None
+    normalized = decoded.strip()
+    return normalized or None
 
 
 def _credibility_prompt(request: CredibilityAssessmentRequest) -> str:

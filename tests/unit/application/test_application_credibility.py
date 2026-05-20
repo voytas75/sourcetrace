@@ -1,5 +1,6 @@
 """Application credibility assessment contract tests."""
 
+import json
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from os import environ
@@ -182,6 +183,176 @@ def test_build_llm_credibility_assessor_maps_draft_gateway_to_application_outcom
     assert "doc-1" in prompts[0]
     assert "Network report" in prompts[0]
     assert "https://example.test/report" in prompts[0]
+
+
+def test_build_llm_credibility_assessor_normalizes_json_blob_into_human_readable_notes() -> None:
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher="Example News",
+        author="Analyst",
+        title="Network report",
+        published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=(
+                '{"summary":"Lead only; provenance remains weak.",' 
+                '"strengths":["Publisher is identified"],' 
+                '"concerns":["No underlying dataset is linked"],' 
+                '"verification_checks":["Confirm with the original ministry release"]}'
+            ),
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.notes == (
+        "Summary: Lead only; provenance remains weak.\n"
+        "Strengths: Publisher is identified\n"
+        "Concerns: No underlying dataset is linked\n"
+        "Verification checks: Confirm with the original ministry release"
+    )
+
+
+def test_build_llm_credibility_assessor_normalizes_live_nested_json_blob_into_human_readable_notes() -> None:
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="note",
+        source_url=None,
+        publisher=None,
+        author=None,
+        title="Climate analysis v2",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=json.dumps(
+                {
+                    "document_id": "doc-1",
+                    "case_id": "case-1",
+                    "source_type": "note",
+                    "title": "Climate analysis v2",
+                    "advisory_credibility_notes": {
+                        "summary": "This appears to be an unattributed note.",
+                        "strengths": ["May contain useful analytical framing."],
+                        "weaknesses": ["No identified author or publisher."],
+                        "risk_flags": ["Unverified provenance"],
+                        "recommended_handling": ["Use only as a lead until corroborated."],
+                        "verification_steps": ["Locate the original source or publication page."],
+                        "citation_advice": "Describe it cautiously as an unattributed note.",
+                    },
+                }
+            ),
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.notes == (
+        "Summary: This appears to be an unattributed note.\n"
+        "Strengths: May contain useful analytical framing.\n"
+        "Concerns: No identified author or publisher.\n"
+        "Risk flags: Unverified provenance\n"
+        "Recommended handling: Use only as a lead until corroborated.\n"
+        "Verification checks: Locate the original source or publication page.\n"
+        "Citation advice: Describe it cautiously as an unattributed note."
+    )
+
+
+def test_build_llm_credibility_assessor_best_effort_parses_truncated_live_json_blob() -> None:
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="note",
+        source_url=None,
+        publisher=None,
+        author=None,
+        title="Reform briefing note",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:ghi789",
+        language="en",
+    )
+
+    truncated_blob = '''{
+  "document_id": "doc-1",
+  "case_id": "case-1",
+  "advisory_credibility_notes": {
+    "summary": "Credibility is currently indeterminate due to missing provenance and bibliographic metadata.",
+    "provenance_assessment": {
+      "rating": "low",
+      "notes": [
+        "Publisher is unknown.",
+        "Author is unknown."
+      ]
+    },
+    "risk_flags": [
+      "No identifiable publisher or issuing institution.",
+      "No named author or responsible organization."
+    ],
+    "recommended_use": {
+      "appropriate_uses": [
+        "As a lead for further research.",
+        "To extract names, dates, policy terms, or claims to verify elsewhere."
+      ],
+      "not_recommended_as": [
+        "A sole source for factual assertions.",
+        "Definitive evidence of institutional position unless independently authenticated."
+      ]
+    },
+    "verification_steps": [
+      "Obtain the full document, including cover page, headers, footers, logos,''' 
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=truncated_blob,
+            model="gpt-5.4",
+            finish_reason="length",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.notes == (
+        "Summary: Credibility is currently indeterminate due to missing provenance and bibliographic metadata.\n"
+        "Concerns: Publisher is unknown.; Author is unknown.\n"
+        "Risk flags: No identifiable publisher or issuing institution.; No named author or responsible organization.\n"
+        "Recommended handling: As a lead for further research.; To extract names, dates, policy terms, or claims to verify elsewhere.; Not recommended as: A sole source for factual assertions.; Not recommended as: Definitive evidence of institutional position unless independently authenticated."
+    )
 
 
 

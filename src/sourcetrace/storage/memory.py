@@ -110,12 +110,30 @@ class InMemoryClaimRepository:
         self._review_decisions: dict[str, ClaimReviewDecision] = {}
 
     def save_claims(self, claims: tuple[Claim, ...]) -> tuple[Claim, ...]:
+        persisted_claims: list[Claim] = []
         for claim in claims:
-            self._claims[claim.claim_id] = claim
-            case_claim_ids = self._claim_ids_by_case.setdefault(claim.case_id, [])
-            if claim.claim_id not in case_claim_ids:
-                case_claim_ids.append(claim.claim_id)
-        return claims
+            existing_claim = self._claims.get(claim.claim_id)
+            if existing_claim is None:
+                persisted_claim = claim
+            elif existing_claim.case_id == claim.case_id and existing_claim.document_id == claim.document_id:
+                persisted_claim = claim
+            else:
+                persisted_claim = Claim(
+                    claim_id=f"{claim.case_id}:{claim.claim_id}",
+                    case_id=claim.case_id,
+                    document_id=claim.document_id,
+                    chunk_id=claim.chunk_id,
+                    exact_text=claim.exact_text,
+                    source_span_reference=claim.source_span_reference,
+                    system_verdict=claim.system_verdict,
+                    rationale=claim.rationale,
+                )
+            self._claims[persisted_claim.claim_id] = persisted_claim
+            case_claim_ids = self._claim_ids_by_case.setdefault(persisted_claim.case_id, [])
+            if persisted_claim.claim_id not in case_claim_ids:
+                case_claim_ids.append(persisted_claim.claim_id)
+            persisted_claims.append(persisted_claim)
+        return tuple(persisted_claims)
 
     def get_claim(self, claim_id: str) -> Claim | None:
         return self._claims.get(claim_id)
