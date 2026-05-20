@@ -1,83 +1,35 @@
 # SourceTrace
 
-SourceTrace is an application project for building an evidence-centric OSINT + LLM system, with research, planning, and later implementation kept in one repository.
+SourceTrace is an application project for building an evidence-centric OSINT + LLM system, with research, planning, and implementation in one repository.
 
 ## Current state
-This repository is past the pure research-first phase and now has a bounded contract-first implementation baseline plus a first narrow runtime and delivery path.
+This repo is no longer just a research scaffold. It now has a stable bounded product baseline around the local web/API flow, extraction, credibility drafting, and smoke verification.
 
-Confirmed now:
-- product direction is evidence-first and claim-centric
-- research, SSOT, and execution blueprint documents are in place
-- product package layout exists under `src/sourcetrace/`
-- `domain` contracts are implemented
-- `application` request/outcome contracts are implemented
-- `application` execution seams are implemented
-- lower-level retrieval and persistence seams are implemented in `pipeline.interfaces` and `storage.interfaces`
-- first in-memory runtime path is implemented for persistence, lexical retrieval, and verification orchestration
-- minimal analyst-facing delivery surface is implemented in `web/` as a pure-stdlib WSGI/API + HTML/Markdown baseline
-- inspection payloads now include derived evidence summary fields and review/report-entry status hints
-- delivery routes now distinguish invalid requests and missing verification/report artifacts explicitly
-- the in-memory retrieval/runtime path is hardened for duplicate document selection and thin-path end-to-end coverage
-- local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `123 passed`
-- bounded LLM integration is now implemented under `src/sourcetrace/llm/`, with an application extraction runtime seam and local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `157 passed`
-- the LLM-backed extraction runtime now supports optional storage-backed claim persistence via `ClaimRepository`, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
-- the same LLM-backed extraction runtime now also emits and optionally persists initial `ClaimEvidenceLink` records through the existing `ClaimRepository` seam, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
-- initial extraction-side `ClaimEvidenceLink` semantics are now less misleading: they stay at `INSUFFICIENT_EVIDENCE` until verification and include span-aware rationale text, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
-- initial extraction-side `ClaimEvidenceLink` metadata is now payload-aware: when the LLM claim payload includes evidence snippet/rationale/score fields, the runtime maps them into the initial link while preserving provisional `INSUFFICIENT_EVIDENCE` semantics, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
-- initial extraction-side evidence mapping now supports multi-link payloads: one claim can emit multiple provisional `ClaimEvidenceLink` records with ordered `evidence_rank` and per-item `chunk_id`/snippet/rationale/score metadata, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `158 passed`
-- initial extraction-side evidence normalization is now defensive against noisy payloads: invalid evidence entries are ignored, accepted entries keep dense `evidence_rank` ordering, and the runtime falls back to a single provisional link only when no valid evidence item remains, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `160 passed`
-- top-level extraction claim normalization is now also defensive: invalid `payload["claims"]` entries are ignored before claim construction, accepted claims keep dense fallback IDs, and evidence links are emitted only for normalized claim items, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `162 passed`
-- extraction outcomes now also expose lightweight normalization diagnostics: `dropped_claim_items` and `dropped_evidence_items` report how many payload entries were ignored before mapping, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `163 passed`
-- extraction runtime string normalization is now trim-aware: whitespace-only claim/evidence fields are treated as missing, accepted strings are stripped before mapping, and dropped-item diagnostics stay aligned with that normalization, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `164 passed`
-- source-span fallback is now slightly refined for single-chunk extraction requests: when normalized claim span fields are blank, the runtime can fall back to the lone request chunk’s `position_reference` instead of `chunk-span:unknown`, while multi-chunk requests keep the previous conservative behavior, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
-- extraction runtime normalization helpers are now slightly cleaner internally: repeated trim-aware string lookups were consolidated behind small helper functions without changing claim/evidence filtering, diagnostics, or fallback behavior, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
-- the current LLM layer is still intentionally provider-bootstrap-light: SourceTrace-owned task config binds task intent to logical profiles, profile config owns concrete routing (`model`, `temperature`, `max_output_tokens`), the repo does not load `.env` itself, and LiteLLM remains only a hidden adapter shape until a separate runtime configuration contract is implemented, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `165 passed`
-- a minimal LLM bootstrap contract is now present without breaking provider-neutral seams: `SourceTraceLlmConfig` can declare explicit external env var names through `LlmBootstrapConfig`, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `168 passed`
-- that same LLM boundary now also includes a small process-env bootstrap resolver: `resolve_llm_bootstrap_config(...)` reads only the declared env var names, fails fast on missing/blank values, still does not load `.env`, and keeps provider details outside request/application surfaces, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `173 passed`
-- the same LiteLLM adapter boundary now also wires those resolved bootstrap inputs into provider-facing callables: `build_litellm_completion_caller(...)`, `build_litellm_text_generator(...)`, and `build_litellm_structured_generator(...)` inject `api_key`/`base_url`/`api_version` without widening request or application surfaces, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `176 passed`
-- the LLM layer now also exposes a small runtime assembly entrypoint: `build_llm_runtime(...)` resolves env bootstrap, binds the LiteLLM structured generator, and assembles a claim-extraction-ready runtime bundle without adding `.env` loading or provider leakage to higher layers, with local verification baseline `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` → `178 passed`
-- that same runtime assembly now depends only on the public `build_claim_extraction_gateway(...)` factory rather than reaching into a private extraction symbol, keeping the composition boundary explicit without changing behavior or widening surfaces
-- that same runtime assembly now also exposes a text-generation-backed `credibility_draft` gateway for the existing `credibility_draft` task alias, still resolving bootstrap from process env only and still keeping provider details hidden behind the local LiteLLM adapter boundary
-- that `credibility_draft` gateway is now also consumable from the existing application credibility seam, so an assessment callable can draft advisory notes without changing the request/outcome contract or leaking provider details upward
-- the application layer now exposes `build_llm_credibility_assessor(...)`, a public helper that binds the `credibility_draft` gateway into `CredibilityAssessmentOutcome` while keeping generated text in advisory notes and leaving credibility bands/provenance at `unknown`
-- that same runtime assembly now also exposes a text-generation-backed `claim_normalization` gateway for the existing `claim_normalization` task alias, using the same env-resolved edge injection path and keeping provider details out of higher layers
-- the application extraction runtime can now optionally consume that `claim_normalization` gateway to normalize extracted `exact_text` before claim records are materialized, while preserving the previous fallback behavior when no normalizer is wired
-- a minimal local front door now exists for the delivery surface: `python -m sourcetrace.web` (and installed console script `sourcetrace-web`) starts a pure-stdlib WSGI server against the in-memory delivery/runtime path for thin local end-to-end smoke runs
-- a repo-owned local launcher now also exists: `python -m sourcetrace.local_launcher` (and installed console script `sourcetrace-local`) loads `src/sourcetrace/runtime_config.py`, builds `build_llm_runtime(...)`, and wires the `credibility_draft` gateway into the local web delivery path
-- the runtime-config file `src/sourcetrace/runtime_config.py` is now the default place to set SourceTrace-owned task models for `claim_extraction`, `claim_normalization`, and `credibility_draft`
-- the local root route `GET /` now returns a small HTML landing page listing the available smoke-test routes instead of the previous `{"error": "not_found"}` JSON payload
-- the local web delivery path can now optionally compose that credibility helper through `create_default_delivery(..., credibility_draft=...)` and expose it via `POST /api/documents/{document_id}/credibility` for WSGI smoke coverage, without adding `.env` loading or provider fields to web requests
-- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `252 passed`
-- create/write workflow responses now include a common top-level workflow envelope: `status`, `summary`, `next_step`, `resource`, and `resource_id`, while preserving the existing domain payloads (`case`, `document`, `chunks`, `claims`, `credibility_assessment`)
-- create responses also expose compatibility aliases at top level (`case_id`, `document_id`) so thin clients do not have to dereference nested payloads first
-- document IDs are now ASCII-safe for non-English titles, so routes stay stable for inputs like Polish headlines with diacritics
-- fallback extraction claim IDs are now consistently case-scoped (`{case_id}:claim-{n}`) instead of mixing bare `claim-{n}` values into API-visible flows
-- the HTML case view is now more truthful for missing and partial states: `GET /cases/{case_id}` returns a real `404` for missing cases instead of rendering `Case None`, and claim rows prefer persisted verification verdicts over placeholder defaults while linking directly to claim/evidence/verification API reads
-- claim normalization now also resists basic cross-language drift for Polish source text: if normalization rewrites a Polish claim into obvious English prose, SourceTrace keeps the original extracted Polish text instead of persisting the translation-like rewrite
-- credibility assessment payloads now expose both backward-compatible rendered `notes` and structured fields (`summary`, `strengths`, `concerns`, `verification_checks`) so thin clients can render advisory output without reparsing prose
-- credibility runtime now also maps semantic assessment fields when the draft provides them: `source_reliability`, `information_credibility`, `provenance_distance`, plus reliability/credibility factor lists; when the draft does not provide trustworthy semantic signals, the runtime still falls back to safe `unknown` values instead of inventing confidence
-- credibility prompting is now hardened toward semantic JSON output: it explicitly asks for required top-level credibility/provenance keys, constrained enum values, short factor arrays, and `unknown` instead of guesses, which improved the live path from all-`unknown` semantics to non-empty bands/factors in the latest smoke
-- credibility semantics now have explicit stabilisation scenarios in test coverage (for example primary release vs secondary summary), and the latest live smoke confirmed that the real provider can distinguish primary vs secondary provenance while still showing some model-level variance on the final band choice
-- credibility prompting is now also tightened for weak-source scenarios: unattributed notes, anonymous reposts, and weak scraped snippets are explicitly biased toward low source reliability unless the document itself carries stronger provenance, while secondary news summaries stay secondary unless they clearly embed the primary material
-- the analyst-facing HTML case view now also renders that structured credibility output directly inside each document row, so `/cases/{case_id}` shows summary/strengths/concerns/verification checks without opening the raw JSON API first
-- the repo-owned launcher `python -m sourcetrace.local_launcher` is now live-smoke verified against the current Azure/OpenAI-backed environment: local start, health/runtime probes, document prepare, claim extraction, persisted case claims, credibility draft, and HTML case view all complete successfully when the launcher process inherits the required `SOURCETRACE_LLM_*` / `AZURE_OPENAI_*` env from shell init
-- current live smoke confirmed that extraction preserves attribution-bearing claim text on a simple quoted/caveated note (`The minister said ...`, `A watchdog said ...`) and that the same claims appear consistently in both `GET /api/cases/{case_id}/claims` and `GET /cases/{case_id}` HTML
-- current live smoke also confirmed that advisory credibility output reaches `POST /api/documents/{document_id}/credibility` on the real provider path, and live markdown/prose responses are now condensed more readably into compact `Summary` / `Strengths` / `Concerns` notes instead of always surfacing as a long raw draft block
-- minimal inline case/document ingest is now less hostile for product-level smoke runs: `POST /api/cases` can auto-generate `case_id`, `POST /api/cases/{case_id}/documents` can accept inline `title` + `content` or `text` and auto-fill `document_id` / `source_type` / `retrieved_at` / `content_hash`, and `POST /api/documents/{document_id}/prepare` now falls back to the previously stored inline document text when the request body omits `raw_text`
-- the analyst-facing HTML case view now also renders a short inline document snippet preview in each document row, preferring stored inline text and otherwise falling back to the first prepared chunk so continuity/debug smoke runs are visible directly in `/cases/{case_id}`
-- a reusable end-to-end smoke script now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, covering create-case, inline document continuity, prepare, extract, credibility, and HTML snippet/summary checks in one pass; it now also supports `--pretty`, `--expect-claims-min N`, and exits non-zero when the smoke expectations fail
-- GitHub Actions now includes a lightweight `CI Smoke` workflow that boots the local launcher, waits for `/api/ready`, and runs `python -m sourcetrace.smoke_flow --pretty --expect-claims-min 1` on pushes/PRs to `main` and via manual dispatch
-- current live smoke also confirmed that credibility assessment now consumes prepared inline document text instead of only metadata, producing content-aware notes (e.g. Apollo 11 summary/strengths/verification checks) while still flagging weak provenance for unattributed inline notes
-- the latest weak-source smoke also confirmed that unattributed notes now settle into low/low/unknown semantics more consistently, while weak scraped snippets reliably land in low credibility bands even when provenance distance still conservatively falls back to `unknown`
-- the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev --extra dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
+Confirmed baseline now:
+- evidence-first, claim-centric product direction is still the active center
+- local stdlib WSGI/API + HTML flow exists under `src/sourcetrace/web/`
+- the repo-owned launcher `python -m sourcetrace.local_launcher` wires runtime config + LLM-backed credibility path into that local web surface
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `262 passed`
+- create/write workflow responses now include a common top-level workflow envelope: `status`, `summary`, `next_step`, `resource`, and `resource_id`
+- create responses still expose compatibility aliases at top level (`case_id`, `document_id`) for thin clients
+- document IDs are now ASCII-safe for non-English titles, and fallback claim IDs stay case-scoped
+- `GET /cases/{case_id}` is truthful for missing/partial states: missing cases return real `404`, persisted verification verdicts are preferred, and direct claim/evidence/verification links are exposed
+- claim normalization resists basic cross-language drift for Polish source text instead of persisting obvious English rewrite drift
+- credibility assessment now ships both backward-compatible `notes` and structured credibility output (`summary`, `strengths`, `concerns`, `verification_checks`)
+- credibility runtime also maps semantic assessment fields (`source_reliability`, `information_credibility`, `provenance_distance`, factor arrays) with conservative `unknown` fallback when the draft is weak
+- weak-source credibility handling is explicitly hardened for unattributed notes, anonymous reposts, weak scraped snippets, and secondary summaries
+- the HTML case view renders structured credibility output directly in each document row and shows a short snippet preview sourced from inline text or the first prepared chunk
+- inline document continuity is verified end-to-end: `POST /api/cases/{case_id}/documents` accepts `content` or `text`, `prepare` can reuse stored inline text, and document payloads expose `has_inline_content`
+- a reusable smoke command now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, supports `--pretty` and `--expect-claims-min N`, and exits non-zero on failed expectations
+- GitHub Actions also includes a lightweight `CI Smoke` workflow for the same local launcher + smoke path, although this repo is currently used without a configured remote
 
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
 - `docs/research/research-ledger.md` — rolling research notes and architecture implications
 - `docs/plans/execution-blueprint-v0.md` — provisional plan between research and implementation
 - `notes/` — working notes
-- `src/sourcetrace/` — future application package layout
-- `tests/` — package/layout and later unit/integration tests
+- `src/sourcetrace/` — application package
+- `tests/` — unit/integration/doc assertions
 - `data/` — local working data directories kept mostly out of git
 
 ## Working model
@@ -86,7 +38,7 @@ The intended workflow is now:
 2. update research ledger
 3. patch SSOT and execution blueprint when assumptions change
 4. execute bounded contract-first slices for agreed layers
-5. only then move into runtime adapters, storage engines, and retrieval implementations
+5. only then move into broader runtime adapters, storage engines, and retrieval implementations
 
 ## Local environment bootstrap
 Run locally with uv:
@@ -110,10 +62,10 @@ Expected startup: `SourceTrace local server listening on http://127.0.0.1:8000`
 Use `Ctrl+C` to stop the server cleanly.
 
 Notes:
-- the repo now declares a minimal `pyproject.toml` and uses `src/` package layout
+- the repo declares a minimal `pyproject.toml` and uses `src/` package layout
 - `.env` is still not loaded by the repo; any required external secrets must come from the process environment only
-- `src/sourcetrace/runtime_config.py` is now the repo-owned place for task-to-profile bindings and profile-level routing defaults
-- the local launcher auto-loads `litellm.completion` from the project `.venv`; if LiteLLM is missing, the launcher now fails early with a clear startup error instead of a later route-time `500`
+- `src/sourcetrace/runtime_config.py` is the repo-owned place for task-to-profile bindings and profile-level routing defaults
+- the local launcher auto-loads `litellm.completion` from the project `.venv`; if LiteLLM is missing, the launcher fails early with a clear startup error instead of a later route-time `500`
 - the local launcher currently wires `credibility_draft` through the web delivery path; broader extraction/normalization web consumption is still do weryfikacji
 - the local web run is still a thin in-memory/dev path, not a production server shape
 - `.github/workflows/ci-smoke.yml` now provides a minimal GitHub Actions smoke lane: focused smoke CLI pytest, launcher boot, readiness wait, reusable smoke flow, and server-log dump on failure
@@ -201,7 +153,7 @@ Do weryfikacji:
    - Expected: `200 OK` with JSON containing `runtime.entrypoint`
    - `curl http://127.0.0.1:8000/api/capabilities`
    - Expected: `200 OK` with JSON listing `routes.product`, `routes.dev`, and runtime capability flags
-4. Create a case:
+5. Create a case:
    - `curl -X POST http://127.0.0.1:8000/api/cases \
       -H 'Content-Type: application/json' \
       -d '{
@@ -210,7 +162,7 @@ Do weryfikacji:
         "description": "Track public claims."
       }'`
    - Expected: `201 Created` with JSON containing `case.case_id`
-5. Attach a document to that case:
+6. Attach a document to that case:
    - `curl -X POST http://127.0.0.1:8000/api/cases/case-1/documents \
       -H 'Content-Type: application/json' \
       -d '{
@@ -226,26 +178,26 @@ Do weryfikacji:
         "language": "en"
       }'`
    - Expected: `201 Created` with JSON containing `document.document_id`
-  - Current verified continuity: the same route also accepts inline `text` (alias for `content`), and the returned document payload exposes `has_inline_content: true` when inline text was stored for later prepare reuse
-6. Prepare chunks for the document:
+   - Current verified continuity: the same route also accepts inline `text` (alias for `content`), and the returned document payload exposes `has_inline_content: true` when inline text was stored for later prepare reuse
+7. Prepare chunks for the document:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare \
       -H 'Content-Type: application/json' \
       -d '{
         "raw_text": "The bridge reopened after inspection.\n\nTraffic resumed.",
         "chunking_method": "paragraph-v1"
       }'`
-  - Expected: `200 OK` with JSON containing `chunks`
-  - Current verified diagnostics: the response also includes `diagnostics.chunk_count`, `diagnostics.status`, `diagnostics.summary`, and `diagnostics.next_step` so the caller can tell whether prepare produced usable chunks and what to do next.
-  - Current verified continuity: if the document was created earlier with inline `content` or `text`, `POST /api/documents/{document_id}/prepare` can now be called with an empty JSON body and it will reuse the previously stored inline text instead of returning `empty`.
-7. Run claim extraction:
+   - Expected: `200 OK` with JSON containing `chunks`
+   - Current verified diagnostics: the response also includes `diagnostics.chunk_count`, `diagnostics.status`, `diagnostics.summary`, and `diagnostics.next_step` so the caller can tell whether prepare produced usable chunks and what to do next.
+   - Current verified continuity: if the document was created earlier with inline `content` or `text`, `POST /api/documents/{document_id}/prepare` can now be called with an empty JSON body and it will reuse the previously stored inline text instead of returning `empty`.
+8. Run claim extraction:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/extract-claims \
       -H 'Content-Type: application/json' \
       -d '{"extraction_method":"llm_v1"}'`
    - Expected: `200 OK` with JSON containing `claims` and `diagnostics`
    - Current verified diagnostics: `diagnostics` now includes `claim_count`, `chunk_count`, `status`, `summary`, and `next_step`, so empty extraction results explain whether the next move is to inspect chunks or re-run prepare/extract with better source text.
    - Current verified guardrail: if claim normalization returns a conversational/helpdesk-style rewrite, Sourcetrace keeps the original extracted claim text instead of persisting the rewritten assistant-style text.
-   - Current verified live nuance: answer-style claim openings like `Yes — ...` / `No — ...` are now also filtered as conversational leakage, so simple inline factual notes produce cleaner claim-like sentences instead of Q&A-style phrasing.
-8. In another terminal, submit a minimal verification request:
+   - Current verified guardrail: SourceTrace also resists basic cross-language drift for Polish source text during normalization.
+9. In another terminal, submit a minimal verification request:
    - `curl -X POST http://127.0.0.1:8000/api/verify \
      -H 'Content-Type: application/json' \
      -d '{
@@ -262,7 +214,7 @@ Do weryfikacji:
        "requested_k": 2
      }'`
    - Expected: `200 OK` with JSON containing `verification.verdict`
-9. Inspect the resource reads:
+10. Inspect the resource reads:
    - `curl http://127.0.0.1:8000/api/cases`
    - `curl http://127.0.0.1:8000/api/cases/case-1`
    - `curl http://127.0.0.1:8000/api/cases/case-1/documents`
@@ -275,7 +227,8 @@ Do weryfikacji:
    - `curl http://127.0.0.1:8000/cases/case-1`
    - Expected: each returns `200 OK` after the relevant upstream step is completed
    - Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table with chunk count, claim count, credibility state, a concrete next-action endpoint, and a short `Snippet:` preview sourced from inline text (or the first prepared chunk when inline text is unavailable).
-10. Record a minimal analyst review so the case report surface has reviewed content:
+   - Current verified UI nuance: the same HTML view shows summary/strengths/concerns/verification checks directly in each document row and returns a real `404` for missing cases instead of rendering `Case None`.
+11. Record a minimal analyst review so the case report surface has reviewed content:
    - `curl -X POST http://127.0.0.1:8000/api/reviews \
      -H 'Content-Type: application/json' \
      -d '{
@@ -289,12 +242,12 @@ Do weryfikacji:
    - Expected: `200 OK` with JSON containing the persisted review payload
    - `curl http://127.0.0.1:8000/api/claims/claim-1/review`
    - Expected: `200 OK` with JSON containing the persisted review artifact
-11. Export the report:
+12. Export the report:
    - `curl http://127.0.0.1:8000/api/reports/case-1`
    - Expected: `200 OK` with canonical report JSON
    - `curl http://127.0.0.1:8000/api/reports/case-1.md`
    - Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`
-12. Draft advisory document credibility notes:
+13. Draft advisory document credibility notes:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility \
       -H 'Content-Type: application/json' \
       -d '{"assessment_method":"llm_draft_v1"}'`
@@ -303,7 +256,8 @@ Do weryfikacji:
    - Expected: `200 OK` with the latest persisted `credibility_assessment`
    - The current `llm_draft_v1` output should be treated as an advisory draft.
    - It currently relies mostly on document metadata, source identity, and topic context, not yet on full article-text analysis or claim-by-claim verification.
-   - Current live-smoke nuance: JSON-like credibility blobs are normalized more readably, but plain markdown/prose answers from the provider can still arrive as longer advisory notes rather than compact bullet summaries.
+   - Current verified semantics/UI behavior: the same payload now also includes structured fields (`summary`, `strengths`, `concerns`, `verification_checks`), maps semantic assessment fields when the draft provides them, and is hardened toward semantic JSON output with stabilisation scenarios in test coverage.
+   - Current verified weak-source nuance: unattributed notes, anonymous reposts, and weak scraped snippets now settle more conservatively, while secondary news summaries stay secondary unless they clearly embed the primary material.
 
 ## Test-use checklist for collecting findings
 - Start with `python -m sourcetrace.local_launcher`, not the thin `sourcetrace.web` path, if you want real LLM-backed extraction/credibility behavior.
@@ -363,28 +317,13 @@ Do weryfikacji:
    - Expected: `201 Created` with JSON echoing `document.document_id`
 3. Run credibility on the exact document you seeded:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-custom-1/credibility \
-       -H 'Content-Type: application/json' \
-       -d '{"assessment_method":"llm_draft_v1"}'`
+      -H 'Content-Type: application/json' \
+      -d '{"assessment_method":"llm_draft_v1"}'`
    - Expected: `200 OK` with JSON containing `credibility_assessment.notes` and `method`
-4. Repeat with another payload by changing only `document_id`, `case_id`, and the document metadata block above.
 
 ## Reusable payload template
-Use this as a copy-paste starting point for your own runs.
-
-## systemd --user example
-If another user should manage the WWW runtime with `systemctl --user`, write the unit file:
-- `bash -lc 'cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-write-user-unit'`
-
-Then reload and manage it:
-- `systemctl --user daemon-reload`
-- `systemctl --user enable --now sourcetrace-www.service`
-- `systemctl --user status sourcetrace-www.service`
-- `systemctl --user stop sourcetrace-www.service`
-
-The generated unit defaults to the `local-launcher` mode and sources `~/.bashrc` before start, so the managing user still needs the required `SOURCETRACE_LLM_*` bootstrap env in their shell init.
-
 ```json
-
+{
   "document_id": "{{document_id}}",
   "case_id": "{{case_id}}",
   "source_type": "url",
@@ -392,40 +331,24 @@ The generated unit defaults to the `local-launcher` mode and sources `~/.bashrc`
   "publisher": "{{publisher}}",
   "author": "{{author}}",
   "title": "{{title}}",
-  "published_at": "{{published_at_iso8601}}",
-  "retrieved_at": "{{retrieved_at_iso8601}}",
+  "published_at": "{{published_at_iso}}",
+  "retrieved_at": "{{retrieved_at_iso}}",
   "content_hash": "{{content_hash}}",
   "language": "{{language}}"
 }
 ```
 
-Minimal fields you will usually want to change first:
-- `document_id`
-- `case_id`
-- `source_url`
-- `publisher`
-- `author`
-- `title`
-- `published_at`
-- `retrieved_at`
-- `content_hash`
-- `language`
+## systemd --user example
+Generate a user unit from the repo wrapper:
+- `cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-write-user-unit`
+- then: `systemctl --user daemon-reload`
 
 ## Minimal failure cases
-- Missing credibility assessment source document:
-  - `POST /api/documents/missing-doc/credibility`
+- `POST /api/documents/missing-doc/credibility`
   - Expected: `404 Not Found` with `{"error": "document_not_found", "status": "missing"}`
-- Missing verification artifact:
-  - `GET /api/claims/missing-claim/verification`
+- `GET /api/claims/missing-claim/verification`
   - Expected: `404 Not Found` with `{"error": "verification_not_found", "status": "missing"}`
-- Missing report artifact:
-  - `GET /api/reports/missing-case.json`
+- `GET /api/reports/missing-case.json`
   - Expected: `404 Not Found` with `{"error": "report_not_found", "status": "missing"}`
-- Invalid review request:
-  - `POST /api/reviews` with an incomplete payload
+- `POST /api/reviews` with an incomplete payload
   - Expected: `400 Bad Request` with `status: invalid_request`
-
-## Near-term focus
-- keep repo-facing docs aligned with the delivered credibility runtime launch path
-- decide the next bounded integration slice after credibility helper + WSGI consumption, without widening request/application surfaces or pulling `.env` loading into the repo
-- keep the MVP architecture small, auditable, and implementation-light until heavier runtime choices are explicit
