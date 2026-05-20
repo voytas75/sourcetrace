@@ -29,7 +29,7 @@ from sourcetrace.application.interfaces import (
 from sourcetrace.application.interfaces import (
     CredibilityAssessor as InterfacesCredibilityAssessor,
 )
-from sourcetrace.domain import Document, DocumentCredibilityAssessment
+from sourcetrace.domain import Document, DocumentChunk, DocumentCredibilityAssessment
 from sourcetrace.llm import LlmBootstrapConfig, LlmProfileConfig, LlmTaskConfig, SourceTraceLlmConfig, build_llm_runtime
 from sourcetrace.llm.models import LlmGenerationResult
 from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance
@@ -403,6 +403,60 @@ def test_build_llm_credibility_assessor_condenses_markdown_prose_into_compact_no
         "Concerns: Source transparency is very limited. No publisher, author, publication date, or source URL is provided, which makes provenance difficult to verify.; Document type appears informal. The source is labeled as a note, suggesting it may be unpublished, internal, preliminary, or otherwise not subject to editorial review.; Verification risk is high. Without identifiable origin details, it is not possible to independently confirm authenticity, context, or whether the document is complete and unaltered.; Authority cannot be established. Because the author and publishing entity are unknown, the expertise, institutional affiliation, and potential conflicts of interest cannot be assessed.; Timeliness is unclear. The publication date is unknown, so the information may be outdated or lack relevant temporal context.\n"
         "Recommended handling: Use with caution. Treat claims from this document as unverified unless corroborated by reliable, attributable sources.; Recommended handling. Seek supporting evidence from primary documents, official statements, reputable reporting, or other independently verifiable materials before relying on this source for factual conclusions."
     )
+
+
+
+def test_build_llm_credibility_assessor_includes_prepared_text_in_prompt() -> None:
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="inline_text",
+        source_url=None,
+        publisher=None,
+        author=None,
+        title="Apollo note",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+    prompts: list[str] = []
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        prompts.append(evidence_summary)
+        return LlmGenerationResult(
+            text='{"summary":"Uses provided text."}',
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(
+            document=document,
+            assessment_method="llm_draft_v1",
+            prepared_chunks=(
+                DocumentChunk(
+                    chunk_id="doc-1:chunk-1",
+                    case_id="case-1",
+                    document_id="doc-1",
+                    raw_text="Apollo 11 landed on the Moon in 1969.",
+                    start_char=0,
+                    end_char=38,
+                    chunk_index=0,
+                ),
+            ),
+        )
+    )
+
+    assert "Prepared source text excerpt:" in prompts[0]
+    assert "Apollo 11 landed on the Moon in 1969." in prompts[0]
+    assert "No prepared source text was provided." not in prompts[0]
+    assert outcome.assessment.notes == "Summary: Uses provided text."
 
 
 

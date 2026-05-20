@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from wsgiref.simple_server import WSGIServer, make_server
 
+from sourcetrace.application import DocumentPreparationOutcome, DocumentPreparationRequest
 from sourcetrace.web.delivery import (
     SourceTraceDelivery,
     VerificationDeliveryRequest,
@@ -268,6 +269,16 @@ class SourceTraceWSGIApp:
         )
         if outcome is None:
             return _missing_response(start_response, "case", case_id)
+        inline_content = _optional_str(payload.get("content"))
+        if inline_content:
+            self.delivery.prepare_document(
+                DocumentPreparationRequest(
+                    case_id=case_id,
+                    document_id=document.document_id,
+                    chunking_method=_optional_str(payload.get("chunking_method")),
+                ),
+                inline_content,
+            )
         return _json_response(
             start_response,
             "201 Created",
@@ -313,6 +324,23 @@ class SourceTraceWSGIApp:
             return _missing_response(start_response, "document", document_id)
         payload = _read_json(environ)
         raw_text = str(payload.get("raw_text") or "")
+        if not raw_text:
+            existing_chunks = self.delivery.list_chunks_for_document(document_id)
+            if existing_chunks:
+                outcome = DocumentPreparationOutcome(
+                    request=DocumentPreparationRequest(
+                        case_id=document.case_id,
+                        document_id=document.document_id,
+                        chunking_method=_optional_str(payload.get("chunking_method")),
+                    ),
+                    document=document,
+                    chunks=existing_chunks,
+                )
+                return _json_response(
+                    start_response,
+                    "200 OK",
+                    document_preparation_outcome_to_payload(outcome),
+                )
         outcome = self.delivery.prepare_document(
             DocumentPreparationRequest(
                 case_id=document.case_id,
@@ -499,6 +527,12 @@ class SourceTraceWSGIApp:
                 {"error": "not_found"},
             )
         payload = _read_json(environ)
+        if self.delivery.get_document(document_id) is None:
+            return _json_response(
+                start_response,
+                "404 Not Found",
+                {"error": "document_not_found", "status": "missing"},
+            )
         outcome = self.delivery.assess_document_credibility(
             document_id,
             assessment_method=_optional_str(payload.get("assessment_method")),

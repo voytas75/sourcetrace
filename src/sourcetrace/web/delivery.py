@@ -3,7 +3,9 @@
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
+from hashlib import sha256
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from sourcetrace.application import (
     CaseCreationOutcome,
@@ -341,10 +343,14 @@ class SourceTraceDelivery:
         document = self.persistence.documents.get_document(document_id)
         if document is None or self.credibility_assessment is None:
             return None
+        prepared_chunks = tuple(
+            self.persistence.documents.list_chunks_for_document(document.case_id, document_id)
+        )
         outcome = self.credibility_assessment.assess_credibility(
             CredibilityAssessmentRequest(
                 document=document,
                 assessment_method=assessment_method,
+                prepared_chunks=prepared_chunks,
             )
         )
         assessment = self.persistence.documents.save_credibility_assessment(
@@ -794,10 +800,10 @@ def case_creation_request_from_payload(
 
     case_id = str(payload.get("case_id") or "").strip()
     title = str(payload.get("title") or "").strip()
-    if not case_id:
-        raise ValueError("case_id is required.")
     if not title:
         raise ValueError("title is required.")
+    if not case_id:
+        case_id = f"case-{uuid4().hex[:8]}"
     return CaseCreationRequest(
         case_id=case_id,
         title=title,
@@ -1144,21 +1150,26 @@ def document_from_payload(payload: dict[str, object]) -> Document:
     source_type = str(payload.get("source_type") or "").strip()
     retrieved_at_raw = payload.get("retrieved_at")
     content_hash = str(payload.get("content_hash") or "").strip()
+    inline_content = _optional_str(payload.get("content"))
     if not document_id:
-        raise ValueError("document_id is required.")
+        title_hint = _optional_str(payload.get("title")) or "document"
+        document_id = _slugify_identifier(title_hint, prefix="doc")
     if not case_id:
         raise ValueError("case_id is required.")
     if not source_type:
-        raise ValueError("source_type is required.")
+        source_type = "inline_text" if inline_content else "note"
     if retrieved_at_raw is None:
-        raise ValueError("retrieved_at is required.")
+        retrieved_at_raw = datetime.now().isoformat()
     if not content_hash:
-        raise ValueError("content_hash is required.")
+        if inline_content:
+            content_hash = f"sha256:{sha256(inline_content.encode('utf-8')).hexdigest()}"
+        else:
+            raise ValueError("content_hash is required.")
     return Document(
         document_id=document_id,
         case_id=case_id,
         source_type=source_type,
-        source_url=_optional_str(payload.get("source_url")),
+        source_url=_optional_str(payload.get("source_url") or payload.get("source_uri")),
         publisher=_optional_str(payload.get("publisher")),
         author=_optional_str(payload.get("author")),
         title=_optional_str(payload.get("title")),
@@ -1187,6 +1198,14 @@ def document_to_payload(document: Document) -> dict[str, object]:
         "content_hash": document.content_hash,
         "language": document.language,
     }
+
+
+
+def _slugify_identifier(value: str, *, prefix: str) -> str:
+    normalized = "".join(char.lower() if char.isalnum() else "-" for char in value).strip("-")
+    compact = "-".join(part for part in normalized.split("-") if part)
+    stem = compact[:40] or prefix
+    return f"{prefix}-{stem}"
 
 
 __all__ = [

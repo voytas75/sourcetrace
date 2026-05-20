@@ -424,6 +424,75 @@ def test_wsgi_app_returns_status_payloads_for_missing_or_invalid_resources() -> 
     }
 
 
+def test_wsgi_app_create_case_generates_case_id_when_missing() -> None:
+    app = create_wsgi_app(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"title": "Local SourceTrace smoke test", "description": "desc"},
+    )
+
+    payload = json.loads(body)
+    assert status == "201 Created"
+    assert payload["case"]["title"] == "Local SourceTrace smoke test"
+    assert payload["case"]["description"] == "desc"
+    assert payload["case"]["case_id"].startswith("case-")
+
+
+def test_wsgi_app_attach_document_accepts_minimal_inline_payload_and_prepare_uses_document_content() -> None:
+    app = create_wsgi_app(delivery=create_default_delivery())
+
+    case_status, _, case_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"title": "Apollo case"},
+    )
+    case_id = json.loads(case_body)["case"]["case_id"]
+
+    create_status, _, create_body = _call_wsgi(
+        app,
+        method="POST",
+        path=f"/api/cases/{case_id}/documents",
+        payload={
+            "title": "Apollo note",
+            "content": "Apollo 11 landed on the Moon in 1969. Neil Armstrong walked on the Moon.",
+        },
+    )
+    document_id = json.loads(create_body)["document"]["document_id"]
+
+    prepare_status, _, prepare_body = _call_wsgi(
+        app,
+        method="POST",
+        path=f"/api/documents/{document_id}/prepare",
+        payload={},
+    )
+
+    prepare_payload = json.loads(prepare_body)
+    assert case_status == "201 Created"
+    assert create_status == "201 Created"
+    assert prepare_status == "200 OK"
+    assert prepare_payload["document"]["document_id"] == document_id
+    assert len(prepare_payload["chunks"]) >= 1
+    assert "Apollo 11 landed on the Moon in 1969." in prepare_payload["chunks"][0]["raw_text"]
+
+
+def test_wsgi_app_missing_document_credibility_route_reports_document_not_found() -> None:
+    app = create_wsgi_app(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/missing-doc/credibility",
+        payload={},
+    )
+
+    assert status == "404 Not Found"
+    assert json.loads(body) == {"error": "document_not_found", "status": "missing"}
+
+
 def _seeded_delivery() -> SourceTraceDelivery:
     persistence = create_in_memory_persistence()
     persistence.documents.save_chunks(

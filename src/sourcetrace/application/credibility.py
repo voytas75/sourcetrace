@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from sourcetrace.domain.chunks import DocumentChunk
 from sourcetrace.domain.documents import Document, DocumentCredibilityAssessment
 
 
@@ -11,6 +12,7 @@ class CredibilityAssessmentRequest:
 
     document: Document
     assessment_method: str | None = None
+    prepared_chunks: tuple[DocumentChunk, ...] = ()
 
 
 @dataclass(frozen=True)

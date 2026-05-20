@@ -302,8 +302,27 @@ def _credibility_prompt(request: CredibilityAssessmentRequest) -> str:
         f"Retrieved at: {document.retrieved_at.isoformat()}",
         f"Language: {document.language or 'unknown'}",
         f"Requested method: {request.assessment_method or 'llm_draft_v1'}",
+        "Prepared source text excerpt:",
+        _prepared_text_excerpt(request.prepared_chunks) or "No prepared source text was provided.",
+        "Respond as concise JSON with keys summary, strengths, concerns, recommended_handling, verification_checks, citation_advice.",
+        "If prepared source text is available, assess both metadata limitations and what the actual text suggests about specificity, attribution, and verification needs.",
     ]
     return "\n".join(lines)
+
+
+
+def _prepared_text_excerpt(chunks: tuple[object, ...]) -> str | None:
+    excerpts: list[str] = []
+    for chunk in chunks[:3]:
+        raw_text = getattr(chunk, "raw_text", None)
+        if not isinstance(raw_text, str):
+            continue
+        normalized = raw_text.strip()
+        if normalized:
+            excerpts.append(normalized)
+    if not excerpts:
+        return None
+    return "\n---\n".join(excerpts)
 
 
 def build_llm_credibility_assessor(
