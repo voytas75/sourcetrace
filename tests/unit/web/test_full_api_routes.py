@@ -522,7 +522,26 @@ def test_wsgi_case_html_shows_api_aligned_verdict_and_evidence_links() -> None:
     delivery.persistence.documents.save_document(document)
     delivery.persistence.documents.save_chunks((chunk,))
     delivery.persistence.claims.save_claims((claim,))
-    delivery.persistence.claims.save_evidence_links((evidence,))
+    delivery.persistence.documents.save_credibility_assessment(
+        __import__("sourcetrace.domain", fromlist=["DocumentCredibilityAssessment"]).DocumentCredibilityAssessment(
+            assessment_id="credibility-doc-1",
+            document_id="doc-1",
+            source_reliability=__import__("sourcetrace.domain.types", fromlist=["CredibilityBand"]).CredibilityBand.UNKNOWN,
+            information_credibility=__import__("sourcetrace.domain.types", fromlist=["CredibilityBand"]).CredibilityBand.UNKNOWN,
+            source_reliability_factors=(),
+            information_credibility_factors=(),
+            provenance_distance=__import__("sourcetrace.domain.types", fromlist=["ProvenanceDistance"]).ProvenanceDistance.UNKNOWN,
+            method="llm_draft_v1",
+            notes="Summary: Lead only; provenance remains weak.\nStrengths: Publisher is identified\nConcerns: No underlying dataset is linked\nVerification checks: Confirm with the original ministry release",
+            summary="Lead only; provenance remains weak.",
+            strengths=("Publisher is identified",),
+            concerns=("No underlying dataset is linked",),
+            verification_checks=("Confirm with the original ministry release",),
+            assessed_by="system",
+            assessed_at=datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+            override=False,
+        )
+    )
     app = SourceTraceWSGIApp(delivery=delivery)
 
     status, headers, body = _call_wsgi(
@@ -538,7 +557,15 @@ def test_wsgi_case_html_shows_api_aligned_verdict_and_evidence_links() -> None:
     assert "/api/claims/case-1:claim-1" in html
     assert "/api/claims/case-1:claim-1/evidence" in html
     assert "/api/claims/case-1:claim-1/verification" in html
-    assert ">1<" in html
+    assert "Summary:" in html
+    assert "Lead only; provenance remains weak." in html
+    assert "Strengths:" in html
+    assert "Publisher is identified" in html
+    assert "Concerns:" in html
+    assert "No underlying dataset is linked" in html
+    assert "Verification checks:" in html
+    assert "Confirm with the original ministry release" in html
+
 
 
 

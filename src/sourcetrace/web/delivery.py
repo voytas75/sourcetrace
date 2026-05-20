@@ -1222,6 +1222,7 @@ def _case_document_row_html(delivery: SourceTraceDelivery, document: Document) -
         if assessment is not None
         else "not_assessed"
     )
+    credibility_detail = _credibility_html_summary(assessment)
     title = _escape_html(document.title or document.document_id)
     return (
         "<tr>"
@@ -1229,10 +1230,42 @@ def _case_document_row_html(delivery: SourceTraceDelivery, document: Document) -
         f"<td>{_escape_html(document.source_type)}</td>"
         f"<td>{len(chunks)}</td>"
         f"<td>{len(claims)}</td>"
-        f"<td>{_escape_html(credibility_text)}</td>"
+        f"<td>{_escape_html(credibility_text)}{credibility_detail}</td>"
         f"<td>{_escape_html(', '.join(status_parts))}</td>"
         f"<td><code>{_escape_html(next_action)}</code></td>"
         "</tr>"
+    )
+
+
+def _credibility_html_summary(
+    assessment: DocumentCredibilityAssessment | None,
+) -> str:
+    if assessment is None:
+        return ""
+
+    parts: list[str] = []
+    if assessment.summary:
+        parts.append(
+            f"<div><strong>Summary:</strong> {_escape_html(assessment.summary)}</div>"
+        )
+    if assessment.strengths:
+        parts.append(_html_list_block("Strengths", assessment.strengths))
+    if assessment.concerns:
+        parts.append(_html_list_block("Concerns", assessment.concerns))
+    if assessment.verification_checks:
+        parts.append(
+            _html_list_block("Verification checks", assessment.verification_checks)
+        )
+    if not parts:
+        return ""
+    return "<div class=\"credibility-detail\">" + "".join(parts) + "</div>"
+
+
+def _html_list_block(label: str, items: tuple[str, ...]) -> str:
+    rendered_items = "".join(f"<li>{_escape_html(item)}</li>" for item in items)
+    return (
+        f"<div><strong>{_escape_html(label)}:</strong>"
+        f"<ul>{rendered_items}</ul></div>"
     )
 
 
