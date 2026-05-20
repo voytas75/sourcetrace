@@ -44,7 +44,9 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "curl http://127.0.0.1:8000/api/claims/claim-1" in readme
     assert "Expected: `200 OK` with JSON containing `verification.verdict`" in readme
     assert "curl http://127.0.0.1:8000/api/claims/claim-1/evidence" in readme
+    assert "curl http://127.0.0.1:8000/cases/case-1" in readme
     assert "Expected: each returns `200 OK` after the relevant upstream step is completed" in readme
+    assert "Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/reviews" in readme
     assert "Expected: `200 OK` with JSON containing the persisted review payload" in readme
     assert "curl http://127.0.0.1:8000/api/claims/claim-1/review" in readme

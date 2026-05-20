@@ -47,7 +47,7 @@ Confirmed now:
 - the runtime-config file `src/sourcetrace/runtime_config.py` is now the default place to set SourceTrace-owned task models for `claim_extraction`, `claim_normalization`, and `credibility_draft`
 - the local root route `GET /` now returns a small HTML landing page listing the available smoke-test routes instead of the previous `{"error": "not_found"}` JSON payload
 - the local web delivery path can now optionally compose that credibility helper through `create_default_delivery(..., credibility_draft=...)` and expose it via `POST /api/documents/{document_id}/credibility` for WSGI smoke coverage, without adding `.env` loading or provider fields to web requests
-- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `245 passed`
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `246 passed`
 - the repo-owned launcher `python -m sourcetrace.local_launcher` is now live-smoke verified against the current Azure/OpenAI-backed environment: local start, health/runtime probes, document prepare, claim extraction, persisted case claims, credibility draft, and HTML case view all complete successfully when the launcher process inherits the required `SOURCETRACE_LLM_*` / `AZURE_OPENAI_*` env from shell init
 - current live smoke confirmed that extraction preserves attribution-bearing claim text on a simple quoted/caveated note (`The minister said ...`, `A watchdog said ...`) and that the same claims appear consistently in both `GET /api/cases/{case_id}/claims` and `GET /cases/{case_id}` HTML
 - current live smoke also confirmed that advisory credibility output reaches `POST /api/documents/{document_id}/credibility` on the real provider path, and live markdown/prose responses are now condensed more readably into compact `Summary` / `Strengths` / `Concerns` notes instead of always surfacing as a long raw draft block
@@ -244,7 +244,9 @@ Do weryfikacji:
    - `curl http://127.0.0.1:8000/api/claims/claim-1`
    - `curl http://127.0.0.1:8000/api/claims/claim-1/verification`
    - `curl http://127.0.0.1:8000/api/claims/claim-1/evidence`
+   - `curl http://127.0.0.1:8000/cases/case-1`
    - Expected: each returns `200 OK` after the relevant upstream step is completed
+   - Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table with chunk count, claim count, credibility state, and a concrete next-action endpoint instead of only showing an empty claims table.
 10. Record a minimal analyst review so the case report surface has reviewed content:
    - `curl -X POST http://127.0.0.1:8000/api/reviews \
      -H 'Content-Type: application/json' \

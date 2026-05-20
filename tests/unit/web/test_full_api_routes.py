@@ -257,6 +257,44 @@ def test_wsgi_persists_and_reads_credibility_assessment() -> None:
     )
 
 
+def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={
+            "case_id": "case-1",
+            "title": "Bridge reopening",
+            "description": "Track public claims.",
+        },
+    )
+    _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-1/documents",
+        payload={
+            "title": "Bridge note",
+            "content": "The bridge reopened after inspection.",
+        },
+    )
+
+    status, headers, body = _call_wsgi(app, method="GET", path="/cases/case-1")
+
+    assert status == "200 OK"
+    assert ("Content-Type", "text/html; charset=utf-8") in headers
+    assert "<h2>Document status</h2>" in body
+    assert "Bridge reopening" in body
+    assert "Track public claims." in body
+    assert "Bridge note" in body
+    assert "prepared" in body
+    assert "no claims yet" in body
+    assert "no credibility yet" in body
+    assert "POST /api/documents/doc-bridge-note/extract-claims" in body
+
+
+
 def test_wsgi_operational_endpoints_describe_runtime_and_capabilities() -> None:
     app = SourceTraceWSGIApp(delivery=create_default_delivery())
 

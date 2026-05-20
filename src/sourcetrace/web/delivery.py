@@ -749,19 +749,42 @@ def document_credibility_assessment_to_payload(
 def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
     """Render a tiny server-side analyst view for one case."""
 
+    case = delivery.persistence.cases.get_case(case_id)
+    documents = delivery.persistence.documents.list_documents_for_case(case_id)
     claims = delivery.persistence.claims.list_claims_for_case(case_id)
-    rows = "\n".join(_claim_row_html(delivery, claim) for claim in claims)
-    if not rows:
-        rows = '<tr><td colspan="4">No claims available.</td></tr>'
+    claim_rows = "\n".join(_claim_row_html(delivery, claim) for claim in claims)
+    if not claim_rows:
+        claim_rows = '<tr><td colspan="4">No claims available.</td></tr>'
+    document_rows = "\n".join(
+        _case_document_row_html(delivery, document) for document in documents
+    )
+    if not document_rows:
+        document_rows = (
+            '<tr><td colspan="7">No documents attached yet. Create a document, then '
+            "run prepare/extract/credibility.</td></tr>"
+        )
+    case_title = _escape_html(case.title) if case is not None else _escape_html(case_id)
+    case_description = _escape_html(
+        case.description if case is not None and case.description else "No case description provided yet."
+    )
     return (
         "<!doctype html>"
         "<html><head><title>SourceTrace Case Review</title></head>"
         "<body>"
-        f"<h1>Case {case_id}</h1>"
+        f"<h1>Case {case_title}</h1>"
+        f"<p><strong>Case ID:</strong> {_escape_html(case_id)}</p>"
+        f"<p>{case_description}</p>"
+        f"<p><strong>Documents:</strong> {len(documents)} &middot; <strong>Claims:</strong> {len(claims)}</p>"
+        "<h2>Document status</h2>"
+        "<table>"
+        "<thead><tr><th>Document</th><th>Source type</th><th>Chunks</th><th>Claims</th><th>Credibility</th><th>Status</th><th>Next action</th></tr></thead>"
+        f"<tbody>{document_rows}</tbody>"
+        "</table>"
+        "<h2>Claims</h2>"
         "<table>"
         "<thead><tr><th>Claim</th><th>Verdict</th><th>Review</th>"
         "<th>Evidence</th></tr></thead>"
-        f"<tbody>{rows}</tbody>"
+        f"<tbody>{claim_rows}</tbody>"
         "</table>"
         "</body></html>"
     )
@@ -1103,6 +1126,52 @@ def _claim_row_html(delivery: SourceTraceDelivery, claim: Claim) -> str:
         f"<td>{_escape_html(verdict)}</td>"
         f"<td>{_escape_html(review_status)}</td>"
         f"<td>{evidence_count}</td>"
+        "</tr>"
+    )
+
+
+def _case_document_row_html(delivery: SourceTraceDelivery, document: Document) -> str:
+    chunks = delivery.persistence.documents.list_chunks_for_document(
+        document.case_id,
+        document.document_id,
+    )
+    claims = tuple(
+        claim
+        for claim in delivery.persistence.claims.list_claims_for_case(document.case_id)
+        if claim.document_id == document.document_id
+    )
+    assessment = delivery.persistence.documents.get_credibility_assessment(
+        document.document_id
+    )
+    status_parts: list[str] = []
+    status_parts.append("prepared" if chunks else "not prepared")
+    status_parts.append("claims extracted" if claims else "no claims yet")
+    status_parts.append(
+        "credibility drafted" if assessment is not None else "no credibility yet"
+    )
+    if not chunks:
+        next_action = f"POST /api/documents/{document.document_id}/prepare"
+    elif not claims:
+        next_action = f"POST /api/documents/{document.document_id}/extract-claims"
+    elif assessment is None:
+        next_action = f"POST /api/documents/{document.document_id}/credibility"
+    else:
+        next_action = f"GET /api/documents/{document.document_id}/credibility"
+    credibility_text = (
+        assessment.information_credibility.value
+        if assessment is not None
+        else "not_assessed"
+    )
+    title = _escape_html(document.title or document.document_id)
+    return (
+        "<tr>"
+        f"<td>{title}<br><small>{_escape_html(document.document_id)}</small></td>"
+        f"<td>{_escape_html(document.source_type)}</td>"
+        f"<td>{len(chunks)}</td>"
+        f"<td>{len(claims)}</td>"
+        f"<td>{_escape_html(credibility_text)}</td>"
+        f"<td>{_escape_html(', '.join(status_parts))}</td>"
+        f"<td><code>{_escape_html(next_action)}</code></td>"
         "</tr>"
     )
 
