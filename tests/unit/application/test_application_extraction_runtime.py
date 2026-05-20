@@ -1201,6 +1201,77 @@ def test_build_llm_claim_extractor_drops_conversational_helpdesk_claim_texts() -
     assert outcome.dropped_claim_items == 2
 
 
+def test_build_llm_claim_extractor_drops_leading_yes_no_answer_style_claim_texts() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": (
+                            "Yes — Neil Armstrong was the first person to walk on the Moon, "
+                            "during NASA's Apollo 11 mission."
+                        ),
+                    },
+                    {
+                        "claim_id": "claim-2",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "NASA operated the mission.",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="inline_text",
+        source_url=None,
+        publisher=None,
+        author=None,
+        title="Apollo note",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "Apollo 11 landed on the Moon in 1969. "
+                "Neil Armstrong was the first person to walk on the Moon. "
+                "NASA operated the mission."
+            ),
+            start_char=0,
+            end_char=121,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert tuple(claim.exact_text for claim in outcome.claims) == (
+        "NASA operated the mission.",
+    )
+    assert outcome.dropped_claim_items == 1
+
+
+
 def test_build_llm_claim_extractor_falls_back_to_single_request_chunk_span_when_claim_fields_are_blank() -> None:
     def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
         return LlmStructuredGenerationResult(

@@ -47,7 +47,7 @@ Confirmed now:
 - the runtime-config file `src/sourcetrace/runtime_config.py` is now the default place to set SourceTrace-owned task models for `claim_extraction`, `claim_normalization`, and `credibility_draft`
 - the local root route `GET /` now returns a small HTML landing page listing the available smoke-test routes instead of the previous `{"error": "not_found"}` JSON payload
 - the local web delivery path can now optionally compose that credibility helper through `create_default_delivery(..., credibility_draft=...)` and expose it via `POST /api/documents/{document_id}/credibility` for WSGI smoke coverage, without adding `.env` loading or provider fields to web requests
-- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `244 passed`
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `245 passed`
 - the repo-owned launcher `python -m sourcetrace.local_launcher` is now live-smoke verified against the current Azure/OpenAI-backed environment: local start, health/runtime probes, document prepare, claim extraction, persisted case claims, credibility draft, and HTML case view all complete successfully when the launcher process inherits the required `SOURCETRACE_LLM_*` / `AZURE_OPENAI_*` env from shell init
 - current live smoke confirmed that extraction preserves attribution-bearing claim text on a simple quoted/caveated note (`The minister said ...`, `A watchdog said ...`) and that the same claims appear consistently in both `GET /api/cases/{case_id}/claims` and `GET /cases/{case_id}` HTML
 - current live smoke also confirmed that advisory credibility output reaches `POST /api/documents/{document_id}/credibility` on the real provider path, and live markdown/prose responses are now condensed more readably into compact `Summary` / `Strengths` / `Concerns` notes instead of always surfacing as a long raw draft block
@@ -216,6 +216,7 @@ Do weryfikacji:
       -d '{"extraction_method":"llm_v1"}'`
    - Expected: `200 OK` with JSON containing `claims` and `diagnostics`
    - Current verified guardrail: if claim normalization returns a conversational/helpdesk-style rewrite, Sourcetrace keeps the original extracted claim text instead of persisting the rewritten assistant-style text.
+   - Current verified live nuance: answer-style claim openings like `Yes — ...` / `No — ...` are now also filtered as conversational leakage, so simple inline factual notes produce cleaner claim-like sentences instead of Q&A-style phrasing.
 8. In another terminal, submit a minimal verification request:
    - `curl -X POST http://127.0.0.1:8000/api/verify \
      -H 'Content-Type: application/json' \
@@ -304,7 +305,7 @@ Do weryfikacji:
   - `docs/plans/test-use-observation-template.md`
 - Example filled note:
   - `docs/plans/test-use-observation-example-bbc.md`
-- Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles; the fallback is improved, but not fully solved.
+- Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles; the fallback is improved, and leading `Yes/No` answer-style openings are now filtered, but the cleanup is still not fully semantic.
 
 ## Example: run credibility on your own document payload
 1. Start the repo-owned launcher so the in-memory document repository and LLM-backed credibility path live in the same process:
@@ -383,7 +384,7 @@ Minimal fields you will usually want to change first:
 ## Minimal failure cases
 - Missing credibility assessment source document:
   - `POST /api/documents/missing-doc/credibility`
-  - Expected: `404 Not Found` with `{"error": "credibility_assessment_not_found", "status": "missing"}`
+  - Expected: `404 Not Found` with `{"error": "document_not_found", "status": "missing"}`
 - Missing verification artifact:
   - `GET /api/claims/missing-claim/verification`
   - Expected: `404 Not Found` with `{"error": "verification_not_found", "status": "missing"}`

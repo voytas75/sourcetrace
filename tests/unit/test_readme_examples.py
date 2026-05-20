@@ -89,7 +89,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert '"language": "{{language}}"' in readme
     assert "## Minimal failure cases" in readme
     assert "POST /api/documents/missing-doc/credibility" in readme
-    assert "Expected: `404 Not Found` with `{\"error\": \"credibility_assessment_not_found\", \"status\": \"missing\"}`" in readme
+    assert "Expected: `404 Not Found` with `{\"error\": \"document_not_found\", \"status\": \"missing\"}`" in readme
     assert "GET /api/claims/missing-claim/verification" in readme
     assert "Expected: `404 Not Found` with `{\"error\": \"verification_not_found\", \"status\": \"missing\"}`" in readme
     assert "GET /api/reports/missing-case.json" in readme

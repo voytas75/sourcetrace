@@ -41,6 +41,12 @@ _CONVERSATIONAL_CLAIM_PATTERNS = (
     "customer notice",
     "incident summary",
     "outage update",
+    "yes —",
+    "yes -",
+    "yes, ",
+    "no —",
+    "no -",
+    "no, ",
 )
 
 
