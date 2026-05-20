@@ -159,12 +159,25 @@ def _best_effort_credibility_notes(text: str) -> str | None:
     lines: list[str] = []
 
     summary = _extract_first_string_field(text, "summary")
+    if summary is None:
+        summary = _extract_markdown_bottom_line(text)
     if summary is not None:
         lines.append(f"Summary: {summary}")
 
     concerns = _extract_string_list(text, "concerns") or _extract_string_list(text, "weaknesses")
     if not concerns:
         concerns = _extract_nested_string_list(text, "provenance_assessment", "notes")
+    if not concerns:
+        concerns = _extract_markdown_bullets(
+            text,
+            headings=(
+                "Source transparency is very limited",
+                "Document type appears informal",
+                "Verification risk is high",
+                "Authority cannot be established",
+                "Timeliness is unclear",
+            ),
+        )
     if concerns:
         lines.append(f"Concerns: {'; '.join(concerns)}")
 
@@ -180,6 +193,11 @@ def _best_effort_credibility_notes(text: str) -> str | None:
             recommended_handling = recommended_handling + tuple(
                 f"Not recommended as: {item}" for item in not_recommended
             )
+    if not recommended_handling:
+        recommended_handling = _extract_markdown_bullets(
+            text,
+            headings=("Recommended handling", "Use with caution"),
+        )
     if recommended_handling:
         lines.append(f"Recommended handling: {'; '.join(recommended_handling)}")
 
@@ -218,6 +236,36 @@ def _extract_nested_string_list(text: str, object_name: str, field_name: str) ->
     if match is None:
         return ()
     return _extract_string_list(match.group(1), field_name)
+
+
+def _extract_markdown_bullets(text: str, headings: tuple[str, ...]) -> tuple[str, ...]:
+    items: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("-"):
+            continue
+        content = line[1:].strip()
+        if not content:
+            continue
+        normalized = re.sub(r"\*\*([^*]+)\*\*", r"\1", content)
+        for heading in headings:
+            if normalized.lower().startswith(heading.lower()):
+                items.append(normalized)
+                break
+    return tuple(items)
+
+
+def _extract_markdown_bottom_line(text: str) -> str | None:
+    pattern = re.compile(r"\*\*Bottom line:\*\*\s*(.+)", re.IGNORECASE | re.DOTALL)
+    match = pattern.search(text)
+    if match is None:
+        return None
+    normalized = re.sub(r"\*\*([^*]+)\*\*", r"\1", match.group(1))
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    sentence_match = re.match(r"(.+?[.!?])(?:\s|$)", normalized)
+    if sentence_match is not None:
+        normalized = sentence_match.group(1).strip()
+    return normalized or None
 
 
 def _extract_all_strings(fragment: str) -> tuple[str, ...]:

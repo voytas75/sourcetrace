@@ -356,6 +356,56 @@ def test_build_llm_credibility_assessor_best_effort_parses_truncated_live_json_b
 
 
 
+def test_build_llm_credibility_assessor_condenses_markdown_prose_into_compact_notes() -> None:
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="note",
+        source_url=None,
+        publisher=None,
+        author=None,
+        title="Reform briefing note",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:ghi789",
+        language="en",
+    )
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=(
+                "**Advisory credibility notes (draft)**\n\n"
+                "- **Source transparency is very limited.** No publisher, author, publication date, or source URL is provided, which makes provenance difficult to verify.\n"
+                "- **Document type appears informal.** The source is labeled as a **note**, suggesting it may be unpublished, internal, preliminary, or otherwise not subject to editorial review.\n"
+                "- **Verification risk is high.** Without identifiable origin details, it is not possible to independently confirm authenticity, context, or whether the document is complete and unaltered.\n"
+                "- **Authority cannot be established.** Because the author and publishing entity are unknown, the expertise, institutional affiliation, and potential conflicts of interest cannot be assessed.\n"
+                "- **Timeliness is unclear.** The publication date is unknown, so the information may be outdated or lack relevant temporal context.\n"
+                "- **Use with caution.** Treat claims from this document as unverified unless corroborated by reliable, attributable sources.\n"
+                "- **Recommended handling.** Seek supporting evidence from primary documents, official statements, reputable reporting, or other independently verifiable materials before relying on this source for factual conclusions.\n\n"
+                "**Bottom line:**  \n"
+                "This document currently has **low standalone credibility** due to missing provenance and attribution metadata. It may still be useful as a lead or contextual note, but it should not be treated as authoritative without external corroboration."
+            ),
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.notes == (
+        "Summary: This document currently has low standalone credibility due to missing provenance and attribution metadata.\n"
+        "Concerns: Source transparency is very limited. No publisher, author, publication date, or source URL is provided, which makes provenance difficult to verify.; Document type appears informal. The source is labeled as a note, suggesting it may be unpublished, internal, preliminary, or otherwise not subject to editorial review.; Verification risk is high. Without identifiable origin details, it is not possible to independently confirm authenticity, context, or whether the document is complete and unaltered.; Authority cannot be established. Because the author and publishing entity are unknown, the expertise, institutional affiliation, and potential conflicts of interest cannot be assessed.; Timeliness is unclear. The publication date is unknown, so the information may be outdated or lack relevant temporal context.\n"
+        "Recommended handling: Use with caution. Treat claims from this document as unverified unless corroborated by reliable, attributable sources.; Recommended handling. Seek supporting evidence from primary documents, official statements, reputable reporting, or other independently verifiable materials before relying on this source for factual conclusions."
+    )
+
+
+
 def test_build_llm_runtime_credibility_draft_gateway_can_drive_application_assessment_callable() -> None:
     config = SourceTraceLlmConfig(
         bootstrap=LlmBootstrapConfig(
