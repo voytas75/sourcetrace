@@ -469,7 +469,7 @@ def test_build_llm_credibility_assessor_maps_primary_source_semantics() -> None:
         language="en",
     )
 
-    def draft_credibility(_: str) -> LlmGenerationResult:
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
         return LlmGenerationResult(
             text=json.dumps(
                 {
@@ -525,7 +525,7 @@ def test_build_llm_credibility_assessor_maps_secondary_summary_semantics() -> No
         language="en",
     )
 
-    def draft_credibility(_: str) -> LlmGenerationResult:
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
         return LlmGenerationResult(
             text=json.dumps(
                 {
@@ -559,6 +559,118 @@ def test_build_llm_credibility_assessor_maps_secondary_summary_semantics() -> No
     assert outcome.assessment.information_credibility_factors == (
         "secondary_summary",
         "dataset_not_linked",
+    )
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
+
+
+
+def test_build_llm_credibility_assessor_maps_unattributed_note_semantics() -> None:
+    document = Document(
+        document_id="doc-note",
+        case_id="case-1",
+        source_type="note",
+        source_url=None,
+        publisher=None,
+        author=None,
+        title="Unattributed note",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 2, 5, tzinfo=UTC),
+        content_hash="sha256:note123",
+        language="en",
+    )
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=json.dumps(
+                {
+                    "summary": "Unattributed note with weak provenance.",
+                    "strengths": ["May provide leads for further checking"],
+                    "concerns": ["No publisher", "No author"],
+                    "verification_checks": ["Find original publication context"],
+                    "source_reliability": "low",
+                    "information_credibility": "low",
+                    "source_reliability_factors": ["unattributed_note", "no_publisher", "no_author"],
+                    "information_credibility_factors": ["claims_unverified"],
+                    "provenance_distance": "unknown",
+                }
+            ),
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 2, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.source_reliability is CredibilityBand.LOW
+    assert outcome.assessment.information_credibility is CredibilityBand.LOW
+    assert outcome.assessment.source_reliability_factors == (
+        "unattributed_note",
+        "no_publisher",
+        "no_author",
+    )
+    assert outcome.assessment.information_credibility_factors == ("claims_unverified",)
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.UNKNOWN
+
+
+
+def test_build_llm_credibility_assessor_maps_weak_scraped_snippet_semantics() -> None:
+    document = Document(
+        document_id="doc-scraped",
+        case_id="case-1",
+        source_type="scraped_snippet",
+        source_url="https://example.test/aggregator-snippet",
+        publisher=None,
+        author=None,
+        title="Aggregator snippet",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 3, 5, tzinfo=UTC),
+        content_hash="sha256:scraped123",
+        language="en",
+    )
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=json.dumps(
+                {
+                    "summary": "Weak scraped snippet with no clear origin.",
+                    "strengths": ["Contains searchable phrasing"],
+                    "concerns": ["Snippet origin unclear", "Potentially incomplete text"],
+                    "verification_checks": ["Locate original source page"],
+                    "source_reliability": "low",
+                    "information_credibility": "low",
+                    "source_reliability_factors": ["weak_scraped_snippet", "origin_unclear"],
+                    "information_credibility_factors": ["fragmentary_text", "context_missing"],
+                    "provenance_distance": "secondary",
+                }
+            ),
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 3, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.source_reliability is CredibilityBand.LOW
+    assert outcome.assessment.information_credibility is CredibilityBand.LOW
+    assert outcome.assessment.source_reliability_factors == (
+        "weak_scraped_snippet",
+        "origin_unclear",
+    )
+    assert outcome.assessment.information_credibility_factors == (
+        "fragmentary_text",
+        "context_missing",
     )
     assert outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
 
@@ -616,6 +728,9 @@ def test_build_llm_credibility_assessor_includes_prepared_text_in_prompt() -> No
     assert "No prepared source text was provided." not in prompts[0]
     assert "Required top-level keys: summary, strengths, concerns, verification_checks, source_reliability, information_credibility, source_reliability_factors, information_credibility_factors, provenance_distance." in prompts[0]
     assert "Allowed values: source_reliability/information_credibility = high|medium|low|unknown; provenance_distance = primary|near_primary|secondary|unknown." in prompts[0]
+    assert "Treat unattributed notes, anonymous reposts, and weak scraped snippets as low source_reliability unless the text itself supplies strong provenance." in prompts[0]
+    assert "Treat secondary news summaries as secondary provenance unless they clearly embed or link the original primary material." in prompts[0]
+    assert "Use primary provenance only when the document is itself the original release, filing, transcript, or first-party publication." in prompts[0]
     assert "Return valid JSON with double-quoted keys and no markdown fences." in prompts[0]
     assert outcome.assessment.notes == "Summary: Uses provided text."
 
