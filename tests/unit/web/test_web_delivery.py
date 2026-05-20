@@ -269,7 +269,12 @@ def test_wsgi_app_exposes_configured_credibility_assessment_route() -> None:
     def draft_credibility(prompt: str) -> LlmGenerationResult:
         prompts.append(prompt)
         return LlmGenerationResult(
-            text="Credibility draft reached the web path.",
+            text=(
+                '{"summary":"Source is tentative.",' 
+                '"strengths":["Named publisher"],' 
+                '"concerns":["No raw dataset linked"],' 
+                '"verification_checks":["Find the original filing"]}'
+            ),
             model="gpt-4.1-mini",
         )
 
@@ -298,7 +303,11 @@ def test_wsgi_app_exposes_configured_credibility_assessment_route() -> None:
         "information_credibility_factors": [],
         "provenance_distance": "unknown",
         "method": "llm_draft_v1",
-        "notes": "Credibility draft reached the web path.",
+        "notes": "Summary: Source is tentative.\nStrengths: Named publisher\nConcerns: No raw dataset linked\nVerification checks: Find the original filing",
+        "summary": "Source is tentative.",
+        "strengths": ["Named publisher"],
+        "concerns": ["No raw dataset linked"],
+        "verification_checks": ["Find the original filing"],
         "assessed_by": "system",
         "assessed_at": "2026-05-18T00:10:00+00:00",
         "override": False,
@@ -378,6 +387,10 @@ def test_wsgi_app_can_seed_document_then_run_credibility_assessment_route() -> N
         "provenance_distance": "unknown",
         "method": "llm_draft_v1",
         "notes": "Seeded credibility note.",
+        "summary": None,
+        "strengths": [],
+        "concerns": [],
+        "verification_checks": [],
         "assessed_by": "system",
         "assessed_at": "2026-05-19T09:50:00+00:00",
         "override": False,

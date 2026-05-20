@@ -36,9 +36,13 @@ class DocumentCredibilityAssessment:
     provenance_distance: ProvenanceDistance
     method: str
     notes: str | None
-    assessed_by: str
-    assessed_at: datetime
-    override: bool
+    summary: str | None = None
+    strengths: tuple[str, ...] = ()
+    concerns: tuple[str, ...] = ()
+    verification_checks: tuple[str, ...] = ()
+    assessed_by: str = "system"
+    assessed_at: datetime | None = None
+    override: bool = False
 
 
 __all__ = [

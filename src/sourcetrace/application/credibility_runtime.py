@@ -4,7 +4,7 @@ import json
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from sourcetrace.application.credibility import (
     CredibilityAssessmentOutcome,
@@ -15,6 +15,14 @@ from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance
 
 if TYPE_CHECKING:
     from sourcetrace.llm.interfaces import CredibilityDraftGateway
+
+
+class StructuredCredibilityNotes(TypedDict):
+    notes: str | None
+    summary: str | None
+    strengths: tuple[str, ...]
+    concerns: tuple[str, ...]
+    verification_checks: tuple[str, ...]
 
 
 class _LlmCredibilityAssessor:
@@ -35,6 +43,7 @@ class _LlmCredibilityAssessor:
     ) -> CredibilityAssessmentOutcome:
         document = request.document
         draft = self._draft_credibility(_credibility_prompt(request))
+        structured = _structured_credibility_notes(draft.text)
         assessment = DocumentCredibilityAssessment(
             assessment_id=f"credibility-{document.document_id}",
             document_id=document.document_id,
@@ -44,7 +53,11 @@ class _LlmCredibilityAssessor:
             information_credibility_factors=(),
             provenance_distance=ProvenanceDistance.UNKNOWN,
             method=request.assessment_method or "llm_draft_v1",
-            notes=_normalize_credibility_notes(draft.text),
+            notes=structured["notes"],
+            summary=structured["summary"],
+            strengths=structured["strengths"],
+            concerns=structured["concerns"],
+            verification_checks=structured["verification_checks"],
             assessed_by=self._assessed_by,
             assessed_at=self._assessed_at(),
             override=False,
@@ -57,19 +70,43 @@ def _utc_now() -> datetime:
 
 
 def _normalize_credibility_notes(text: str) -> str | None:
+    return _structured_credibility_notes(text)["notes"]
+
+
+def _structured_credibility_notes(text: str) -> StructuredCredibilityNotes:
     normalized = text.strip()
+    empty: StructuredCredibilityNotes = {
+        "notes": None,
+        "summary": None,
+        "strengths": (),
+        "concerns": (),
+        "verification_checks": (),
+    }
     if not normalized:
-        return None
+        return empty
     try:
         payload = json.loads(normalized)
     except json.JSONDecodeError:
-        best_effort = _best_effort_credibility_notes(normalized)
-        return best_effort or normalized
+        structured = _best_effort_structured_credibility_notes(normalized)
+        if structured["notes"] is None:
+            return {
+                **empty,
+                "notes": normalized,
+            }
+        return structured
     if not isinstance(payload, dict):
-        return normalized
+        return {
+            **empty,
+            "notes": normalized,
+        }
 
     rendered = _render_credibility_payload(payload)
-    return rendered or normalized
+    if rendered["notes"] is None:
+        return {
+            **empty,
+            "notes": normalized,
+        }
+    return rendered
 
 
 def _string_or_none(value: object) -> str | None:
@@ -100,29 +137,32 @@ def _first_nonempty_string_list(payload: dict[str, object], *keys: str) -> tuple
     return ()
 
 
-def _render_credibility_payload(payload: dict[str, object]) -> str | None:
+def _render_credibility_payload(payload: dict[str, object]) -> StructuredCredibilityNotes:
     advisory_payload = payload.get("advisory_credibility_notes")
     if isinstance(advisory_payload, dict):
         payload = advisory_payload
 
-    lines: list[str] = []
     summary = _string_or_none(payload.get("summary"))
-    if summary is not None:
-        lines.append(f"Summary: {summary}")
-
     strengths = _first_nonempty_string_list(payload, "strengths")
-    if strengths:
-        lines.append(f"Strengths: {'; '.join(strengths)}")
-
     concerns = _first_nonempty_string_list(payload, "concerns", "weaknesses")
-    if concerns:
-        lines.append(f"Concerns: {'; '.join(concerns)}")
-    else:
+    if not concerns:
         provenance = payload.get("provenance_assessment")
         if isinstance(provenance, dict):
-            provenance_notes = _string_list(provenance.get("notes"))
-            if provenance_notes:
-                lines.append(f"Concerns: {'; '.join(provenance_notes)}")
+            concerns = _string_list(provenance.get("notes"))
+
+    verification_checks = _first_nonempty_string_list(
+        payload,
+        "verification_checks",
+        "verification_steps",
+    )
+
+    lines: list[str] = []
+    if summary is not None:
+        lines.append(f"Summary: {summary}")
+    if strengths:
+        lines.append(f"Strengths: {'; '.join(strengths)}")
+    if concerns:
+        lines.append(f"Concerns: {'; '.join(concerns)}")
 
     risk_flags = _first_nonempty_string_list(payload, "risk_flags")
     if risk_flags:
@@ -141,21 +181,27 @@ def _render_credibility_payload(payload: dict[str, object]) -> str | None:
     if recommended_handling:
         lines.append(f"Recommended handling: {'; '.join(recommended_handling)}")
 
-    verification_checks = _first_nonempty_string_list(
-        payload,
-        "verification_checks",
-        "verification_steps",
-    )
     if verification_checks:
         lines.append(f"Verification checks: {'; '.join(verification_checks)}")
 
     citation_advice = _string_or_none(payload.get("citation_advice"))
     if citation_advice is not None:
         lines.append(f"Citation advice: {citation_advice}")
-    return "\n".join(lines) if lines else None
+
+    return {
+        "notes": "\n".join(lines) if lines else None,
+        "summary": summary,
+        "strengths": strengths,
+        "concerns": concerns,
+        "verification_checks": verification_checks,
+    }
 
 
 def _best_effort_credibility_notes(text: str) -> str | None:
+    return _best_effort_structured_credibility_notes(text)["notes"]
+
+
+def _best_effort_structured_credibility_notes(text: str) -> StructuredCredibilityNotes:
     lines: list[str] = []
 
     summary = _extract_first_string_field(text, "summary")
@@ -163,6 +209,10 @@ def _best_effort_credibility_notes(text: str) -> str | None:
         summary = _extract_markdown_bottom_line(text)
     if summary is not None:
         lines.append(f"Summary: {summary}")
+
+    strengths = _extract_string_list(text, "strengths")
+    if strengths:
+        lines.append(f"Strengths: {'; '.join(strengths)}")
 
     concerns = _extract_string_list(text, "concerns") or _extract_string_list(text, "weaknesses")
     if not concerns:
@@ -211,7 +261,13 @@ def _best_effort_credibility_notes(text: str) -> str | None:
     if citation_advice is not None:
         lines.append(f"Citation advice: {citation_advice}")
 
-    return "\n".join(lines) if lines else None
+    return {
+        "notes": "\n".join(lines) if lines else None,
+        "summary": summary,
+        "strengths": strengths,
+        "concerns": concerns,
+        "verification_checks": verification_checks,
+    }
 
 
 def _extract_first_string_field(text: str, field_name: str) -> str | None:

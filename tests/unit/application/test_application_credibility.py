@@ -227,6 +227,12 @@ def test_build_llm_credibility_assessor_normalizes_json_blob_into_human_readable
         "Concerns: No underlying dataset is linked\n"
         "Verification checks: Confirm with the original ministry release"
     )
+    assert outcome.assessment.summary == "Lead only; provenance remains weak."
+    assert outcome.assessment.strengths == ("Publisher is identified",)
+    assert outcome.assessment.concerns == ("No underlying dataset is linked",)
+    assert outcome.assessment.verification_checks == (
+        "Confirm with the original ministry release",
+    )
 
 
 def test_build_llm_credibility_assessor_normalizes_live_nested_json_blob_into_human_readable_notes() -> None:
@@ -284,6 +290,12 @@ def test_build_llm_credibility_assessor_normalizes_live_nested_json_blob_into_hu
         "Recommended handling: Use only as a lead until corroborated.\n"
         "Verification checks: Locate the original source or publication page.\n"
         "Citation advice: Describe it cautiously as an unattributed note."
+    )
+    assert outcome.assessment.summary == "This appears to be an unattributed note."
+    assert outcome.assessment.strengths == ("May contain useful analytical framing.",)
+    assert outcome.assessment.concerns == ("No identified author or publisher.",)
+    assert outcome.assessment.verification_checks == (
+        "Locate the original source or publication page.",
     )
 
 

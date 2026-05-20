@@ -65,6 +65,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility" in readme
     assert "Expected: `200 OK` with JSON containing `credibility_assessment.notes`" in readme
+    assert "structured fields (`summary`, `strengths`, `concerns`, `verification_checks`)" in readme
     assert "curl http://127.0.0.1:8000/api/documents/doc-1/credibility" in readme
     assert "Expected: `200 OK` with the latest persisted `credibility_assessment`" in readme
     assert "The current `llm_draft_v1` output should be treated as an advisory draft" in readme
