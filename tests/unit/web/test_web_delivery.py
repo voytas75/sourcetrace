@@ -580,6 +580,9 @@ def test_render_case_review_html_shows_document_snippet_preview() -> None:
     assert "Snippet:" in html
     assert "OpenAI announced a major partnership with Example University" in html
     assert "..." in html
+    assert "Status:" in html
+    assert "Not assessed yet." in html
+    assert "POST /api/documents/doc-snippet/credibility" in html
 
 def test_document_from_payload_slugifies_polish_title_to_ascii_safe_document_id() -> None:
     from sourcetrace.web.delivery import document_from_payload

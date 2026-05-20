@@ -429,6 +429,9 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "prepared" in body
     assert "no claims yet" in body
     assert "no credibility yet" in body
+    assert "Status:" in body
+    assert "Not assessed yet." in body
+    assert "POST /api/documents/doc-bridge-note/credibility" in body
     assert "POST /api/documents/doc-bridge-note/extract-claims" in body
 
 

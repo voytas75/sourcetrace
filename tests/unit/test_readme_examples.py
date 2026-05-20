@@ -36,6 +36,8 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table" in readme
     assert "a short `Snippet:` preview sourced from inline text" in readme
     assert "shows summary/strengths/concerns/verification checks" in readme
+    assert "Status: Not assessed yet." in readme
+    assert "next credibility endpoint" in readme
     assert "returns a real `404` for missing cases instead of rendering `Case None`" in readme
     assert "Current verified continuity: the same route also accepts inline `text` (alias for `content`)" in readme
     assert "Current verified continuity: if the document was created earlier with inline `content` or `text`" in readme

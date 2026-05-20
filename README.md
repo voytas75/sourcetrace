@@ -18,7 +18,7 @@ Confirmed baseline now:
 - credibility assessment now ships both backward-compatible `notes` and structured credibility output (`summary`, `strengths`, `concerns`, `verification_checks`)
 - credibility runtime also maps semantic assessment fields (`source_reliability`, `information_credibility`, `provenance_distance`, factor arrays) with conservative `unknown` fallback when the draft is weak
 - weak-source credibility handling is explicitly hardened for unattributed notes, anonymous reposts, weak scraped snippets, and secondary summaries
-- the HTML case view renders structured credibility output directly in each document row and shows a short snippet preview sourced from inline text or the first prepared chunk
+- the HTML case view renders structured credibility output directly in each document row, shows a short snippet preview sourced from inline text or the first prepared chunk, and now labels missing credibility explicitly as `Status: Not assessed yet.` with the next credibility endpoint
 - inline document continuity is verified end-to-end: `POST /api/cases/{case_id}/documents` accepts `content` or `text`, `prepare` can reuse stored inline text, and document payloads expose `has_inline_content`
 - a reusable smoke command now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, supports `--pretty` and `--expect-claims-min N`, and exits non-zero on failed expectations
 - GitHub Actions also includes a lightweight `CI Smoke` workflow for the same local launcher + smoke path, although this repo is currently used without a configured remote

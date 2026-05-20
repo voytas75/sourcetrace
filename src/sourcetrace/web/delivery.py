@@ -1223,6 +1223,13 @@ def _case_document_row_html(delivery: SourceTraceDelivery, document: Document) -
         else "not_assessed"
     )
     credibility_detail = _credibility_html_summary(assessment)
+    if assessment is None:
+        credibility_detail = (
+            '<div class="credibility-state"><strong>Status:</strong> '
+            'Not assessed yet.</div>'
+            '<div class="credibility-state-next"><strong>Next step:</strong> '
+            f'<code>{_escape_html(f"POST /api/documents/{document.document_id}/credibility")}</code></div>'
+        )
     title = _escape_html(document.title or document.document_id)
     snippet_html = _document_snippet_html(document, chunks)
     return (
