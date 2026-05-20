@@ -1,4 +1,6 @@
 import json
+from contextlib import redirect_stderr
+from io import StringIO
 
 from sourcetrace.smoke_flow import main
 
@@ -47,3 +49,66 @@ def test_smoke_flow_cli_emits_expected_checks(monkeypatch, capsys) -> None:
         "html_has_snippet": True,
         "html_has_summary": True,
     }
+
+
+def test_smoke_flow_cli_returns_non_zero_when_expectation_fails(monkeypatch, capsys) -> None:
+    responses = [
+        {"case_id": "case-1", "status": "ready"},
+        {
+            "document_id": "doc-1",
+            "status": "ready",
+            "document": {"has_inline_content": True},
+        },
+        {"status": "ready", "diagnostics": {"chunk_count": 1}},
+        {"status": "ready", "diagnostics": {"claim_count": 0}},
+        {"status": "ready", "credibility_assessment": {"summary": "Looks plausible."}},
+    ]
+
+    monkeypatch.setattr(
+        "sourcetrace.smoke_flow._request_json",
+        lambda base_url, method, path, payload=None: responses.pop(0),
+    )
+    monkeypatch.setattr(
+        "sourcetrace.smoke_flow._request_text",
+        lambda base_url, path: "<html><body><strong>Snippet:</strong><div><strong>Summary:</strong></div></body></html>",
+    )
+
+    stderr_buffer = StringIO()
+    with redirect_stderr(stderr_buffer):
+        exit_code = main(["--expect-claims-min", "1"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert '"status": "failed"' in stderr_buffer.getvalue()
+    assert "extract_claim_count=0 < expected_min=1" in stderr_buffer.getvalue()
+    report = json.loads(captured.out)
+    assert report["checks"]["extract_claim_count"] == 0
+
+
+def test_smoke_flow_cli_supports_pretty_output(monkeypatch, capsys) -> None:
+    responses = [
+        {"case_id": "case-1", "status": "ready"},
+        {
+            "document_id": "doc-1",
+            "status": "ready",
+            "document": {"has_inline_content": True},
+        },
+        {"status": "ready", "diagnostics": {"chunk_count": 1}},
+        {"status": "ready", "diagnostics": {"claim_count": 2}},
+        {"status": "ready", "credibility_assessment": {"summary": "Looks plausible."}},
+    ]
+
+    monkeypatch.setattr(
+        "sourcetrace.smoke_flow._request_json",
+        lambda base_url, method, path, payload=None: responses.pop(0),
+    )
+    monkeypatch.setattr(
+        "sourcetrace.smoke_flow._request_text",
+        lambda base_url, path: "<html><body><strong>Snippet:</strong><div><strong>Summary:</strong></div></body></html>",
+    )
+
+    exit_code = main(["--pretty"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\n  \"case_id\": \"case-1\"" in captured.out

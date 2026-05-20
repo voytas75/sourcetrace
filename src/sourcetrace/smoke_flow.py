@@ -4,11 +4,46 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from typing import Any
 from urllib.request import Request, urlopen
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+
+
+def _build_expectations(*, minimum_claims: int) -> dict[str, object]:
+    return {
+        "create_case_status": "ready",
+        "create_document_status": "ready",
+        "document_has_inline_content": True,
+        "prepare_status": "ready",
+        "prepare_chunk_count": 1,
+        "extract_status": "ready",
+        "extract_claim_count_min": minimum_claims,
+        "credibility_status": "ready",
+        "credibility_has_summary": True,
+        "html_has_snippet": True,
+        "html_has_summary": True,
+    }
+
+
+def _validate_report(report: dict[str, Any], *, minimum_claims: int) -> list[str]:
+    checks = report["checks"]
+    failures: list[str] = []
+    expected = _build_expectations(minimum_claims=minimum_claims)
+    for key, value in expected.items():
+        if key == "extract_claim_count_min":
+            actual_claim_count = int(checks["extract_claim_count"])
+            expected_minimum = int(minimum_claims)
+            if actual_claim_count < expected_minimum:
+                failures.append(
+                    f"extract_claim_count={actual_claim_count} < expected_min={expected_minimum}"
+                )
+            continue
+        if checks.get(key) != value:
+            failures.append(f"{key}={checks.get(key)!r} != expected {value!r}")
+    return failures
 
 
 def _request_json(
@@ -106,10 +141,22 @@ def run_smoke_flow(base_url: str = DEFAULT_BASE_URL) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the reusable Sourcetrace WWW smoke flow.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--pretty", action="store_true")
+    parser.add_argument("--expect-claims-min", type=int, default=1)
     args = parser.parse_args(argv)
 
     report = run_smoke_flow(base_url=args.base_url)
-    print(json.dumps(report, ensure_ascii=False))
+    failures = _validate_report(report, minimum_claims=args.expect_claims_min)
+    if args.pretty:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(report, ensure_ascii=False))
+    if failures:
+        print(
+            json.dumps({"status": "failed", "failures": failures}, ensure_ascii=False),
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

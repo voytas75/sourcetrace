@@ -65,7 +65,7 @@ Confirmed now:
 - current live smoke also confirmed that advisory credibility output reaches `POST /api/documents/{document_id}/credibility` on the real provider path, and live markdown/prose responses are now condensed more readably into compact `Summary` / `Strengths` / `Concerns` notes instead of always surfacing as a long raw draft block
 - minimal inline case/document ingest is now less hostile for product-level smoke runs: `POST /api/cases` can auto-generate `case_id`, `POST /api/cases/{case_id}/documents` can accept inline `title` + `content` or `text` and auto-fill `document_id` / `source_type` / `retrieved_at` / `content_hash`, and `POST /api/documents/{document_id}/prepare` now falls back to the previously stored inline document text when the request body omits `raw_text`
 - the analyst-facing HTML case view now also renders a short inline document snippet preview in each document row, preferring stored inline text and otherwise falling back to the first prepared chunk so continuity/debug smoke runs are visible directly in `/cases/{case_id}`
-- a reusable end-to-end smoke script now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, covering create-case, inline document continuity, prepare, extract, credibility, and HTML snippet/summary checks in one pass
+- a reusable end-to-end smoke script now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, covering create-case, inline document continuity, prepare, extract, credibility, and HTML snippet/summary checks in one pass; it now also supports `--pretty`, `--expect-claims-min N`, and exits non-zero when the smoke expectations fail
 - current live smoke also confirmed that credibility assessment now consumes prepared inline document text instead of only metadata, producing content-aware notes (e.g. Apollo 11 summary/strengths/verification checks) while still flagging weak provenance for unattributed inline notes
 - the latest weak-source smoke also confirmed that unattributed notes now settle into low/low/unknown semantics more consistently, while weak scraped snippets reliably land in low credibility bands even when provenance distance still conservatively falls back to `unknown`
 - the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev --extra dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
@@ -186,7 +186,10 @@ Do weryfikacji:
 3. Fast reusable smoke (recommended after restart):
    - `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow`
    - or installed script: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src sourcetrace-smoke-flow`
+   - pretty JSON: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pretty`
+   - stricter minimum claim expectation: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --expect-claims-min 2`
    - Expected: JSON report with `prepare_chunk_count`, `extract_claim_count`, `credibility_has_summary`, `html_has_snippet`, and `html_has_summary`
+   - Operational contract: the command exits `0` on pass and `1` on failed expectations; on failure it still prints the report JSON to stdout plus a failure summary JSON to stderr
 4. Check operational routes first:
    - `curl http://127.0.0.1:8000/api/health`
    - Expected: `200 OK` with `{ "status": "ok" }`

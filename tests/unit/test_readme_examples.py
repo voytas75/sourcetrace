@@ -21,6 +21,10 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "curl http://127.0.0.1:8000/api/capabilities" in readme
     assert "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow" in readme
     assert "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src sourcetrace-smoke-flow" in readme
+    assert "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pretty" in readme
+    assert "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --expect-claims-min 2" in readme
+    assert "Operational contract: the command exits `0` on pass and `1` on failed expectations" in readme
+    assert "failure summary JSON to stderr" in readme
     assert "prepare_chunk_count" in readme
     assert "html_has_snippet" in readme
     assert "html_has_summary" in readme
