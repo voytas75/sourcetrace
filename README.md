@@ -66,6 +66,7 @@ Confirmed now:
 - minimal inline case/document ingest is now less hostile for product-level smoke runs: `POST /api/cases` can auto-generate `case_id`, `POST /api/cases/{case_id}/documents` can accept inline `title` + `content` or `text` and auto-fill `document_id` / `source_type` / `retrieved_at` / `content_hash`, and `POST /api/documents/{document_id}/prepare` now falls back to the previously stored inline document text when the request body omits `raw_text`
 - the analyst-facing HTML case view now also renders a short inline document snippet preview in each document row, preferring stored inline text and otherwise falling back to the first prepared chunk so continuity/debug smoke runs are visible directly in `/cases/{case_id}`
 - a reusable end-to-end smoke script now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, covering create-case, inline document continuity, prepare, extract, credibility, and HTML snippet/summary checks in one pass; it now also supports `--pretty`, `--expect-claims-min N`, and exits non-zero when the smoke expectations fail
+- GitHub Actions now includes a lightweight `CI Smoke` workflow that boots the local launcher, waits for `/api/ready`, and runs `python -m sourcetrace.smoke_flow --pretty --expect-claims-min 1` on pushes/PRs to `main` and via manual dispatch
 - current live smoke also confirmed that credibility assessment now consumes prepared inline document text instead of only metadata, producing content-aware notes (e.g. Apollo 11 summary/strengths/verification checks) while still flagging weak provenance for unattributed inline notes
 - the latest weak-source smoke also confirmed that unattributed notes now settle into low/low/unknown semantics more consistently, while weak scraped snippets reliably land in low credibility bands even when provenance distance still conservatively falls back to `unknown`
 - the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev --extra dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
@@ -115,6 +116,7 @@ Notes:
 - the local launcher auto-loads `litellm.completion` from the project `.venv`; if LiteLLM is missing, the launcher now fails early with a clear startup error instead of a later route-time `500`
 - the local launcher currently wires `credibility_draft` through the web delivery path; broader extraction/normalization web consumption is still do weryfikacji
 - the local web run is still a thin in-memory/dev path, not a production server shape
+- `.github/workflows/ci-smoke.yml` now provides a minimal GitHub Actions smoke lane: focused smoke CLI pytest, launcher boot, readiness wait, reusable smoke flow, and server-log dump on failure
 
 ## LLM runtime config example
 Production bootstrap lives outside the repo, in the process environment of whatever launches Sourcetrace:

@@ -1,0 +1,62 @@
+name: CI Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Sync dependencies
+        run: uv sync --dev --extra dev
+
+      - name: Run unit smoke CLI checks
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run pytest -q tests/unit/test_smoke_flow.py
+
+      - name: Start Sourcetrace WWW API
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.local_launcher > /tmp/sourcetrace-ci-smoke.log 2>&1 &
+          echo $! > /tmp/sourcetrace-ci-smoke.pid
+
+      - name: Wait for WWW readiness
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/api/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Sourcetrace WWW did not become ready in time." >&2
+          cat /tmp/sourcetrace-ci-smoke.log >&2 || true
+          exit 1
+
+      - name: Run reusable smoke flow
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.smoke_flow --pretty --expect-claims-min 1
+
+      - name: Show server log on failure
+        if: failure()
+        run: cat /tmp/sourcetrace-ci-smoke.log || true
+
+      - name: Stop Sourcetrace WWW API
+        if: always()
+        run: |
+          if [ -f /tmp/sourcetrace-ci-smoke.pid ]; then
+            kill "$(cat /tmp/sourcetrace-ci-smoke.pid)" || true
+          fi
