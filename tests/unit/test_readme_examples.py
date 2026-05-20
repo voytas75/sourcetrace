@@ -29,9 +29,12 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "compatibility aliases at top level (`case_id`, `document_id`)" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/cases/case-1/documents" in readme
     assert "Expected: `201 Created` with JSON containing `document.document_id`" in readme
+    assert "the same route also accepts inline `text` (alias for `content`)" in readme
+    assert "`has_inline_content: true`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare" in readme
     assert "Expected: `200 OK` with JSON containing `chunks`" in readme
     assert "Current verified diagnostics: the response also includes `diagnostics.chunk_count`" in readme
+    assert "can now be called with an empty JSON body and it will reuse the previously stored inline text" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/extract-claims" in readme
     assert '"extraction_method":"llm_v1"' in readme
     assert "Expected: `200 OK` with JSON containing `claims` and `diagnostics`" in readme

@@ -63,7 +63,7 @@ Confirmed now:
 - the repo-owned launcher `python -m sourcetrace.local_launcher` is now live-smoke verified against the current Azure/OpenAI-backed environment: local start, health/runtime probes, document prepare, claim extraction, persisted case claims, credibility draft, and HTML case view all complete successfully when the launcher process inherits the required `SOURCETRACE_LLM_*` / `AZURE_OPENAI_*` env from shell init
 - current live smoke confirmed that extraction preserves attribution-bearing claim text on a simple quoted/caveated note (`The minister said ...`, `A watchdog said ...`) and that the same claims appear consistently in both `GET /api/cases/{case_id}/claims` and `GET /cases/{case_id}` HTML
 - current live smoke also confirmed that advisory credibility output reaches `POST /api/documents/{document_id}/credibility` on the real provider path, and live markdown/prose responses are now condensed more readably into compact `Summary` / `Strengths` / `Concerns` notes instead of always surfacing as a long raw draft block
-- minimal inline case/document ingest is now less hostile for product-level smoke runs: `POST /api/cases` can auto-generate `case_id`, `POST /api/cases/{case_id}/documents` can accept inline `title` + `content` and auto-fill `document_id` / `source_type` / `retrieved_at` / `content_hash`, and `POST /api/documents/{document_id}/prepare` now re-surfaces existing prepared chunks instead of returning an unexplained empty success for already-prepared inline documents
+- minimal inline case/document ingest is now less hostile for product-level smoke runs: `POST /api/cases` can auto-generate `case_id`, `POST /api/cases/{case_id}/documents` can accept inline `title` + `content` or `text` and auto-fill `document_id` / `source_type` / `retrieved_at` / `content_hash`, and `POST /api/documents/{document_id}/prepare` now falls back to the previously stored inline document text when the request body omits `raw_text`
 - current live smoke also confirmed that credibility assessment now consumes prepared inline document text instead of only metadata, producing content-aware notes (e.g. Apollo 11 summary/strengths/verification checks) while still flagging weak provenance for unattributed inline notes
 - the latest weak-source smoke also confirmed that unattributed notes now settle into low/low/unknown semantics more consistently, while weak scraped snippets reliably land in low credibility bands even when provenance distance still conservatively falls back to `unknown`
 - the repo now also declares a minimal `pyproject.toml` so local setup can be standardized with `uv sync --dev --extra dev`, `uv run pytest -q`, and `uv run python -m sourcetrace.web`
@@ -215,6 +215,7 @@ Do weryfikacji:
         "language": "en"
       }'`
    - Expected: `201 Created` with JSON containing `document.document_id`
+  - Current verified continuity: the same route also accepts inline `text` (alias for `content`), and the returned document payload exposes `has_inline_content: true` when inline text was stored for later prepare reuse
 6. Prepare chunks for the document:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare \
       -H 'Content-Type: application/json' \
@@ -222,8 +223,9 @@ Do weryfikacji:
         "raw_text": "The bridge reopened after inspection.\n\nTraffic resumed.",
         "chunking_method": "paragraph-v1"
       }'`
-   - Expected: `200 OK` with JSON containing `chunks`
-   - Current verified diagnostics: the response also includes `diagnostics.chunk_count`, `diagnostics.status`, `diagnostics.summary`, and `diagnostics.next_step` so the caller can tell whether prepare produced usable chunks and what to do next.
+  - Expected: `200 OK` with JSON containing `chunks`
+  - Current verified diagnostics: the response also includes `diagnostics.chunk_count`, `diagnostics.status`, `diagnostics.summary`, and `diagnostics.next_step` so the caller can tell whether prepare produced usable chunks and what to do next.
+  - Current verified continuity: if the document was created earlier with inline `content` or `text`, `POST /api/documents/{document_id}/prepare` can now be called with an empty JSON body and it will reuse the previously stored inline text instead of returning `empty`.
 7. Run claim extraction:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/extract-claims \
       -H 'Content-Type: application/json' \

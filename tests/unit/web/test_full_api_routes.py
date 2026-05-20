@@ -313,6 +313,52 @@ def test_wsgi_extract_claims_route_reports_empty_diagnostics_when_runtime_return
 
 
 
+
+
+def test_wsgi_document_prepare_accepts_text_alias_payload() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    case_status, _, case_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"title": "Continuity case"},
+    )
+    case_id = json.loads(case_body)["case"]["case_id"]
+
+    document_status, _, document_body = _call_wsgi(
+        app,
+        method="POST",
+        path=f"/api/cases/{case_id}/documents",
+        payload={
+            "title": "Restart continuity doc",
+            "text": "The bridge reopened after inspection. Traffic resumed after repairs.",
+            "source_type": "web_article",
+            "source_url": "https://example.test/restart-continuity",
+            "content_hash": "sha256:test-text-alias",
+        },
+    )
+    document_payload = json.loads(document_body)
+    document_id = document_payload["document_id"]
+
+    prepare_status, _, prepare_body = _call_wsgi(
+        app,
+        method="POST",
+        path=f"/api/documents/{document_id}/prepare",
+        payload={"text": "The bridge reopened after inspection. Traffic resumed after repairs."},
+    )
+
+    payload = json.loads(prepare_body)
+    assert case_status == "201 Created"
+    assert document_status == "201 Created"
+    assert prepare_status == "200 OK"
+    assert payload["status"] == "ready"
+    assert payload["resource"] == "document_preparation"
+    assert payload["resource_id"] == document_id
+    assert payload["next_step"] == f"POST /api/documents/{document_id}/extract-claims"
+    assert payload["chunks"][0]["document_id"] == document_id
+    assert "Traffic resumed after repairs." in payload["chunks"][0]["raw_text"]
+
 def test_wsgi_persists_and_reads_credibility_assessment() -> None:
     def draft_credibility(prompt: str):
         return type(

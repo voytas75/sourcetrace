@@ -281,7 +281,7 @@ class SourceTraceWSGIApp:
         )
         if outcome is None:
             return _missing_response(start_response, "case", case_id)
-        inline_content = _optional_str(payload.get("content"))
+        inline_content = _optional_str(payload.get("content")) or _optional_str(payload.get("text"))
         if inline_content:
             self.delivery.prepare_document(
                 DocumentPreparationRequest(
@@ -344,7 +344,13 @@ class SourceTraceWSGIApp:
         if document is None:
             return _missing_response(start_response, "document", document_id)
         payload = _read_json(environ)
-        raw_text = str(payload.get("raw_text") or "")
+        raw_text = str(
+            payload.get("raw_text")
+            or payload.get("content")
+            or payload.get("text")
+            or document.inline_content
+            or ""
+        )
         if not raw_text:
             existing_chunks = self.delivery.list_chunks_for_document(document_id)
             if existing_chunks:

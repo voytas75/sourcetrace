@@ -377,6 +377,7 @@ def test_wsgi_app_can_seed_document_then_run_credibility_assessment_route() -> N
             "retrieved_at": "2026-05-18T00:05:00+00:00",
             "content_hash": "sha256:abc123",
             "language": "en",
+            "has_inline_content": False,
         }
     }
     assert status == "200 OK"
@@ -481,7 +482,7 @@ def test_wsgi_app_attach_document_accepts_minimal_inline_payload_and_prepare_use
         },
     )
     create_payload = json.loads(create_body)
-    document_id = create_payload["document"]["document_id"]
+    document_id = create_payload["document_id"]
 
     prepare_status, _, prepare_body = _call_wsgi(
         app,
@@ -495,9 +496,57 @@ def test_wsgi_app_attach_document_accepts_minimal_inline_payload_and_prepare_use
     assert create_status == "201 Created"
     assert create_payload["document_id"] == document_id
     assert prepare_status == "200 OK"
+    assert prepare_payload["status"] == "ready"
     assert prepare_payload["document"]["document_id"] == document_id
     assert len(prepare_payload["chunks"]) >= 1
     assert "Apollo 11 landed on the Moon in 1969." in prepare_payload["chunks"][0]["raw_text"]
+
+
+def test_wsgi_app_attach_document_accepts_text_alias_and_prepare_without_body_reuses_inline_content() -> None:
+    app = create_wsgi_app(delivery=create_default_delivery())
+
+    case_status, _, case_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"title": "Restart continuity case"},
+    )
+    case_id = json.loads(case_body)["case"]["case_id"]
+
+    create_status, _, create_body = _call_wsgi(
+        app,
+        method="POST",
+        path=f"/api/cases/{case_id}/documents",
+        payload={
+            "title": "Restart test document",
+            "text": "OpenAI announced a major partnership with Example University to improve AI safety research.",
+            "source_type": "web_article",
+            "source_url": "https://example.com/restart-test",
+            "content_hash": "sha256:test-inline-restart",
+        },
+    )
+    create_payload = json.loads(create_body)
+    document_id = create_payload["document_id"]
+
+    prepare_status, _, prepare_body = _call_wsgi(
+        app,
+        method="POST",
+        path=f"/api/documents/{document_id}/prepare",
+        payload={},
+    )
+
+    prepare_payload = json.loads(prepare_body)
+    assert case_status == "201 Created"
+    assert create_status == "201 Created"
+    assert create_payload["status"] == "ready"
+    assert create_payload["document_id"] == document_id
+    assert prepare_status == "200 OK"
+    assert prepare_payload["status"] == "ready"
+    assert prepare_payload["resource"] == "document_preparation"
+    assert prepare_payload["resource_id"] == document_id
+    assert prepare_payload["next_step"] == f"POST /api/documents/{document_id}/extract-claims"
+    assert len(prepare_payload["chunks"]) >= 1
+    assert "OpenAI announced a major partnership" in prepare_payload["chunks"][0]["raw_text"]
 
 
 def test_document_from_payload_slugifies_polish_title_to_ascii_safe_document_id() -> None:

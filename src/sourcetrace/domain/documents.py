@@ -21,6 +21,7 @@ class Document:
     retrieved_at: datetime
     content_hash: str
     language: str | None
+    inline_content: str | None = None
 
 
 @dataclass(frozen=True)

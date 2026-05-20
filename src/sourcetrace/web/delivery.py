@@ -1353,7 +1353,7 @@ def document_from_payload(payload: dict[str, object]) -> Document:
     source_type = str(payload.get("source_type") or "").strip()
     retrieved_at_raw = payload.get("retrieved_at")
     content_hash = str(payload.get("content_hash") or "").strip()
-    inline_content = _optional_str(payload.get("content"))
+    inline_content = _optional_str(payload.get("content")) or _optional_str(payload.get("text"))
     if not document_id:
         title_hint = _optional_str(payload.get("title")) or "document"
         document_id = _slugify_identifier(title_hint, prefix="doc")
@@ -1380,6 +1380,7 @@ def document_from_payload(payload: dict[str, object]) -> Document:
         retrieved_at=_required_datetime(retrieved_at_raw, field_name="retrieved_at"),
         content_hash=content_hash,
         language=_optional_str(payload.get("language")),
+        inline_content=inline_content,
     )
 
 
@@ -1400,6 +1401,7 @@ def document_to_payload(document: Document) -> dict[str, object]:
         "retrieved_at": document.retrieved_at.isoformat(),
         "content_hash": document.content_hash,
         "language": document.language,
+        "has_inline_content": bool(document.inline_content),
     }
 
 
