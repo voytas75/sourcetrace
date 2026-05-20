@@ -6,8 +6,9 @@ from wsgiref.util import setup_testing_defaults
 
 from sourcetrace.application import ClaimExtractionRuntime
 from sourcetrace.application.extraction import ClaimExtractionOutcome, ClaimExtractionRequest
-from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk
+from sourcetrace.domain import Case, Claim, ClaimEvidenceLink, Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
+from sourcetrace.llm.models import LlmGenerationResult
 from sourcetrace.web import SourceTraceWSGIApp, create_default_delivery
 
 
@@ -117,10 +118,25 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
     )
 
     assert case_status == "201 Created"
-    assert json.loads(case_body)["case"]["case_id"] == "case-1"
+    case_payload = json.loads(case_body)
+    assert case_payload["case"]["case_id"] == "case-1"
+    assert case_payload["status"] == "ready"
+    assert case_payload["resource"] == "case"
+    assert case_payload["resource_id"] == "case-1"
+    assert case_payload["next_step"] == "POST /api/cases/case-1/documents"
     assert document_status == "201 Created"
-    assert json.loads(document_body)["document"]["case_id"] == "case-1"
+    document_payload = json.loads(document_body)
+    assert document_payload["document"]["case_id"] == "case-1"
+    assert document_payload["status"] == "ready"
+    assert document_payload["resource"] == "document"
+    assert document_payload["resource_id"] == "doc-1"
+    assert document_payload["next_step"] == "POST /api/documents/doc-1/prepare"
     assert prepare_status == "200 OK"
+    prepare_payload = json.loads(prepare_body)
+    assert prepare_payload["status"] == "ready"
+    assert prepare_payload["resource"] == "document_preparation"
+    assert prepare_payload["resource_id"] == "doc-1"
+    assert prepare_payload["next_step"] == "POST /api/documents/doc-1/extract-claims"
     prepare_payload = json.loads(prepare_body)
     assert prepare_payload["chunks"][0]["chunk_id"] == "doc-1:chunk-1"
     assert prepare_payload["diagnostics"]["chunk_count"] == 2
@@ -218,6 +234,10 @@ def test_wsgi_extract_claims_route_uses_configured_runtime() -> None:
 
     assert status == "200 OK"
     payload = json.loads(body)
+    assert payload["status"] == "ready"
+    assert payload["resource"] == "claim_extraction"
+    assert payload["resource_id"] == "doc-1"
+    assert payload["next_step"] == "GET /api/cases/case-1/claims"
     assert payload["claims"][0]["claim_id"] == "claim-1"
     assert payload["evidence_links"][0]["rationale"] == "Initial extraction link."
     assert payload["diagnostics"]["claim_count"] == 1
@@ -274,6 +294,12 @@ def test_wsgi_extract_claims_route_reports_empty_diagnostics_when_runtime_return
 
     assert status == "200 OK"
     payload = json.loads(body)
+    assert payload["status"] == "empty"
+    assert payload["resource"] == "claim_extraction"
+    assert payload["resource_id"] == "doc-1"
+    assert payload["next_step"] == (
+        "Inspect /api/documents/doc-1/chunks and retry extraction with richer source text."
+    )
     assert payload["claims"] == []
     assert payload["diagnostics"]["claim_count"] == 0
     assert payload["diagnostics"]["chunk_count"] == 1
@@ -359,6 +385,163 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
 
 
 
+def test_wsgi_document_credibility_response_includes_workflow_envelope() -> None:
+    def draft_gateway(evidence_summary: str) -> LlmGenerationResult:
+        assert evidence_summary
+        return LlmGenerationResult(
+            text="Credibility draft available.",
+            model="test-model",
+            finish_reason="stop",
+        )
+
+    delivery = create_default_delivery(
+        credibility_draft=draft_gateway,
+        credibility_assessed_at=lambda: datetime(2026, 5, 20, 12, 0, tzinfo=UTC),
+    )
+    delivery.persistence.cases.save_case(
+        Case(case_id="case-cred", title="Credibility case", description=None)
+    )
+    delivery.persistence.documents.save_document(
+        Document(
+            document_id="doc-cred",
+            case_id="case-cred",
+            source_type="inline",
+            source_url=None,
+            publisher=None,
+            author=None,
+            title="Credibility doc",
+            published_at=None,
+            retrieved_at=datetime(2026, 5, 20, 11, 0, tzinfo=UTC),
+            content_hash="sha256:cred",
+            language="en",
+        )
+    )
+    delivery.persistence.documents.save_chunks(
+        (
+            DocumentChunk(
+                chunk_id="doc-cred:chunk-1",
+                case_id="case-cred",
+                document_id="doc-cred",
+                raw_text="This launch post claims a product is number one in Europe.",
+                start_char=0,
+                end_char=58,
+                chunk_index=0,
+                position_reference="p1",
+            ),
+        )
+    )
+    app = SourceTraceWSGIApp(delivery=delivery)
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/doc-cred/credibility",
+        payload={},
+    )
+
+    payload = json.loads(body)
+    assert status == "200 OK"
+    assert payload["status"] == "ready"
+    assert payload["resource"] == "document_credibility"
+    assert payload["resource_id"] == "doc-cred"
+    assert payload["document_id"] == "doc-cred"
+    assert payload["next_step"] == "GET /api/documents/doc-cred/credibility"
+    assert payload["credibility_assessment"]["document_id"] == "doc-cred"
+    assert payload["credibility_assessment"]["notes"] == "Credibility draft available."
+
+
+
+def test_wsgi_case_html_returns_404_for_missing_case() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, headers, body = _call_wsgi(
+        app,
+        method="GET",
+        path="/cases/missing-case",
+    )
+
+    html = body
+    assert status == "404 Not Found"
+    assert ("Content-Type", "text/html; charset=utf-8") in headers
+    assert "Case not found" in html
+    assert "missing-case" in html
+    assert "Case None" not in html
+
+
+
+def test_wsgi_case_html_shows_api_aligned_verdict_and_evidence_links() -> None:
+    from sourcetrace.domain import Case
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/bridge",
+        publisher=None,
+        author=None,
+        title="Bridge update",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+    chunk = DocumentChunk(
+        chunk_id="doc-1:chunk-1",
+        case_id="case-1",
+        document_id="doc-1",
+        raw_text="The bridge reopened after inspection.",
+        start_char=0,
+        end_char=37,
+        chunk_index=0,
+        position_reference="p1",
+    )
+    claim = Claim(
+        claim_id="case-1:claim-1",
+        case_id="case-1",
+        document_id="doc-1",
+        chunk_id="doc-1:chunk-1",
+        exact_text="The bridge reopened after inspection.",
+        source_span_reference="p1",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+    evidence = ClaimEvidenceLink(
+        claim_id="case-1:claim-1",
+        document_id="doc-1",
+        chunk_id="doc-1:chunk-1",
+        evidence_rank=1,
+        evidence_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale="Initial extraction link.",
+        snippet="The bridge reopened after inspection.",
+        score=None,
+    )
+    delivery = create_default_delivery()
+    delivery.persistence.cases.save_case(
+        Case(case_id="case-1", title="Bridge case", description=None)
+    )
+    delivery.persistence.documents.save_document(document)
+    delivery.persistence.documents.save_chunks((chunk,))
+    delivery.persistence.claims.save_claims((claim,))
+    delivery.persistence.claims.save_evidence_links((evidence,))
+    app = SourceTraceWSGIApp(delivery=delivery)
+
+    status, headers, body = _call_wsgi(
+        app,
+        method="GET",
+        path="/cases/case-1",
+    )
+
+    html = body
+    assert status == "200 OK"
+    assert ("Content-Type", "text/html; charset=utf-8") in headers
+    assert "insufficient_evidence" in html
+    assert "/api/claims/case-1:claim-1" in html
+    assert "/api/claims/case-1:claim-1/evidence" in html
+    assert "/api/claims/case-1:claim-1/verification" in html
+    assert ">1<" in html
+
+
+
 def test_wsgi_operational_endpoints_describe_runtime_and_capabilities() -> None:
     app = SourceTraceWSGIApp(delivery=create_default_delivery())
 
@@ -380,6 +563,7 @@ def test_wsgi_operational_endpoints_describe_runtime_and_capabilities() -> None:
     assert capabilities_status == "200 OK"
     assert "/api/cases/{case_id}/documents" in json.loads(capabilities_body)["routes"]["product"]
     assert "/api/dev/documents" in json.loads(capabilities_body)["routes"]["dev"]
+
 
 
 def _document() -> Document:

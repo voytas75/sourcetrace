@@ -910,9 +910,9 @@ def test_build_llm_claim_extractor_ignores_invalid_top_level_claim_items() -> No
         chunks=chunks,
     )
 
-    assert tuple(claim.claim_id for claim in outcome.claims) == ("claim-1", "claim-explicit")
+    assert tuple(claim.claim_id for claim in outcome.claims) == ("case-1:claim-1", "claim-explicit")
     assert tuple(claim.chunk_id for claim in outcome.claims) == ("chunk-1", "chunk-2")
-    assert tuple(link.claim_id for link in outcome.evidence_links) == ("claim-1", "claim-explicit")
+    assert tuple(link.claim_id for link in outcome.evidence_links) == ("case-1:claim-1", "claim-explicit")
     assert outcome.evidence_links[0].snippet == "The network expanded in 2025."
     assert outcome.evidence_links[1].snippet == "The rollout reached two regions."
     assert outcome.dropped_claim_items == 4
@@ -1115,7 +1115,7 @@ def test_build_llm_claim_extractor_treats_whitespace_only_payload_fields_as_miss
     )
 
     assert len(outcome.claims) == 1
-    assert outcome.claims[0].claim_id == "claim-1"
+    assert outcome.claims[0].claim_id == "case-1:claim-1"
     assert outcome.claims[0].chunk_id == "chunk-1"
     assert outcome.claims[0].exact_text == ""
     assert outcome.claims[0].source_span_reference == "chunk-span:unknown"
@@ -1201,21 +1201,91 @@ def test_build_llm_claim_extractor_drops_conversational_helpdesk_claim_texts() -
     assert outcome.dropped_claim_items == 2
 
 
-def test_build_llm_claim_extractor_drops_leading_yes_no_answer_style_claim_texts() -> None:
+def test_build_llm_claim_extractor_rejects_english_normalization_drift_for_polish_source() -> None:
     def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
         return LlmStructuredGenerationResult(
             payload={
                 "claims": [
                     {
-                        "claim_id": "claim-1",
+                        "claim_id": "claim-pl-1",
                         "chunk_id": "chunk-1",
-                        "exact_text": (
-                            "Yes — Neil Armstrong was the first person to walk on the Moon, "
-                            "during NASA's Apollo 11 mission."
-                        ),
+                        "text": "Na dole strony znajduje się zastrzeżenie, że suplement nie zastępuje leczenia.",
+                        "evidence": [
+                            {
+                                "chunk_id": "chunk-1",
+                                "snippet": "Na dole strony znajduje się zastrzeżenie, że suplement nie zastępuje leczenia.",
+                                "rationale": "Initial extraction link.",
+                            }
+                        ],
+                    }
+                ]
+            },
+            model="test-model",
+        )
+
+    def normalize_claim(claim_text: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text="At the bottom of the page, there is a disclaimer that the supplement does not replace treatment.",
+            model="test-model",
+        )
+
+    extractor = build_llm_claim_extractor(
+        extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
+    )
+    document = Document(
+        document_id="doc-pl",
+        case_id="case-1",
+        source_type="inline",
+        source_url=None,
+        publisher=None,
+        author=None,
+        title="Polski materiał",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:pl123",
+        language="pl",
+    )
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-pl",
+            extraction_method="llm_v1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=(
+            DocumentChunk(
+                chunk_id="chunk-1",
+                case_id="case-1",
+                document_id="doc-pl",
+                raw_text="Na dole strony znajduje się zastrzeżenie, że suplement nie zastępuje leczenia.",
+                start_char=0,
+                end_char=84,
+                chunk_index=0,
+                position_reference="p1",
+            ),
+        ),
+    )
+
+    assert outcome.claims[0].exact_text == (
+        "Na dole strony znajduje się zastrzeżenie, że suplement nie zastępuje leczenia."
+    )
+
+
+
+def test_build_llm_claim_extractor_uses_case_scoped_fallback_claim_ids() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "   ",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "Apollo 11 landed on the Moon in 1969.",
                     },
                     {
-                        "claim_id": "claim-2",
+                        "claim_id": None,
                         "chunk_id": "chunk-1",
                         "exact_text": "NASA operated the mission.",
                     },
@@ -1242,13 +1312,9 @@ def test_build_llm_claim_extractor_drops_leading_yes_no_answer_style_claim_texts
             chunk_id="chunk-1",
             case_id="case-1",
             document_id="doc-1",
-            raw_text=(
-                "Apollo 11 landed on the Moon in 1969. "
-                "Neil Armstrong was the first person to walk on the Moon. "
-                "NASA operated the mission."
-            ),
+            raw_text="Apollo 11 landed on the Moon in 1969. NASA operated the mission.",
             start_char=0,
-            end_char=121,
+            end_char=64,
             chunk_index=0,
             position_reference="p1",
         ),
@@ -1265,14 +1331,14 @@ def test_build_llm_claim_extractor_drops_leading_yes_no_answer_style_claim_texts
         chunks=chunks,
     )
 
-    assert tuple(claim.exact_text for claim in outcome.claims) == (
-        "NASA operated the mission.",
+    assert tuple(claim.claim_id for claim in outcome.claims) == (
+        "case-1:claim-1",
+        "case-1:claim-2",
     )
-    assert outcome.dropped_claim_items == 1
 
 
 
-def test_build_llm_claim_extractor_falls_back_to_single_request_chunk_span_when_claim_fields_are_blank() -> None:
+def test_build_llm_claim_extractor_drops_leading_yes_no_answer_style_claim_texts() -> None:
     def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
         return LlmStructuredGenerationResult(
             payload={

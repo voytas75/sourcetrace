@@ -6,7 +6,7 @@ from wsgiref.util import setup_testing_defaults
 
 import pytest
 
-from sourcetrace.domain import Claim, ClaimReviewDecision, Document, DocumentChunk
+from sourcetrace.domain import Case, Claim, ClaimReviewDecision, Document, DocumentChunk
 from sourcetrace.domain.types import (
     AnalystDisposition,
     HumanReviewStatus,
@@ -439,6 +439,7 @@ def test_wsgi_app_create_case_generates_case_id_when_missing() -> None:
     assert payload["case"]["title"] == "Local SourceTrace smoke test"
     assert payload["case"]["description"] == "desc"
     assert payload["case"]["case_id"].startswith("case-")
+    assert payload["case_id"] == payload["case"]["case_id"]
 
 
 def test_wsgi_app_attach_document_accepts_minimal_inline_payload_and_prepare_uses_document_content() -> None:
@@ -461,7 +462,8 @@ def test_wsgi_app_attach_document_accepts_minimal_inline_payload_and_prepare_use
             "content": "Apollo 11 landed on the Moon in 1969. Neil Armstrong walked on the Moon.",
         },
     )
-    document_id = json.loads(create_body)["document"]["document_id"]
+    create_payload = json.loads(create_body)
+    document_id = create_payload["document"]["document_id"]
 
     prepare_status, _, prepare_body = _call_wsgi(
         app,
@@ -473,10 +475,25 @@ def test_wsgi_app_attach_document_accepts_minimal_inline_payload_and_prepare_use
     prepare_payload = json.loads(prepare_body)
     assert case_status == "201 Created"
     assert create_status == "201 Created"
+    assert create_payload["document_id"] == document_id
     assert prepare_status == "200 OK"
     assert prepare_payload["document"]["document_id"] == document_id
     assert len(prepare_payload["chunks"]) >= 1
     assert "Apollo 11 landed on the Moon in 1969." in prepare_payload["chunks"][0]["raw_text"]
+
+
+def test_document_from_payload_slugifies_polish_title_to_ascii_safe_document_id() -> None:
+    from sourcetrace.web.delivery import document_from_payload
+
+    document = document_from_payload(
+        {
+            "case_id": "case-1",
+            "title": "Artykuł: autobusy elektryczne",
+            "content": "Treść testowa.",
+        }
+    )
+
+    assert document.document_id == "doc-artykul-autobusy-elektryczne"
 
 
 def test_wsgi_app_missing_document_credibility_route_reports_document_not_found() -> None:
@@ -495,6 +512,14 @@ def test_wsgi_app_missing_document_credibility_route_reports_document_not_found(
 
 def _seeded_delivery() -> SourceTraceDelivery:
     persistence = create_in_memory_persistence()
+    persistence.cases.save_case(
+        Case(
+            case_id="case-1",
+            title="Bridge case",
+            description="Seeded test case.",
+        )
+    )
+    persistence.documents.save_document(_document())
     persistence.documents.save_chunks(
         (
             DocumentChunk(

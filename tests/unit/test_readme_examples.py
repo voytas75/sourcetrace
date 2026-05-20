@@ -24,6 +24,9 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Expected: `200 OK` with JSON listing `routes.product`, `routes.dev`, and runtime capability flags" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/cases" in readme
     assert "Expected: `201 Created` with JSON containing `case.case_id`" in readme
+    assert "common top-level workflow envelope" in readme
+    assert "`status`, `summary`, `next_step`, `resource`, and `resource_id`" in readme
+    assert "compatibility aliases at top level (`case_id`, `document_id`)" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/cases/case-1/documents" in readme
     assert "Expected: `201 Created` with JSON containing `document.document_id`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare" in readme
@@ -35,6 +38,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Current verified diagnostics: `diagnostics` now includes `claim_count`, `chunk_count`, `status`, `summary`, and `next_step`" in readme
     assert "Current verified guardrail: if claim normalization returns a conversational/helpdesk-style rewrite" in readme
     assert "Sourcetrace keeps the original extracted claim text" in readme
+    assert "resists basic cross-language drift for Polish source text" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/verify" in readme
     assert '"chunk_id": "doc-1:chunk-1"' in readme
     assert "curl http://127.0.0.1:8000/api/cases" in readme
@@ -49,6 +53,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "curl http://127.0.0.1:8000/cases/case-1" in readme
     assert "Expected: each returns `200 OK` after the relevant upstream step is completed" in readme
     assert "Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table" in readme
+    assert "returns a real `404` for missing cases instead of rendering `Case None`" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/reviews" in readme
     assert "Expected: `200 OK` with JSON containing the persisted review payload" in readme
     assert "curl http://127.0.0.1:8000/api/claims/claim-1/review" in readme

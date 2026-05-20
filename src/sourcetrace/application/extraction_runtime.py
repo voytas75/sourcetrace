@@ -1,6 +1,7 @@
 """Minimal application runtime for LLM-backed claim extraction."""
 
 from typing import TYPE_CHECKING
+import re
 
 from sourcetrace.application.extraction import ClaimExtractionOutcome, ClaimExtractionRequest
 from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk
@@ -80,11 +81,18 @@ class _LlmClaimExtractor:
         claim_items = _deduplicate_claim_items(claim_items)
         claims = tuple(
             Claim(
-                claim_id=_normalized_string(item.get("claim_id")) or f"claim-{index + 1}",
+                claim_id=(
+                    _normalized_string(item.get("claim_id"))
+                    or f"{request.case_id}:claim-{index + 1}"
+                ),
                 case_id=request.case_id,
                 document_id=request.document_id,
                 chunk_id=_chunk_id_for(item=item, request=request),
-                exact_text=_claim_text_for(item=item, normalize_claim=self._normalize_claim),
+                exact_text=_claim_text_for(
+                    item=item,
+                    normalize_claim=self._normalize_claim,
+                    source_language=_prepared_text_language(chunks),
+                ),
                 source_span_reference=_span_reference_for(
                     item=item,
                     request=request,
@@ -137,6 +145,7 @@ def _claim_text_for(
     *,
     item: dict[str, object],
     normalize_claim: "ClaimNormalizationGateway | None",
+    source_language: str | None,
 ) -> str:
     exact_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS) or ""
     if normalize_claim is None or not exact_text:
@@ -146,7 +155,76 @@ def _claim_text_for(
         return exact_text
     if _drops_attribution_or_caveat(source_text=exact_text, normalized_text=normalized):
         return exact_text
+    if _looks_like_cross_language_drift(
+        source_text=exact_text,
+        normalized_text=normalized,
+        source_language=source_language,
+    ):
+        return exact_text
     return normalized or exact_text
+
+
+def _prepared_text_language(chunks: tuple[DocumentChunk, ...]) -> str | None:
+    sample = "\n".join(chunk.raw_text for chunk in chunks if chunk.raw_text).strip()
+    if not sample:
+        return None
+    lowered = sample.casefold()
+    polish_markers = (
+        " że ",
+        " się ",
+        " oraz ",
+        " został ",
+        " została ",
+        " przez ",
+        " roku ",
+        " miasto ",
+        " program ",
+        " pojazd",
+        " autobus",
+    )
+    if any(marker in f" {lowered} " for marker in polish_markers):
+        return "pl"
+    if re.search(r"[ąćęłńóśźż]", lowered):
+        return "pl"
+    return None
+
+
+def _looks_like_cross_language_drift(
+    *,
+    source_text: str,
+    normalized_text: str,
+    source_language: str | None,
+) -> bool:
+    if source_language != "pl":
+        return False
+    if not normalized_text:
+        return False
+    if re.search(r"[ąćęłńóśźż]", normalized_text.casefold()):
+        return False
+    english_markers = (
+        " the ",
+        " there is ",
+        " there are ",
+        " according to ",
+        " at the ",
+        " on the ",
+        " in the ",
+        " disclaimer",
+        " study",
+        " page",
+        " bottom",
+    )
+    normalized_padded = f" {normalized_text.casefold()} "
+    source_padded = f" {source_text.casefold()} "
+    english_hits = sum(1 for marker in english_markers if marker in normalized_padded)
+    if english_hits == 0:
+        return False
+    polish_hits_in_source = sum(
+        1
+        for marker in (" że ", " się ", " oraz ", " jest ", " zosta", " badan", " stroni")
+        if marker in source_padded
+    )
+    return polish_hits_in_source > 0
 
 
 def _drops_attribution_or_caveat(*, source_text: str, normalized_text: str) -> bool:

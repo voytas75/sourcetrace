@@ -17,6 +17,7 @@ from sourcetrace.web.delivery import (
     claim_extraction_outcome_to_payload,
     claim_from_payload,
     create_default_delivery,
+    credibility_assessment_response_payload,
     document_credibility_assessment_to_payload,
     document_from_payload,
     document_preparation_outcome_to_payload,
@@ -170,9 +171,11 @@ class SourceTraceWSGIApp:
             return self._render_report(path, start_response)
         if method == "GET" and path.startswith("/cases/"):
             case_id = path.removeprefix("/cases/").strip("/")
+            case = self.delivery.get_case(case_id)
+            status = "200 OK" if case is not None else "404 Not Found"
             return _html_response(
                 start_response,
-                "200 OK",
+                status,
                 render_case_review_html(self.delivery, case_id),
             )
         return _json_response(start_response, "404 Not Found", {"error": "not_found"})
@@ -219,10 +222,19 @@ class SourceTraceWSGIApp:
     ) -> Iterable[bytes]:
         payload = _read_json(environ)
         outcome = self.delivery.create_case(case_creation_request_from_payload(payload))
+        case_payload = case_to_payload(outcome.case)
         return _json_response(
             start_response,
             "201 Created",
-            {"case": case_to_payload(outcome.case)},
+            {
+                "status": "ready",
+                "summary": "Case created.",
+                "next_step": f"POST /api/cases/{case_payload['case_id']}/documents",
+                "resource": "case",
+                "resource_id": case_payload["case_id"],
+                "case": case_payload,
+                "case_id": case_payload["case_id"],
+            },
         )
 
     def _list_cases(
@@ -279,10 +291,19 @@ class SourceTraceWSGIApp:
                 ),
                 inline_content,
             )
+        document_payload = document_to_payload(outcome.document)
         return _json_response(
             start_response,
             "201 Created",
-            {"document": document_to_payload(outcome.document)},
+            {
+                "status": "ready",
+                "summary": "Document attached to case.",
+                "next_step": f"POST /api/documents/{document_payload['document_id']}/prepare",
+                "resource": "document",
+                "resource_id": document_payload["document_id"],
+                "document": document_payload,
+                "document_id": document_payload["document_id"],
+            },
         )
 
     def _list_case_documents(
@@ -546,11 +567,7 @@ class SourceTraceWSGIApp:
         return _json_response(
             start_response,
             "200 OK",
-            {
-                "credibility_assessment": document_credibility_assessment_to_payload(
-                    outcome.assessment
-                )
-            },
+            credibility_assessment_response_payload(outcome.assessment),
         )
 
     def _get_document_credibility(
@@ -568,11 +585,7 @@ class SourceTraceWSGIApp:
         return _json_response(
             start_response,
             "200 OK",
-            {
-                "credibility_assessment": document_credibility_assessment_to_payload(
-                    assessment
-                )
-            },
+            credibility_assessment_response_payload(assessment),
         )
 
     def _render_report(

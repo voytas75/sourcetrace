@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
+from unicodedata import combining, normalize as unicode_normalize
 from hashlib import sha256
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -567,13 +568,14 @@ def create_default_delivery(
 def case_to_payload(case: Case) -> dict[str, object]:
     """Serialize a case for JSON API responses."""
 
-    return {
+    payload = {
         "case_id": case.case_id,
         "title": case.title,
         "description": case.description,
         "document_ids": list(case.document_ids),
         "claim_ids": list(case.claim_ids),
     }
+    return payload
 
 
 def chunk_to_payload(chunk: DocumentChunk) -> dict[str, object]:
@@ -621,10 +623,18 @@ def document_preparation_outcome_to_payload(
 ) -> dict[str, object]:
     """Serialize a document preparation outcome for JSON API responses."""
 
+    document_payload = document_to_payload(outcome.document)
+    diagnostics = _prepare_diagnostics(outcome)
     return {
-        "document": document_to_payload(outcome.document),
+        "status": diagnostics["status"],
+        "summary": diagnostics["summary"],
+        "next_step": diagnostics["next_step"],
+        "resource": "document_preparation",
+        "resource_id": outcome.document.document_id,
+        "document": document_payload,
+        "document_id": document_payload["document_id"],
         "chunks": [chunk_to_payload(chunk) for chunk in outcome.chunks],
-        "diagnostics": _prepare_diagnostics(outcome),
+        "diagnostics": diagnostics,
     }
 
 
@@ -633,14 +643,22 @@ def claim_extraction_outcome_to_payload(
 ) -> dict[str, object]:
     """Serialize a claim extraction outcome for JSON API responses."""
 
+    document_payload = document_to_payload(outcome.document)
+    diagnostics = _claim_extraction_diagnostics(outcome)
     return {
-        "document": document_to_payload(outcome.document),
+        "status": diagnostics["status"],
+        "summary": diagnostics["summary"],
+        "next_step": diagnostics["next_step"],
+        "resource": "claim_extraction",
+        "resource_id": outcome.document.document_id,
+        "document": document_payload,
+        "document_id": document_payload["document_id"],
         "chunks": [chunk_to_payload(chunk) for chunk in outcome.chunks],
         "claims": [claim_to_payload(claim) for claim in outcome.claims],
         "evidence_links": [
             evidence_link_to_payload(link) for link in outcome.evidence_links
         ],
-        "diagnostics": _claim_extraction_diagnostics(outcome),
+        "diagnostics": diagnostics,
     }
 
 
@@ -726,7 +744,7 @@ def document_credibility_assessment_to_payload(
 ) -> dict[str, object]:
     """Serialize a document credibility assessment for JSON responses."""
 
-    return {
+    payload = {
         "assessment_id": assessment.assessment_id,
         "document_id": assessment.document_id,
         "source_reliability": assessment.source_reliability.value,
@@ -742,12 +760,39 @@ def document_credibility_assessment_to_payload(
         "assessed_at": assessment.assessed_at.isoformat(),
         "override": assessment.override,
     }
+    return payload
+
+
+def credibility_assessment_response_payload(
+    assessment: DocumentCredibilityAssessment,
+) -> dict[str, object]:
+    assessment_payload = document_credibility_assessment_to_payload(assessment)
+    return {
+        "status": "ready",
+        "summary": "Credibility assessment is available.",
+        "next_step": f"GET /api/documents/{assessment.document_id}/credibility",
+        "resource": "document_credibility",
+        "resource_id": assessment.document_id,
+        "document_id": assessment.document_id,
+        "credibility_assessment": assessment_payload,
+    }
 
 
 def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
     """Render a tiny server-side analyst view for one case."""
 
     case = delivery.persistence.cases.get_case(case_id)
+    if case is None:
+        return (
+            "<!doctype html>"
+            "<html><head><title>SourceTrace Case Review</title></head>"
+            "<body>"
+            "<h1>Case not found</h1>"
+            f"<p><strong>Case ID:</strong> {_escape_html(case_id)}</p>"
+            "<p>The requested case does not exist.</p>"
+            "</body></html>"
+        )
+
     documents = delivery.persistence.documents.list_documents_for_case(case_id)
     claims = delivery.persistence.claims.list_claims_for_case(case_id)
     claim_rows = "\n".join(_claim_row_html(delivery, claim) for claim in claims)
@@ -761,10 +806,8 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
             '<tr><td colspan="7">No documents attached yet. Create a document, then '
             "run prepare/extract/credibility.</td></tr>"
         )
-    case_title = _escape_html(case.title) if case is not None else _escape_html(case_id)
-    case_description = _escape_html(
-        case.description if case is not None and case.description else "No case description provided yet."
-    )
+    case_title = _escape_html(case.title)
+    case_description = _escape_html(case.description or "No case description provided yet.")
     return (
         "<!doctype html>"
         "<html><head><title>SourceTrace Case Review</title></head>"
@@ -1113,19 +1156,34 @@ def _claim_row_html(delivery: SourceTraceDelivery, claim: Claim) -> str:
     verification = _get_verification(delivery.persistence, claim.claim_id)
     review = _get_review_decision(delivery.persistence, claim.claim_id)
     links = _list_evidence_links(delivery.persistence, claim.claim_id)
-    verdict = verification.verdict.value if verification is not None else "unverified"
+    verdict = _display_verdict(claim, verification)
     review_status = (
         review.human_review_status.value if review is not None else "unreviewed"
     )
     evidence_count = str(len(links))
+    claim_links = [
+        f'<a href="/api/claims/{claim.claim_id}">claim</a>',
+        f'<a href="/api/claims/{claim.claim_id}/evidence">evidence</a>',
+    ]
+    verification_link = f'/api/claims/{claim.claim_id}/verification'
+    claim_links.append(f'<a href="{verification_link}">verification</a>')
     return (
         "<tr>"
-        f"<td>{_escape_html(claim.exact_text)}</td>"
+        f"<td>{_escape_html(claim.exact_text)}<br><small>{' · '.join(claim_links)}</small></td>"
         f"<td>{_escape_html(verdict)}</td>"
         f"<td>{_escape_html(review_status)}</td>"
         f"<td>{evidence_count}</td>"
         "</tr>"
     )
+
+
+def _display_verdict(
+    claim: Claim,
+    verification: ClaimVerification | None,
+) -> str:
+    if verification is not None:
+        return verification.verdict.value
+    return claim.system_verdict.value
 
 
 def _case_document_row_html(delivery: SourceTraceDelivery, document: Document) -> str:
@@ -1310,7 +1368,15 @@ def document_to_payload(document: Document) -> dict[str, object]:
 
 
 def _slugify_identifier(value: str, *, prefix: str) -> str:
-    normalized = "".join(char.lower() if char.isalnum() else "-" for char in value).strip("-")
+    transliterated = value.replace("ł", "l").replace("Ł", "L")
+    ascii_value = "".join(
+        char
+        for char in unicode_normalize("NFKD", transliterated)
+        if not combining(char)
+    ).encode("ascii", "ignore").decode("ascii")
+    normalized = "".join(
+        char.lower() if char.isalnum() else "-" for char in ascii_value
+    ).strip("-")
     compact = "-".join(part for part in normalized.split("-") if part)
     stem = compact[:40] or prefix
     return f"{prefix}-{stem}"
