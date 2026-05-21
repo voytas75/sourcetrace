@@ -388,7 +388,7 @@ def _looks_like_carry_through_suffix(text: str) -> bool:
     normalized = normalized.lstrip(",;:—- ")
     if not normalized:
         return False
-    return normalized.startswith(("but ", "however ", "if "))
+    return normalized.startswith(("but ", "however ", "however, ", "if "))
 
 
 def _prefer_core_fact_claim_item(
