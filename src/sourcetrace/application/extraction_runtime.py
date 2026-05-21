@@ -556,7 +556,26 @@ def _infer_chunk_from_claim_similarity(
         raw_text = _normalized_string(chunk.raw_text)
         if raw_text is None:
             continue
-        chunk_terms = _match_terms(raw_text)
+        similarity = _best_chunk_similarity(claim_terms=claim_terms, raw_text=raw_text)
+        if similarity is None:
+            continue
+        score, shared_term_count = similarity
+        scored_candidates.append((score, shared_term_count, chunk))
+    if len(scored_candidates) != 1:
+        return None
+    score, _, chunk = scored_candidates[0]
+    if score < 0.6:
+        return None
+    return chunk
+
+
+def _best_chunk_similarity(
+    *,
+    claim_terms: set[str],
+    raw_text: str,
+) -> tuple[float, int] | None:
+    best_similarity: tuple[float, int] | None = None
+    for chunk_terms in _chunk_match_term_sets(raw_text):
         if len(chunk_terms) < 4:
             continue
         shared_terms = claim_terms & chunk_terms
@@ -566,14 +585,31 @@ def _infer_chunk_from_claim_similarity(
         if claim_coverage < 0.75:
             continue
         chunk_coverage = len(shared_terms) / len(chunk_terms)
-        score = min(claim_coverage, chunk_coverage)
-        scored_candidates.append((score, len(shared_terms), chunk))
-    if len(scored_candidates) != 1:
-        return None
-    score, _, chunk = scored_candidates[0]
-    if score < 0.6:
-        return None
-    return chunk
+        similarity = (min(claim_coverage, chunk_coverage), len(shared_terms))
+        if best_similarity is None or similarity > best_similarity:
+            best_similarity = similarity
+    return best_similarity
+
+
+def _chunk_match_term_sets(text: str) -> tuple[set[str], ...]:
+    term_sets: list[set[str]] = []
+    seen: set[frozenset[str]] = set()
+    for span_text in (*_source_sentence_spans(text), text):
+        terms = _match_terms(span_text)
+        frozen_terms = frozenset(terms)
+        if not terms or frozen_terms in seen:
+            continue
+        seen.add(frozen_terms)
+        term_sets.append(terms)
+    return tuple(term_sets)
+
+
+def _source_sentence_spans(text: str) -> tuple[str, ...]:
+    return tuple(
+        span.strip()
+        for span in re.split(r"(?<=[.!?])\s+|\n+", text)
+        if span.strip()
+    )
 
 
 def _match_terms(text: str) -> set[str]:

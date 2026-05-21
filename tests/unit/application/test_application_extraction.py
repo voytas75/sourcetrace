@@ -329,6 +329,80 @@ def test_build_llm_claim_extractor_preserves_attribution_when_normalizer_flatten
     ]
 
 
+def test_build_llm_claim_extractor_infers_unique_paraphrased_claim_grounding() -> None:
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/housing",
+        publisher="Example City Desk",
+        author="Reporter",
+        title="Housing maintenance briefing",
+        published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:mno345",
+        language="en",
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The parks department opened two pools after repairs.",
+            start_char=0,
+            end_char=52,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "The council released a housing maintenance update. "
+                "A municipal audit found that 42 elevators failed required safety inspections in April. "
+                "Officials said repair contracts will be issued next month, and the report also summarized "
+                "staffing levels, budget transfers, tenant notices, emergency work orders, and procurement "
+                "delays across five boroughs."
+            ),
+            start_char=53,
+            end_char=418,
+            chunk_index=1,
+            position_reference="p2",
+        ),
+    )
+
+    class _Result:
+        payload = {
+            "claims": [
+                {
+                    "claim_id": "claim-1",
+                    "exact_text": "The city audit found dozens of elevators failed safety inspections in April.",
+                }
+            ]
+        }
+
+    extractor = build_llm_claim_extractor(extract_claims=lambda _: _Result())
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2"),
+            extraction_method="llm-structured-v1",
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].chunk_id == "chunk-2"
+    assert outcome.claims[0].source_span_reference == "p2"
+    assert len(outcome.evidence_links) == 1
+    assert outcome.evidence_links[0].chunk_id == "chunk-2"
+    assert outcome.evidence_links[0].rationale == "Initial extraction link from chunk p2."
+
+
 def test_build_llm_claim_extractor_filters_helpdesk_style_claim_payloads() -> None:
     document = Document(
         document_id="doc-1",
