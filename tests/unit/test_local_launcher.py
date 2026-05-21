@@ -9,6 +9,7 @@ import pytest
 from sourcetrace.domain import Document
 from sourcetrace.local_launcher import (
     _missing_litellm_completion,
+    _resolve_server_bind,
     build_local_server_runtime,
     main,
 )
@@ -36,6 +37,45 @@ class _FakeRuntime:
 def test_missing_litellm_completion_raises_clear_error() -> None:
     with pytest.raises(RuntimeError, match="LiteLLM completion function is not wired yet"):
         _missing_litellm_completion(model="azure/gpt-5")
+
+
+def test_resolve_server_bind_uses_defaults_when_env_is_missing() -> None:
+    original_host = environ.get("SOURCETRACE_WWW_HOST")
+    original_port = environ.get("SOURCETRACE_WWW_PORT")
+    try:
+        environ.pop("SOURCETRACE_WWW_HOST", None)
+        environ.pop("SOURCETRACE_WWW_PORT", None)
+
+        assert _resolve_server_bind() == ("127.0.0.1", 8000)
+    finally:
+        if original_host is None:
+            environ.pop("SOURCETRACE_WWW_HOST", None)
+        else:
+            environ["SOURCETRACE_WWW_HOST"] = original_host
+        if original_port is None:
+            environ.pop("SOURCETRACE_WWW_PORT", None)
+        else:
+            environ["SOURCETRACE_WWW_PORT"] = original_port
+
+
+def test_resolve_server_bind_uses_env_override() -> None:
+    original_host = environ.get("SOURCETRACE_WWW_HOST")
+    original_port = environ.get("SOURCETRACE_WWW_PORT")
+    try:
+        environ["SOURCETRACE_WWW_HOST"] = "0.0.0.0"
+        environ["SOURCETRACE_WWW_PORT"] = "8002"
+
+        assert _resolve_server_bind() == ("0.0.0.0", 8002)
+    finally:
+        if original_host is None:
+            environ.pop("SOURCETRACE_WWW_HOST", None)
+        else:
+            environ["SOURCETRACE_WWW_HOST"] = original_host
+        if original_port is None:
+            environ.pop("SOURCETRACE_WWW_PORT", None)
+        else:
+            environ["SOURCETRACE_WWW_PORT"] = original_port
+
 
 
 def test_build_local_server_runtime_raises_clear_error_when_no_completion_backend_is_available(
@@ -94,6 +134,8 @@ def test_build_local_server_runtime_sets_litellm_log_error_by_default(
             environ.pop("SOURCETRACE_LLM_API_VERSION", None)
         else:
             environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version
+        environ.pop("SOURCETRACE_WWW_HOST", None)
+        environ.pop("SOURCETRACE_WWW_PORT", None)
 
 
 def test_build_local_server_runtime_preserves_existing_litellm_log_setting(
@@ -165,6 +207,8 @@ def test_build_local_server_runtime_uses_litellm_completion_when_available(
     def fake_run_local_server(*, host: str = "127.0.0.1", port: int = 8000, delivery=None, announce=print):
         captured["delivery"] = delivery
         captured["announce"] = announce
+        captured["host"] = host
+        captured["port"] = port
         return _FakeRuntime(server=_FakeServer(events=[]))
 
     try:
@@ -204,6 +248,8 @@ def test_build_local_server_runtime_uses_litellm_completion_when_available(
         assert isinstance(completion_kwargs, dict)
 
         assert runtime.server.server_port == 8000
+        assert captured["host"] == "127.0.0.1"
+        assert captured["port"] == 8000
         assert completion_kwargs["model"] == "gpt-5.4"
         assert completion_kwargs["temperature"] == 0.2
         assert completion_kwargs["max_completion_tokens"] == 600
@@ -344,12 +390,16 @@ def test_build_local_server_runtime_wires_runtime_config_into_delivery_and_serve
     def fake_run_local_server(*, host: str = "127.0.0.1", port: int = 8000, delivery=None, announce=print):
         captured["delivery"] = delivery
         captured["announce"] = announce
+        captured["host"] = host
+        captured["port"] = port
         return _FakeRuntime(server=_FakeServer(events=[]))
 
     try:
         environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
         environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
         environ["SOURCETRACE_LLM_API_VERSION"] = "preview"
+        environ["SOURCETRACE_WWW_HOST"] = "0.0.0.0"
+        environ["SOURCETRACE_WWW_PORT"] = "8002"
         monkeypatch.setattr("sourcetrace.local_launcher.run_local_server", fake_run_local_server)
 
         runtime = build_local_server_runtime(completion_fn=completion_fn)
@@ -379,6 +429,8 @@ def test_build_local_server_runtime_wires_runtime_config_into_delivery_and_serve
         assert isinstance(completion_kwargs, dict)
 
         assert runtime.server.server_port == 8000
+        assert captured["host"] == "0.0.0.0"
+        assert captured["port"] == 8002
         assert completion_kwargs["model"] == "gpt-5.4"
         assert completion_kwargs["temperature"] == 0.2
         assert completion_kwargs["max_completion_tokens"] == 600

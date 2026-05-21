@@ -4,6 +4,9 @@ from collections.abc import Callable
 from os import environ
 from typing import Any
 
+_DEFAULT_WWW_HOST = "127.0.0.1"
+_DEFAULT_WWW_PORT = 8000
+
 from sourcetrace.llm.errors import LlmConfigurationError
 
 from sourcetrace.llm import build_llm_runtime
@@ -58,6 +61,18 @@ def _build_runtime_config_with_legacy_env_fallback():
         raise
 
 
+def _resolve_server_bind() -> tuple[str, int]:
+    host = environ.get("SOURCETRACE_WWW_HOST", _DEFAULT_WWW_HOST).strip() or _DEFAULT_WWW_HOST
+    raw_port = environ.get("SOURCETRACE_WWW_PORT", str(_DEFAULT_WWW_PORT)).strip() or str(
+        _DEFAULT_WWW_PORT
+    )
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ValueError("SOURCETRACE_WWW_PORT must be an integer.") from exc
+    return host, port
+
+
 def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
@@ -74,7 +89,8 @@ def build_local_server_runtime(
         claim_extraction=llm_runtime.claim_extraction,
         claim_normalization=llm_runtime.claim_normalization,
     )
-    return run_local_server(delivery=delivery)
+    host, port = _resolve_server_bind()
+    return run_local_server(host=host, port=port, delivery=delivery)
 
 
 def main() -> int:
