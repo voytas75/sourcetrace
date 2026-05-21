@@ -1,6 +1,7 @@
 """LiteLLM-facing adapter kept behind SourceTrace-owned seams."""
 
 import json
+from os import environ
 from collections.abc import Callable
 from typing import Any
 
@@ -14,6 +15,54 @@ from sourcetrace.llm.models import (
     LlmStructuredGenerationResult,
     TokenUsage,
 )
+
+
+def _structured_debug_enabled() -> bool:
+    return environ.get("SOURCETRACE_DEBUG_STRUCTURED_PAYLOAD", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _safe_preview(value: Any, *, limit: int = 400) -> str:
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        except TypeError:
+            text = repr(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}…"
+
+
+def _debug_structured_payload(
+    *,
+    schema_name: str,
+    message: dict[str, Any],
+    payload: Any,
+) -> None:
+    if not _structured_debug_enabled():
+        return
+
+    parsed = message.get("parsed")
+    content = message.get("content")
+    print(
+        "[sourcetrace.structured-debug] "
+        f"schema={schema_name} "
+        f"parsed_type={type(parsed).__name__} "
+        f"content_type={type(content).__name__} "
+        f"payload_type={type(payload).__name__} "
+        f"content_preview={_safe_preview(content)!r} "
+        f"payload_preview={_safe_preview(payload)!r}"
+    )
+    if isinstance(content, str) and isinstance(payload, str):
+        print("[sourcetrace.structured-debug.content-full-begin]")
+        print(content)
+        print("[sourcetrace.structured-debug.content-full-end]")
 
 
 def _usage_from_response(response: dict[str, Any]) -> TokenUsage | None:
@@ -37,15 +86,68 @@ def _extract_message_content(message: dict[str, Any]) -> str:
 def _extract_structured_payload(message: dict[str, Any]) -> Any:
     payload = message.get("parsed")
     if payload is not None:
-        return payload
+        return _normalize_claim_extraction_payload(payload)
 
     content = message.get("content")
     if isinstance(content, str):
         try:
-            return json.loads(content)
+            return _normalize_claim_extraction_payload(json.loads(content))
         except json.JSONDecodeError:
             return content
     return content
+
+
+def _normalize_claim_extraction_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    claims = payload.get("claims")
+    if not isinstance(claims, list):
+        return payload
+
+    normalized_claims: list[Any] = []
+    for item in claims:
+        if not isinstance(item, dict):
+            normalized_claims.append(item)
+            continue
+        normalized_item = dict(item)
+        claim_text = _first_non_blank_string(
+            normalized_item.get("exact_text"),
+            normalized_item.get("claim"),
+            normalized_item.get("claim_text"),
+            normalized_item.get("statement"),
+            normalized_item.get("text"),
+        )
+        if claim_text is not None:
+            normalized_item.setdefault("exact_text", claim_text)
+            normalized_item.setdefault("claim", claim_text)
+            normalized_item.setdefault("claim_text", claim_text)
+
+        chunk_id = _first_non_blank_string(
+            normalized_item.get("chunk_id"),
+            normalized_item.get("source_chunk_id"),
+            normalized_item.get("source_id"),
+            normalized_item.get("citation"),
+            normalized_item.get("chunk"),
+        )
+        if chunk_id is not None:
+            normalized_item.setdefault("chunk_id", chunk_id)
+            normalized_item.setdefault("source_id", chunk_id)
+            normalized_item.setdefault("citation", chunk_id)
+
+        normalized_claims.append(normalized_item)
+
+    normalized_payload = dict(payload)
+    normalized_payload["claims"] = normalized_claims
+    return normalized_payload
+
+
+def _first_non_blank_string(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
+    return None
 
 
 def build_litellm_completion_caller(
@@ -166,8 +268,14 @@ def call_structured_generation(
 
     choice = response.get("choices", [{}])[0]
     message = choice.get("message", {})
+    payload = _extract_structured_payload(message)
+    _debug_structured_payload(
+        schema_name=request.schema_name,
+        message=message,
+        payload=payload,
+    )
     return LlmStructuredGenerationResult(
-        payload=_extract_structured_payload(message),
+        payload=payload,
         model=response.get("model", request.model),
         finish_reason=choice.get("finish_reason"),
         usage=_usage_from_response(response),

@@ -1338,6 +1338,222 @@ def test_build_llm_claim_extractor_uses_case_scoped_fallback_claim_ids() -> None
 
 
 
+def test_build_llm_claim_extractor_infers_chunk_and_span_from_unique_claim_text_match() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "exact_text": "Claim from second chunk.",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Heading only",
+            start_char=0,
+            end_char=12,
+            chunk_index=0,
+            position_reference="p1",
+            previous_chunk_id=None,
+            next_chunk_id="chunk-2",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Claim from second chunk.",
+            start_char=13,
+            end_char=37,
+            chunk_index=1,
+            position_reference="p2",
+            previous_chunk_id="chunk-1",
+            next_chunk_id=None,
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2"),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].chunk_id == "chunk-2"
+    assert outcome.claims[0].source_span_reference == "p2"
+    assert outcome.evidence_links[0].chunk_id == "chunk-2"
+    assert outcome.evidence_links[0].rationale == "Initial extraction link from chunk p2."
+
+
+def test_build_llm_claim_extractor_infers_chunk_and_span_from_unique_claim_similarity_match() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "exact_text": "The conflict is a broader risk to African sovereign credit, especially for net importers of fuel and fertilizer.",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Reuters summary heading only.",
+            start_char=0,
+            end_char=28,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The conflict is seen as a broader risk to African sovereign credit, especially for net importers of fuel and fertilizer.",
+            start_char=29,
+            end_char=151,
+            chunk_index=1,
+            position_reference="p2",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-3",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Oil exporters are relatively better insulated.",
+            start_char=152,
+            end_char=198,
+            chunk_index=2,
+            position_reference="p3",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2", "chunk-3"),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].chunk_id == "chunk-2"
+    assert outcome.claims[0].source_span_reference == "p2"
+    assert outcome.evidence_links[0].chunk_id == "chunk-2"
+    assert outcome.evidence_links[0].rationale == "Initial extraction link from chunk p2."
+
+
+
+def test_build_llm_claim_extractor_keeps_fallback_when_similarity_match_is_ambiguous() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "exact_text": "The conflict is a broader risk to African sovereign credit, especially for net importers of fuel and fertilizer.",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The conflict is seen as a broader risk to African sovereign credit, especially for net importers of fuel and fertilizer.",
+            start_char=0,
+            end_char=122,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="A broader risk to African sovereign credit remains for net importers of fuel and fertilizer during the conflict.",
+            start_char=123,
+            end_char=235,
+            chunk_index=1,
+            position_reference="p2",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2"),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].chunk_id == "chunk-1"
+    assert outcome.claims[0].source_span_reference == "chunk-span:unknown"
+    assert outcome.evidence_links[0].chunk_id == "chunk-1"
+    assert outcome.evidence_links[0].rationale == "Initial extraction link from chunk chunk-span:unknown."
+
+
 def test_build_llm_claim_extractor_drops_leading_yes_no_answer_style_claim_texts() -> None:
     def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
         return LlmStructuredGenerationResult(

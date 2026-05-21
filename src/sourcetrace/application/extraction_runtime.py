@@ -87,7 +87,11 @@ class _LlmClaimExtractor:
                 ),
                 case_id=request.case_id,
                 document_id=request.document_id,
-                chunk_id=_chunk_id_for(item=item, request=request),
+                chunk_id=_chunk_id_for(
+                    item=item,
+                    request=request,
+                    chunk_by_id=chunk_by_id,
+                ),
                 exact_text=_claim_text_for(
                     item=item,
                     normalize_claim=self._normalize_claim,
@@ -123,10 +127,22 @@ class _LlmClaimExtractor:
         )
 
 
-def _chunk_id_for(item: dict[str, object], request: ClaimExtractionRequest) -> str | None:
+def _chunk_id_for(
+    item: dict[str, object],
+    request: ClaimExtractionRequest,
+    *,
+    chunk_by_id: dict[str, DocumentChunk],
+) -> str | None:
     chunk_id = _first_normalized_item_string(item, *_CLAIM_CHUNK_KEYS)
     if chunk_id is not None:
         return chunk_id
+    inferred_chunk = _infer_chunk_from_claim_text(
+        claim_text=_first_normalized_item_string(item, *_CLAIM_TEXT_KEYS),
+        request=request,
+        chunk_by_id=chunk_by_id,
+    )
+    if inferred_chunk is not None:
+        return inferred_chunk.chunk_id
     if request.chunk_ids:
         return request.chunk_ids[0]
     return None
@@ -400,11 +416,89 @@ def _span_reference_for(
         chunk = chunk_by_id.get(chunk_id)
         if chunk is not None and chunk.position_reference is not None:
             return chunk.position_reference
+    inferred_chunk = _infer_chunk_from_claim_text(
+        claim_text=_first_normalized_item_string(item, *_CLAIM_TEXT_KEYS),
+        request=request,
+        chunk_by_id=chunk_by_id,
+    )
+    if inferred_chunk is not None and inferred_chunk.position_reference is not None:
+        return inferred_chunk.position_reference
     if len(request.chunk_ids) == 1:
         request_chunk = chunk_by_id.get(request.chunk_ids[0])
         if request_chunk is not None and request_chunk.position_reference is not None:
             return request_chunk.position_reference
     return "chunk-span:unknown"
+
+
+def _infer_chunk_from_claim_text(
+    *,
+    claim_text: str | None,
+    request: ClaimExtractionRequest,
+    chunk_by_id: dict[str, DocumentChunk],
+) -> DocumentChunk | None:
+    normalized_claim = _normalized_string(claim_text)
+    if normalized_claim is None:
+        return None
+    candidate_chunks = tuple(
+        chunk
+        for chunk_id in request.chunk_ids
+        if (chunk := chunk_by_id.get(chunk_id)) is not None
+    )
+    matches: list[DocumentChunk] = []
+    normalized_claim_folded = normalized_claim.casefold()
+    for chunk in candidate_chunks:
+        raw_text = _normalized_string(chunk.raw_text)
+        if raw_text is None:
+            continue
+        if normalized_claim_folded in raw_text.casefold():
+            matches.append(chunk)
+    if len(matches) == 1:
+        return matches[0]
+    return _infer_chunk_from_claim_similarity(
+        claim_text=normalized_claim,
+        candidate_chunks=candidate_chunks,
+    )
+
+
+def _infer_chunk_from_claim_similarity(
+    *,
+    claim_text: str,
+    candidate_chunks: tuple[DocumentChunk, ...],
+) -> DocumentChunk | None:
+    claim_terms = _match_terms(claim_text)
+    if len(claim_terms) < 4:
+        return None
+    scored_candidates: list[tuple[float, int, DocumentChunk]] = []
+    for chunk in candidate_chunks:
+        raw_text = _normalized_string(chunk.raw_text)
+        if raw_text is None:
+            continue
+        chunk_terms = _match_terms(raw_text)
+        if len(chunk_terms) < 4:
+            continue
+        shared_terms = claim_terms & chunk_terms
+        if len(shared_terms) < 4:
+            continue
+        claim_coverage = len(shared_terms) / len(claim_terms)
+        if claim_coverage < 0.75:
+            continue
+        chunk_coverage = len(shared_terms) / len(chunk_terms)
+        score = min(claim_coverage, chunk_coverage)
+        scored_candidates.append((score, len(shared_terms), chunk))
+    if len(scored_candidates) != 1:
+        return None
+    score, _, chunk = scored_candidates[0]
+    if score < 0.6:
+        return None
+    return chunk
+
+
+def _match_terms(text: str) -> set[str]:
+    return {
+        term
+        for term in re.split(r"[^\w]+", text.casefold())
+        if len(term) >= 4
+    }
 
 
 def _build_initial_evidence_links(

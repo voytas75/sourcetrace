@@ -50,3 +50,19 @@ def test_claim_extraction_gateway_explicitly_forbids_conversational_or_question_
     assert "summaries" in prompt
     assert "explanations" in prompt
     assert "exact text from the source" in prompt
+
+
+def test_claim_extraction_gateway_requires_single_raw_json_object_without_wrappers() -> None:
+    recorder = _Recorder()
+    gateway = build_claim_extraction_gateway(
+        execution=StructuredGenerationRuntime(generate_structured=recorder)
+    )
+
+    gateway("Inflation rose in April.")
+
+    assert recorder.messages is not None
+    prompt = recorder.messages[0].content.lower()
+    assert "return only one valid json object" in prompt
+    assert "do not wrap the json in markdown or code fences" in prompt
+    assert "do not include any text before or after the json object" in prompt
+    assert 'return {"claims": []}' in prompt

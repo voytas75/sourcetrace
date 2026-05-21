@@ -18,6 +18,10 @@ class _ClaimExtractionGateway:
                     content=(
                         "Extract structured claims from the prepared source text. "
                         "Return valid JSON that matches the ClaimExtractionPayload schema. "
+                        "Return only one valid JSON object. "
+                        "Do not wrap the JSON in markdown or code fences. "
+                        "Do not include any text before or after the JSON object. "
+                        "If no claims are found, return {\"claims\": []}. "
                         "Output only factual claim candidates grounded in the source text. "
                         "Use exact text from the source when possible. "
                         "Do not ask follow-up questions. "

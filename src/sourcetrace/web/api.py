@@ -1,6 +1,8 @@
 """Pure-stdlib WSGI API for the minimal delivery surface."""
 
 import json
+import traceback
+from os import environ
 from collections.abc import Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -39,6 +41,15 @@ StartResponse = Callable[[str, list[tuple[str, str]]], None]
 WsgiEnviron = dict[str, Any]
 
 
+def _debug_api_errors_enabled() -> bool:
+    return environ.get("SOURCETRACE_DEBUG_API_ERRORS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 @dataclass(frozen=True)
 class SourceTraceServerRuntime:
     """Small local server bundle for running the WSGI app."""
@@ -70,6 +81,19 @@ class SourceTraceWSGIApp:
                 start_response,
                 "400 Bad Request",
                 {"error": str(exc), "status": "invalid_request"},
+            )
+        except Exception as exc:
+            if _debug_api_errors_enabled():
+                print(
+                    "[sourcetrace.api-error] "
+                    f"method={method} path={path} "
+                    f"error_type={type(exc).__name__} error={exc}"
+                )
+                traceback.print_exc()
+            return _json_response(
+                start_response,
+                "500 Internal Server Error",
+                {"error": "internal_server_error", "status": "error"},
             )
 
     def _dispatch(

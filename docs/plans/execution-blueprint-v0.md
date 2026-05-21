@@ -87,6 +87,17 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - which exact entailment/NLI path is sufficient for the first usable build
 - which review interactions belong in MVP versus iteration 2
 
+## Current recommended operational step
+- The current canonical execution SSOT for live quality validation is:
+  - `docs/plans/2026-05-21-real-data-test-use-ssot.md`
+- Current recommendation:
+  - run the first controlled 10-document real-data campaign through `python -m sourcetrace.local_launcher`,
+  - capture one structured observation note per document,
+  - use those findings to choose the next bounded quality slice.
+- Interpretation:
+  - SourceTrace is currently considered ready for controlled test-use on real data,
+  - not yet ready for normal trusted analyst usage without strong caution.
+
 ---
 
 ## Planned module map

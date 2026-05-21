@@ -174,6 +174,98 @@ def test_call_structured_generation_keeps_plain_content_when_json_parsing_fails(
     assert result.payload == "not-json-at-all"
 
 
+def test_call_structured_generation_normalizes_claim_text_and_source_id_aliases_from_json_string() -> None:
+    request = LlmStructuredGenerationRequest(
+        messages=(LlmMessage(role="user", content="extract claims"),),
+        model="gpt-4o-mini",
+        schema_name="ClaimExtractionPayload",
+    )
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        return {
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "claims": [
+                                    {
+                                        "claim_text": "Inflation rose to 3.8%.",
+                                        "source_id": "doc-a2:chunk-2",
+                                    }
+                                ]
+                            }
+                        )
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    result = call_structured_generation(completion_fn=completion_fn, request=request)
+
+    assert result.payload == {
+        "claims": [
+            {
+                "claim_text": "Inflation rose to 3.8%.",
+                "claim": "Inflation rose to 3.8%.",
+                "exact_text": "Inflation rose to 3.8%.",
+                "source_id": "doc-a2:chunk-2",
+                "chunk_id": "doc-a2:chunk-2",
+                "citation": "doc-a2:chunk-2",
+            }
+        ]
+    }
+
+
+def test_call_structured_generation_normalizes_claim_source_text_and_citation_aliases_from_json_string() -> None:
+    request = LlmStructuredGenerationRequest(
+        messages=(LlmMessage(role="user", content="extract claims"),),
+        model="gpt-4o-mini",
+        schema_name="ClaimExtractionPayload",
+    )
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        return {
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "claims": [
+                                    {
+                                        "claim": "The US economy created 115,000 jobs in April.",
+                                        "source_text": "The US economy created 115,000 jobs in April as businesses kept hiring.",
+                                        "citation": "doc-a3:chunk-1",
+                                    }
+                                ]
+                            }
+                        )
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    result = call_structured_generation(completion_fn=completion_fn, request=request)
+
+    assert result.payload == {
+        "claims": [
+            {
+                "claim": "The US economy created 115,000 jobs in April.",
+                "claim_text": "The US economy created 115,000 jobs in April.",
+                "exact_text": "The US economy created 115,000 jobs in April.",
+                "source_text": "The US economy created 115,000 jobs in April as businesses kept hiring.",
+                "source_id": "doc-a3:chunk-1",
+                "citation": "doc-a3:chunk-1",
+                "chunk_id": "doc-a3:chunk-1",
+            }
+        ]
+    }
+
+
 def test_call_structured_generation_maps_unknown_provider_error_to_provider_error() -> None:
     request = LlmStructuredGenerationRequest(
         messages=(LlmMessage(role="user", content="extract claims"),),

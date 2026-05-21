@@ -260,6 +260,8 @@ Do weryfikacji:
    - Current verified weak-source nuance: unattributed notes, anonymous reposts, and weak scraped snippets now settle more conservatively, while secondary news summaries stay secondary unless they clearly embed the primary material.
 
 ## Test-use checklist for collecting findings
+- Current execution SSOT for the first real-data campaign:
+  - `docs/plans/2026-05-21-real-data-test-use-ssot.md`
 - Start with `python -m sourcetrace.local_launcher`, not the thin `sourcetrace.web` path, if you want real LLM-backed extraction/credibility behavior.
 - For each article, record:
   - source URL
