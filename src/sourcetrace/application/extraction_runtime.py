@@ -313,13 +313,96 @@ def _deduplicate_claim_items(
             existing_text = _first_normalized_item_string(existing, *_CLAIM_TEXT_KEYS)
             if existing_text is None:
                 continue
-            if _is_near_duplicate_claim_text(existing_text, claim_text):
-                if len(claim_text) > len(existing_text):
-                    deduplicated[index] = item
-                break
+            duplicate_resolution = _resolve_duplicate_claim_item(
+                existing=existing,
+                existing_text=existing_text,
+                candidate=item,
+                candidate_text=claim_text,
+            )
+            if duplicate_resolution is None:
+                continue
+            if duplicate_resolution is item:
+                deduplicated[index] = item
+            break
         else:
             deduplicated.append(item)
     return tuple(deduplicated)
+
+
+def _resolve_duplicate_claim_item(
+    *,
+    existing: dict[str, object],
+    existing_text: str,
+    candidate: dict[str, object],
+    candidate_text: str,
+) -> dict[str, object] | None:
+    if _is_carry_through_duplicate_claim_text(existing_text, candidate_text):
+        return _prefer_core_fact_claim_item(
+            left=existing,
+            left_text=existing_text,
+            right=candidate,
+            right_text=candidate_text,
+        )
+    if _is_near_duplicate_claim_text(existing_text, candidate_text):
+        if len(candidate_text) > len(existing_text):
+            return candidate
+        return existing
+    return None
+
+
+def _is_carry_through_duplicate_claim_text(left: str, right: str) -> bool:
+    left_normalized = _normalized_claim_text_for_subsequence(left)
+    right_normalized = _normalized_claim_text_for_subsequence(right)
+    if left_normalized in right_normalized:
+        shorter_text, longer_text = left, right
+    elif right_normalized in left_normalized:
+        shorter_text, longer_text = right, left
+    else:
+        return False
+    trailing_text = _carry_through_suffix(longer_text, shorter_text)
+    if trailing_text is None:
+        return False
+    return _looks_like_carry_through_suffix(trailing_text)
+
+
+def _normalized_claim_text_for_subsequence(text: str) -> str:
+    return re.sub(r"[^\w]+", " ", text.casefold()).strip()
+
+
+def _carry_through_suffix(longer_text: str, shorter_text: str) -> str | None:
+    longer_normalized = longer_text.strip()
+    shorter_normalized = shorter_text.strip().rstrip(".?!")
+    if not shorter_normalized:
+        return None
+    prefix_index = longer_normalized.casefold().find(shorter_normalized.casefold())
+    if prefix_index != 0:
+        return None
+    suffix = longer_normalized[len(shorter_normalized) :].strip()
+    if not suffix:
+        return None
+    return suffix
+
+
+def _looks_like_carry_through_suffix(text: str) -> bool:
+    normalized = text.casefold().strip()
+    normalized = normalized.lstrip(",;:—- ")
+    if not normalized:
+        return False
+    return normalized.startswith(("but ", "however ", "if "))
+
+
+def _prefer_core_fact_claim_item(
+    *,
+    left: dict[str, object],
+    left_text: str,
+    right: dict[str, object],
+    right_text: str,
+) -> dict[str, object]:
+    if len(_normalized_claim_text_for_subsequence(left_text)) <= len(
+        _normalized_claim_text_for_subsequence(right_text)
+    ):
+        return left
+    return right
 
 
 def _is_near_duplicate_claim_text(left: str, right: str) -> bool:
