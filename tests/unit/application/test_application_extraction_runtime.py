@@ -1740,3 +1740,80 @@ def test_build_llm_claim_extractor_carry_through_however_clause_should_prefer_co
     assert len(outcome.claims) == 1
     assert outcome.claims[0].exact_text == "Inflation rose because of higher energy prices."
     assert outcome.evidence_links[0].snippet == "Core fact evidence."
+
+
+def test_build_llm_claim_extractor_carry_through_although_clause_preserves_near_duplicate_preference() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "exact_text": "Inflation rose because of higher energy prices.",
+                        "evidence": [{"snippet": "Core fact evidence."}],
+                    },
+                    {
+                        "exact_text": "Inflation rose because of higher energy prices, although economists said the increase may prove temporary.",
+                        "evidence": [{"snippet": "Carry-through evidence."}],
+                    },
+                    {
+                        "exact_text": "Global temperatures in 2025 did not quite reach the heights of 2024.",
+                        "evidence": [{"snippet": "Short duplicate evidence."}],
+                    },
+                    {
+                        "exact_text": "Global temperatures in 2025 did not quite reach the heights of 2024 partly because of the cooling influence of La Nina.",
+                        "evidence": [{"snippet": "Longer duplicate evidence."}],
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "Inflation rose because of higher energy prices, although economists said the increase may prove temporary. "
+                "Global temperatures in 2025 did not quite reach the heights of 2024 partly because of the cooling influence of La Nina."
+            ),
+            start_char=0,
+            end_char=222,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 2
+    assert tuple(claim.exact_text for claim in outcome.claims) == (
+        "Inflation rose because of higher energy prices.",
+        "Global temperatures in 2025 did not quite reach the heights of 2024 partly because of the cooling influence of La Nina.",
+    )
+    assert tuple(link.snippet for link in outcome.evidence_links) == (
+        "Core fact evidence.",
+        "Longer duplicate evidence.",
+    )
