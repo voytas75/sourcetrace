@@ -19,6 +19,10 @@ _EVIDENCE_KEYS = ("evidence", "evidence_items", "supporting_evidence")
 _EVIDENCE_CHUNK_KEYS = ("chunk_id", "source_chunk_id", "chunk")
 _EVIDENCE_SNIPPET_KEYS = ("snippet", "text", "quote", "evidence")
 _EVIDENCE_RATIONALE_KEYS = ("rationale", "reason", "explanation")
+_PERCENT_VALUE_PATTERN = re.compile(
+    r"\b(\d+(?:[.,]\d+)?)\s*(?:%|percent(?:age)?\b|per cent\b)",
+    re.IGNORECASE,
+)
 _CONVERSATIONAL_CLAIM_PATTERNS = (
     "could you please clarify",
     "could you clarify",
@@ -171,6 +175,8 @@ def _claim_text_for(
         return exact_text
     if _drops_attribution_or_caveat(source_text=exact_text, normalized_text=normalized):
         return exact_text
+    if _changes_percentage_value(source_text=exact_text, normalized_text=normalized):
+        return exact_text
     if _looks_like_cross_language_drift(
         source_text=exact_text,
         normalized_text=normalized,
@@ -274,6 +280,23 @@ def _drops_attribution_or_caveat(*, source_text: str, normalized_text: str) -> b
         if marker in source and marker not in normalized:
             return True
     return False
+
+
+def _changes_percentage_value(*, source_text: str, normalized_text: str) -> bool:
+    source_values = _percentage_values(source_text)
+    if not source_values:
+        return False
+    return source_values != _percentage_values(normalized_text)
+
+
+def _percentage_values(text: str) -> tuple[str, ...]:
+    values: list[str] = []
+    for match in _PERCENT_VALUE_PATTERN.finditer(text):
+        value = match.group(1).replace(",", ".")
+        if "." in value:
+            value = value.rstrip("0").rstrip(".")
+        values.append(value.lstrip("0") or "0")
+    return tuple(values)
 
 
 def _normalized_item_string(item: dict[str, object], key: str) -> str | None:

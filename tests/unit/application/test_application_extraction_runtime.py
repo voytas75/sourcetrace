@@ -500,6 +500,71 @@ def test_build_llm_claim_extractor_preserves_attribution_and_caveat_rich_claims(
     )
 
 
+def test_build_llm_claim_extractor_preserves_source_when_normalizer_changes_percentage_value() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The survey found support rose to 42% in May.",
+                        "source_span_reference": "p1",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    def normalize_claim(claim_text: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text="The survey found support rose to 52% in May.",
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The survey found support rose to 42% in May.",
+            start_char=0,
+            end_char=44,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(
+        extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
+    )
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert outcome.claims[0].exact_text == "The survey found support rose to 42% in May."
+
+
 def test_build_llm_claim_extractor_accepts_common_claim_payload_aliases() -> None:
     captured_normalization_inputs: list[str] = []
 
