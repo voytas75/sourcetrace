@@ -239,6 +239,9 @@ def test_wsgi_extract_claims_route_uses_configured_runtime() -> None:
     assert payload["resource_id"] == "doc-1"
     assert payload["next_step"] == "GET /api/cases/case-1/claims"
     assert payload["claims"][0]["claim_id"] == "claim-1"
+    assert payload["claims"][0]["exact_text"] == (
+        "The bridge reopened after inspection."
+    )
     assert payload["evidence_links"][0]["rationale"] == "Initial extraction link."
     assert payload["diagnostics"]["claim_count"] == 1
     assert payload["diagnostics"]["status"] == "ready"

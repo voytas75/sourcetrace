@@ -259,6 +259,65 @@ def test_build_llm_claim_extractor_uses_claim_normalization_gateway_when_availab
     assert outcome.claims[0].exact_text == "Normalized claim text."
 
 
+def test_build_llm_claim_extractor_accepts_string_claim_items_from_live_payload_variants() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    "The city reopened the River Bridge on Tuesday after inspectors completed a safety review.",
+                    "Normal traffic resumed at 6 a.m.",
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "The city reopened the River Bridge on Tuesday after inspectors completed a safety review. "
+                "Officials said normal traffic resumed at 6 a.m."
+            ),
+            start_char=0,
+            end_char=137,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert tuple(claim.exact_text for claim in outcome.claims) == (
+        "The city reopened the River Bridge on Tuesday after inspectors completed a safety review.",
+        "Normal traffic resumed at 6 a.m.",
+    )
+    assert outcome.dropped_claim_items == 0
+
+
 def test_build_llm_claim_extractor_ignores_conversational_normalization_output() -> None:
     captured_normalization_inputs: list[str] = []
 
@@ -277,18 +336,15 @@ def test_build_llm_claim_extractor_ignores_conversational_normalization_output()
             model="gpt-4o-mini",
         )
 
-    def normalize_claim(claim_text: str):
+    def normalize_claim(claim_text: str) -> LlmGenerationResult:
         captured_normalization_inputs.append(claim_text)
-        return type(
-            "_NormalizationResult",
-            (),
-            {
-                "text": (
-                    "It looks like you mentioned a network expansion. "
-                    "Could you clarify which network you mean?"
-                )
-            },
-        )()
+        return LlmGenerationResult(
+            text=(
+                "It looks like you mentioned a network expansion. "
+                "Could you clarify which network you mean?"
+            ),
+            model="gpt-4o-mini",
+        )
 
     document = Document(
         document_id="doc-1",
@@ -332,6 +388,82 @@ def test_build_llm_claim_extractor_ignores_conversational_normalization_output()
 
     assert captured_normalization_inputs == ["The network expanded in 2025."]
     assert outcome.claims[0].exact_text == "The network expanded in 2025."
+
+
+def test_build_llm_claim_extractor_ignores_conversational_source_text_when_exact_text_is_present() -> None:
+    captured_normalization_inputs: list[str] = []
+
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "claim": "The city reopened the River Bridge on Tuesday after inspectors completed a safety review.",
+                        "claim_text": "The city reopened the River Bridge on Tuesday after inspectors completed a safety review.",
+                        "exact_text": "The city reopened the River Bridge on Tuesday after inspectors completed a safety review.",
+                        "source_text": "Understood. What would you like me to do with that sentence—summarize it, rewrite it, extract facts, or something else?",
+                        "source_span_reference": "p1",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    def normalize_claim(claim_text: str) -> LlmGenerationResult:
+        captured_normalization_inputs.append(claim_text)
+        return LlmGenerationResult(text=claim_text, model="gpt-4o-mini")
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "The city reopened the River Bridge on Tuesday after inspectors completed a safety review. "
+                "Officials said normal traffic resumed at 6 a.m."
+            ),
+            start_char=0,
+            end_char=137,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(
+        extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
+    )
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert captured_normalization_inputs == [
+        "The city reopened the River Bridge on Tuesday after inspectors completed a safety review."
+    ]
+    assert outcome.claims[0].exact_text == (
+        "The city reopened the River Bridge on Tuesday after inspectors completed a safety review."
+    )
 
 
 def test_build_llm_claim_extractor_ignores_multiline_markdown_normalization_output() -> None:
@@ -908,7 +1040,6 @@ def test_build_llm_claim_extractor_ignores_invalid_top_level_claim_items() -> No
             payload={
                 "claims": [
                     None,
-                    "noise",
                     {},
                     {"evidence": [None, {}, {"score": "0.2"}]},
                     {
@@ -983,7 +1114,7 @@ def test_build_llm_claim_extractor_ignores_invalid_top_level_claim_items() -> No
     assert tuple(link.claim_id for link in outcome.evidence_links) == ("case-1:claim-1", "claim-explicit")
     assert outcome.evidence_links[0].snippet == "The network expanded in 2025."
     assert outcome.evidence_links[1].snippet == "The rollout reached two regions."
-    assert outcome.dropped_claim_items == 4
+    assert outcome.dropped_claim_items == 3
     assert outcome.dropped_evidence_items == 0
 
 

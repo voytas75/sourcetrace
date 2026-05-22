@@ -48,6 +48,14 @@ _CONVERSATIONAL_CLAIM_PATTERNS = (
     "customer notice",
     "incident summary",
     "outage update",
+    "extract key facts",
+    "extract facts",
+    "rewrite it",
+    "what would you like me to do with that sentence",
+    "what would you like me to do with that text",
+    "what would you like me to do with this sentence",
+    "what would you like me to do with this text",
+    "got it. what would you like me to do",
     "yes —",
     "yes -",
     "yes, ",
@@ -173,6 +181,26 @@ def _debug_claim_pipeline_stage(*, stage: str, payload: object) -> None:
     )
 
 
+def _debug_claim_materialization(*, item: dict[str, object], selected_text: str, claim: Claim) -> None:
+    if not _claim_debug_enabled():
+        return
+    print(
+        "[sourcetrace.claim-debug] "
+        "stage=materialized_claim "
+        f"item_preview={_safe_debug_preview({
+            'exact_text': item.get('exact_text'),
+            'claim_text': item.get('claim_text'),
+            'claim': item.get('claim'),
+            'text': item.get('text'),
+            'statement': item.get('statement'),
+            'source_text': item.get('source_text'),
+        })!r} "
+        f"selected_text={selected_text!r} "
+        f"final_exact_text={claim.exact_text!r}",
+        flush=True,
+    )
+
+
 class _LlmClaimExtractor:
     def __init__(
         self,
@@ -204,8 +232,15 @@ class _LlmClaimExtractor:
         _debug_claim_pipeline_stage(stage="claim_items_for", payload=claim_items)
         claim_items = _deduplicate_claim_items(claim_items)
         _debug_claim_pipeline_stage(stage="deduplicated_claim_items", payload=claim_items)
-        claims = tuple(
-            Claim(
+        materialized_claims: list[Claim] = []
+        source_language = _prepared_text_language(chunks)
+        for index, item in enumerate(claim_items):
+            claim_text = _claim_text_for(
+                item=item,
+                normalize_claim=self._normalize_claim,
+                source_language=source_language,
+            )
+            claim = Claim(
                 claim_id=(
                     _normalized_string(item.get("claim_id"))
                     or f"{request.case_id}:claim-{index + 1}"
@@ -217,11 +252,7 @@ class _LlmClaimExtractor:
                     request=request,
                     chunk_by_id=chunk_by_id,
                 ),
-                exact_text=_claim_text_for(
-                    item=item,
-                    normalize_claim=self._normalize_claim,
-                    source_language=_prepared_text_language(chunks),
-                ),
+                exact_text=claim_text,
                 source_span_reference=_span_reference_for(
                     item=item,
                     request=request,
@@ -230,8 +261,13 @@ class _LlmClaimExtractor:
                 system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
                 rationale=None,
             )
-            for index, item in enumerate(claim_items)
-        )
+            _debug_claim_materialization(
+                item=item,
+                selected_text=claim_text,
+                claim=claim,
+            )
+            materialized_claims.append(claim)
+        claims = tuple(materialized_claims)
         if self._claim_repository is not None:
             claims = self._claim_repository.save_claims(claims)
         evidence_links = _build_initial_evidence_links(
@@ -288,23 +324,53 @@ def _claim_text_for(
     normalize_claim: "ClaimNormalizationGateway | None",
     source_language: str | None,
 ) -> str:
-    exact_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS) or ""
-    if normalize_claim is None or not exact_text:
-        return exact_text
-    normalized = normalize_claim(exact_text).text.strip()
+    candidate_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS) or ""
+    if _looks_conversational_response(candidate_text):
+        candidate_text = (
+            _first_normalized_item_string(
+                item,
+                "claim",
+                "claim_text",
+                "exact_text",
+                "text",
+                "statement",
+            )
+            or candidate_text
+        )
+    if normalize_claim is None or not candidate_text:
+        return candidate_text
+    normalized = normalize_claim(candidate_text).text.strip()
+    fallback_reason: str | None = None
     if _looks_conversational_response(normalized):
-        return exact_text
-    if _drops_attribution_or_caveat(source_text=exact_text, normalized_text=normalized):
-        return exact_text
-    if _changes_percentage_value(source_text=exact_text, normalized_text=normalized):
-        return exact_text
-    if _looks_like_cross_language_drift(
-        source_text=exact_text,
+        fallback_reason = "conversational_normalized"
+    elif _drops_attribution_or_caveat(
+        source_text=candidate_text,
+        normalized_text=normalized,
+    ):
+        fallback_reason = "drops_attribution_or_caveat"
+    elif _changes_percentage_value(
+        source_text=candidate_text,
+        normalized_text=normalized,
+    ):
+        fallback_reason = "changes_percentage_value"
+    elif _looks_like_cross_language_drift(
+        source_text=candidate_text,
         normalized_text=normalized,
         source_language=source_language,
     ):
-        return exact_text
-    return normalized or exact_text
+        fallback_reason = "cross_language_drift"
+    selected_text = candidate_text if fallback_reason is not None else (normalized or candidate_text)
+    if _claim_debug_enabled():
+        print(
+            "[sourcetrace.claim-debug] "
+            "stage=claim_text_selection "
+            f"candidate_text={candidate_text!r} "
+            f"normalized_text={normalized!r} "
+            f"fallback_reason={fallback_reason!r} "
+            f"selected_text={selected_text!r}",
+            flush=True,
+        )
+    return selected_text
 
 
 def _prepared_text_language(chunks: tuple[DocumentChunk, ...]) -> str | None:
@@ -440,8 +506,30 @@ def _claim_items_for(payload: dict[str, object]) -> tuple[tuple[dict[str, object
     claims = payload.get("claims")
     if not isinstance(claims, list):
         return (), 0
-    normalized = tuple(item for item in claims if _is_valid_claim_payload(item))
-    return normalized, len(claims) - len(normalized)
+    normalized_claims: list[dict[str, object]] = []
+    dropped_claim_items = 0
+    for item in claims:
+        normalized_item = _normalize_claim_item_payload(item)
+        if normalized_item is None:
+            dropped_claim_items += 1
+            continue
+        normalized_claims.append(normalized_item)
+    return tuple(normalized_claims), dropped_claim_items
+
+
+def _normalize_claim_item_payload(item: object) -> dict[str, object] | None:
+    if isinstance(item, str):
+        claim_text = _normalized_string(item)
+        if claim_text is None or _looks_conversational_response(claim_text):
+            return None
+        return {
+            "exact_text": claim_text,
+            "claim": claim_text,
+            "claim_text": claim_text,
+        }
+    if isinstance(item, dict) and _is_valid_claim_payload(item):
+        return {str(key): value for key, value in item.items()}
+    return None
 
 
 def _deduplicate_claim_items(

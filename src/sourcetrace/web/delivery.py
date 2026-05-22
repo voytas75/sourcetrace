@@ -1,5 +1,7 @@
 """Thin analyst-facing delivery service over the runtime path."""
 
+import os
+
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -933,6 +935,22 @@ def review_decision_from_payload(payload: dict[str, object]) -> ClaimReviewDecis
 
 def claim_to_payload(claim: Claim) -> dict[str, object]:
     """Serialize a claim for API responses."""
+
+    if os.getenv("SOURCETRACE_DEBUG_CLAIM_PIPELINE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        print(
+            "[sourcetrace.claim-debug] "
+            "stage=response_claim_payload "
+            f"claim_id={claim.claim_id!r} "
+            f"case_id={claim.case_id!r} "
+            f"document_id={claim.document_id!r} "
+            f"exact_text={claim.exact_text!r}",
+            flush=True,
+        )
 
     return {
         "claim_id": claim.claim_id,
