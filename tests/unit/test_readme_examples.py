@@ -41,6 +41,8 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "returns a real `404` for missing cases instead of rendering `Case None`" in readme
     assert "Current verified continuity: the same route also accepts inline `text` (alias for `content`)" in readme
     assert "Current verified continuity: if the document was created earlier with inline `content` or `text`" in readme
+    assert "`POST /api/documents/{document_id}/extract-claims` now also auto-prepares stored inline content when chunks are still missing" in readme
+    assert "requires an already running local server on `127.0.0.1:8000`" in readme
     assert "Current verified diagnostics: `diagnostics` now includes `claim_count`, `chunk_count`, `status`, `summary`, and `next_step`" in readme
     assert "Current verified diagnostics: the response also includes `diagnostics.chunk_count`" in readme
     assert "structured fields (`summary`, `strengths`, `concerns`, `verification_checks`)" in readme

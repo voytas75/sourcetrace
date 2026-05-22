@@ -9,7 +9,7 @@ Confirmed baseline now:
 - evidence-first, claim-centric product direction is still the active center
 - local stdlib WSGI/API + HTML flow exists under `src/sourcetrace/web/`
 - the repo-owned launcher `python -m sourcetrace.local_launcher` wires runtime config + LLM-backed credibility path into that local web surface
-- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `262 passed`
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `293 passed`
 - create/write workflow responses now include a common top-level workflow envelope: `status`, `summary`, `next_step`, `resource`, and `resource_id`
 - create responses still expose compatibility aliases at top level (`case_id`, `document_id`) for thin clients
 - document IDs are now ASCII-safe for non-English titles, and fallback claim IDs stay case-scoped
@@ -19,7 +19,7 @@ Confirmed baseline now:
 - credibility runtime also maps semantic assessment fields (`source_reliability`, `information_credibility`, `provenance_distance`, factor arrays) with conservative `unknown` fallback when the draft is weak
 - weak-source credibility handling is explicitly hardened for unattributed notes, anonymous reposts, weak scraped snippets, and secondary summaries
 - the HTML case view renders structured credibility output directly in each document row, shows a short snippet preview sourced from inline text or the first prepared chunk, and now labels missing credibility explicitly as `Status: Not assessed yet.` with the next credibility endpoint
-- inline document continuity is verified end-to-end: `POST /api/cases/{case_id}/documents` accepts `content` or `text`, `prepare` can reuse stored inline text, and document payloads expose `has_inline_content`
+- inline document continuity is verified end-to-end: `POST /api/cases/{case_id}/documents` accepts `content` or `text`, `prepare` can reuse stored inline text, `extract-claims` now auto-prepares stored inline content when chunks are missing, and document payloads expose `has_inline_content`
 - a reusable smoke command now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, supports `--pretty` and `--expect-claims-min N`, and exits non-zero on failed expectations
 - GitHub Actions also includes a lightweight `CI Smoke` workflow for the same local launcher + smoke path, although this repo is currently used without a configured remote
 
@@ -137,7 +137,7 @@ Do weryfikacji:
    - installed script variant: `PYTHONPATH=src uv run sourcetrace-local`
 2. Open `http://127.0.0.1:8000/`
    - Expected: `200 OK` HTML landing page listing the available smoke-test routes
-3. Fast reusable smoke (recommended after restart):
+3. Fast reusable smoke (recommended after restart; requires an already running local server on `127.0.0.1:8000`):
    - `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow`
    - or installed script: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src sourcetrace-smoke-flow`
    - pretty JSON: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pretty`
@@ -189,6 +189,7 @@ Do weryfikacji:
    - Expected: `200 OK` with JSON containing `chunks`
    - Current verified diagnostics: the response also includes `diagnostics.chunk_count`, `diagnostics.status`, `diagnostics.summary`, and `diagnostics.next_step` so the caller can tell whether prepare produced usable chunks and what to do next.
    - Current verified continuity: if the document was created earlier with inline `content` or `text`, `POST /api/documents/{document_id}/prepare` can now be called with an empty JSON body and it will reuse the previously stored inline text instead of returning `empty`.
+   - Current verified continuity: `POST /api/documents/{document_id}/extract-claims` now also auto-prepares stored inline content when chunks are still missing, so inline note flows do not silently fall into empty extraction just because prepare was skipped.
 8. Run claim extraction:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/extract-claims \
       -H 'Content-Type: application/json' \
