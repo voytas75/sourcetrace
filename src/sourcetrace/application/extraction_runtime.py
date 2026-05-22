@@ -56,6 +56,9 @@ _CONVERSATIONAL_CLAIM_PATTERNS = (
     "what would you like me to do with this sentence",
     "what would you like me to do with this text",
     "got it. what would you like me to do",
+    "understood —",
+    "understood -",
+    "understood, ",
     "yes —",
     "yes -",
     "yes, ",
@@ -976,11 +979,51 @@ def _prefer_core_fact_claim_item(
     right: dict[str, object],
     right_text: str,
 ) -> dict[str, object]:
+    preferred = _prefer_contrast_restriction_claim_item(
+        left=left,
+        left_text=left_text,
+        right=right,
+        right_text=right_text,
+    )
+    if preferred is not None:
+        return preferred
     if len(_normalized_claim_text_for_subsequence(left_text)) <= len(
         _normalized_claim_text_for_subsequence(right_text)
     ):
         return left
     return right
+
+
+def _prefer_contrast_restriction_claim_item(
+    *,
+    left: dict[str, object],
+    left_text: str,
+    right: dict[str, object],
+    right_text: str,
+) -> dict[str, object] | None:
+    left_contrast_score = _contrast_restriction_claim_score(left_text)
+    right_contrast_score = _contrast_restriction_claim_score(right_text)
+    if left_contrast_score == right_contrast_score:
+        return None
+    if left_contrast_score > right_contrast_score:
+        return left
+    return right
+
+
+def _contrast_restriction_claim_score(text: str) -> int:
+    normalized = f" {_normalized_claim_text_for_subsequence(text)} "
+    score = 0
+    if any(marker in normalized for marker in (" remain barred ", " remains barred ", " still barred ")):
+        score += 3
+    if any(marker in normalized for marker in (" prohibited ", " still prohibited ", " remain prohibited ", " remains prohibited ")):
+        score += 2
+    if any(marker in normalized for marker in (" remain restricted ", " remains restricted ", " still restricted ")):
+        score += 2
+    if any(marker in normalized for marker in (" trucks ", " heavy trucks ", " freight ")):
+        score += 1
+    if any(marker in normalized for marker in (" reopened ", " reopened to cars ", " open to cars ")):
+        score -= 1
+    return score
 
 
 def _is_near_duplicate_claim_text(left: str, right: str) -> bool:

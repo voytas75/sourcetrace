@@ -86,3 +86,21 @@ def test_claim_extraction_gateway_instructs_stable_selection_for_attributed_cave
     assert "do not emit a separate attribution-only claim" in prompt
     assert "prefer one claim for the main proposition" in prompt
     assert "using source wording when possible" in prompt
+
+
+def test_claim_extraction_gateway_requires_contrastive_sentences_to_yield_at_least_one_claim() -> None:
+    recorder = _Recorder()
+    gateway = build_claim_extraction_gateway(
+        execution=StructuredGenerationRuntime(generate_structured=recorder)
+    )
+
+    gateway(
+        "Although the bridge reopened to cars on Tuesday, heavy trucks remain barred until next week."
+    )
+
+    assert recorder.messages is not None
+    prompt = recorder.messages[0].content.lower()
+    assert "do not return {\"claims\": []} when the source contains a clear factual clause" in prompt
+    assert "contrastive sentences still contain extractable claims" in prompt
+    assert "although the bridge reopened to cars on tuesday" in prompt
+    assert "heavy trucks remain barred until next week" in prompt

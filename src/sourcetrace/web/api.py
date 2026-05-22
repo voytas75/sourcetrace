@@ -430,8 +430,20 @@ class SourceTraceWSGIApp:
         start_response: StartResponse,
     ) -> Iterable[bytes]:
         payload = _read_json(environ)
-        if self.delivery.get_document(document_id) is None:
+        document = self.delivery.get_document(document_id)
+        if document is None:
             return _missing_response(start_response, "document", document_id)
+        if not self.delivery.list_chunks_for_document(document_id):
+            inline_content = document.inline_content or ""
+            if inline_content.strip():
+                self.delivery.prepare_document(
+                    DocumentPreparationRequest(
+                        case_id=document.case_id,
+                        document_id=document.document_id,
+                        chunking_method=None,
+                    ),
+                    inline_content,
+                )
         outcome = self.delivery.extract_claims(
             document_id,
             extraction_method=_optional_str(payload.get("extraction_method")),

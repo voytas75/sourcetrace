@@ -12,7 +12,7 @@ from sourcetrace.domain.types import (
     HumanReviewStatus,
     VerificationVerdict,
 )
-from sourcetrace.llm.models import LlmGenerationResult
+from sourcetrace.llm.models import LlmGenerationResult, LlmStructuredGenerationResult
 from sourcetrace.storage import create_in_memory_persistence
 from sourcetrace.web import (
     PersistenceReportAssembler,
@@ -549,6 +549,73 @@ def test_wsgi_app_attach_document_accepts_text_alias_and_prepare_without_body_re
     assert len(prepare_payload["chunks"]) >= 1
     assert "OpenAI announced a major partnership" in prepare_payload["chunks"][0]["raw_text"]
 
+
+def test_wsgi_extract_claims_route_auto_prepares_inline_content_when_chunks_are_missing() -> None:
+    app = create_wsgi_app(
+        delivery=create_default_delivery(
+            claim_extraction=lambda prepared_text: LlmStructuredGenerationResult(
+                payload={
+                    "claims": [
+                        {
+                            "claim": "Heavy trucks remain barred until next week.",
+                            "exact_text": "Heavy trucks remain barred until next week.",
+                        }
+                    ]
+                },
+                model="gpt-test",
+            )
+        )
+    )
+
+    case_status, _, case_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"title": "Contrast auto-prepare case"},
+    )
+    case_id = json.loads(case_body)["case"]["case_id"]
+
+    create_status, _, create_body = _call_wsgi(
+        app,
+        method="POST",
+        path=f"/api/cases/{case_id}/documents",
+        payload={
+            "title": "Contrast auto-prepare document",
+            "text": (
+                "Although the bridge reopened to cars on Tuesday, heavy trucks remain barred until next week. "
+                "Officials said freight inspections are still underway."
+            ),
+            "source_type": "note",
+            "source_url": "https://example.test/contrast-auto-prepare",
+            "content_hash": "sha256:contrast-auto-prepare",
+        },
+    )
+    create_payload = json.loads(create_body)
+    document_id = create_payload["document_id"]
+
+    extract_status, _, extract_body = _call_wsgi(
+        app,
+        method="POST",
+        path=f"/api/documents/{document_id}/extract-claims",
+        payload={},
+    )
+    extract_payload = json.loads(extract_body)
+
+    chunks_status, _, chunks_body = _call_wsgi(
+        app,
+        method="GET",
+        path=f"/api/documents/{document_id}/chunks",
+    )
+    chunks_payload = json.loads(chunks_body)
+
+    assert case_status == "201 Created"
+    assert create_status == "201 Created"
+    assert extract_status == "200 OK"
+    assert extract_payload["diagnostics"]["chunk_count"] >= 1
+    assert extract_payload["claims"][0]["exact_text"] == "Heavy trucks remain barred until next week."
+    assert chunks_status == "200 OK"
+    assert len(chunks_payload["chunks"]) >= 1
+    assert "heavy trucks remain barred until next week" in chunks_payload["chunks"][0]["raw_text"].lower()
 
 
 
