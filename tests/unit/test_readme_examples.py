@@ -51,6 +51,8 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "stabilisation scenarios in test coverage" in readme
     assert "unattributed notes, anonymous reposts, and weak scraped snippets" in readme
     assert "secondary news summaries stay secondary unless they clearly embed the primary material" in readme
+    assert "Current verified contrast note continuity: inline note-style contrast inputs no longer fall into `empty`" in readme
+    assert "exact claim shape can still vary between the stronger restriction clause and an additional reopening clause" in readme
     assert "## Example: run credibility on your own document payload" in readme
     assert "## Test-use checklist for collecting findings" in readme
     assert "docs/plans/test-use-observation-template.md" in readme
