@@ -13,3 +13,6 @@ data/reports/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/reports/.gitkeep
+wiki/
+docs/plans/2026-05-22-a1-live-structured-payload-debug-ledger.md
+docs/plans/2026-05-22-b1-b2-live-smoke-structured-seam-note.md
