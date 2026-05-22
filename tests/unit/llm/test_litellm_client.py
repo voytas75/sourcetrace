@@ -151,6 +151,31 @@ def test_call_structured_generation_parses_json_string_content_when_parsed_paylo
     assert result.payload == {"claims": [{"claim_id": "claim-1"}]}
 
 
+def test_call_structured_generation_parses_fenced_json_string_content_when_parsed_payload_missing() -> None:
+    request = LlmStructuredGenerationRequest(
+        messages=(LlmMessage(role="user", content="extract claims"),),
+        model="gpt-4o-mini",
+        schema_name="ClaimExtractionPayload",
+    )
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        return {
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "message": {
+                        "content": "```json\n{\"claims\": [{\"claim_id\": \"claim-1\"}]}\n```"
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    result = call_structured_generation(completion_fn=completion_fn, request=request)
+
+    assert result.payload == {"claims": [{"claim_id": "claim-1"}]}
+
+
 def test_call_structured_generation_keeps_plain_content_when_json_parsing_fails() -> None:
     request = LlmStructuredGenerationRequest(
         messages=(LlmMessage(role="user", content="extract claims"),),
@@ -172,6 +197,44 @@ def test_call_structured_generation_keeps_plain_content_when_json_parsing_fails(
     result = call_structured_generation(completion_fn=completion_fn, request=request)
 
     assert result.payload == "not-json-at-all"
+
+
+def test_call_structured_generation_parses_json_from_content_parts_when_parsed_payload_missing() -> None:
+    request = LlmStructuredGenerationRequest(
+        messages=(LlmMessage(role="user", content="extract claims"),),
+        model="gpt-4o-mini",
+        schema_name="ClaimExtractionPayload",
+    )
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        return {
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps({"claims": [{"claim_text": "Inflation rose to 3.8%."}]}),
+                            }
+                        ]
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    result = call_structured_generation(completion_fn=completion_fn, request=request)
+
+    assert result.payload == {
+        "claims": [
+            {
+                "claim_text": "Inflation rose to 3.8%.",
+                "claim": "Inflation rose to 3.8%.",
+                "exact_text": "Inflation rose to 3.8%.",
+            }
+        ]
+    }
 
 
 def test_call_structured_generation_normalizes_claim_text_and_source_id_aliases_from_json_string() -> None:

@@ -87,7 +87,8 @@ class SourceTraceWSGIApp:
                 print(
                     "[sourcetrace.api-error] "
                     f"method={method} path={path} "
-                    f"error_type={type(exc).__name__} error={exc}"
+                    f"error_type={type(exc).__name__} error={exc}",
+                    flush=True,
                 )
                 traceback.print_exc()
             return _json_response(

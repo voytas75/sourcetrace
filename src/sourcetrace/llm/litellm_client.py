@@ -57,12 +57,13 @@ def _debug_structured_payload(
         f"content_type={type(content).__name__} "
         f"payload_type={type(payload).__name__} "
         f"content_preview={_safe_preview(content)!r} "
-        f"payload_preview={_safe_preview(payload)!r}"
+        f"payload_preview={_safe_preview(payload)!r}",
+        flush=True,
     )
-    if isinstance(content, str) and isinstance(payload, str):
-        print("[sourcetrace.structured-debug.content-full-begin]")
-        print(content)
-        print("[sourcetrace.structured-debug.content-full-end]")
+    if not isinstance(payload, dict):
+        print("[sourcetrace.structured-debug.content-full-begin]", flush=True)
+        print(_safe_preview(content, limit=4000), flush=True)
+        print("[sourcetrace.structured-debug.content-full-end]", flush=True)
 
 
 def _usage_from_response(response: dict[str, Any]) -> TokenUsage | None:
@@ -89,12 +90,47 @@ def _extract_structured_payload(message: dict[str, Any]) -> Any:
         return _normalize_claim_extraction_payload(payload)
 
     content = message.get("content")
-    if isinstance(content, str):
-        try:
-            return _normalize_claim_extraction_payload(json.loads(content))
-        except json.JSONDecodeError:
-            return content
+    parsed_from_content = _parse_structured_content(content)
+    if parsed_from_content is not None:
+        return _normalize_claim_extraction_payload(parsed_from_content)
     return content
+
+
+def _parse_structured_content(content: Any) -> Any | None:
+    if isinstance(content, str):
+        stripped = content.strip()
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            if stripped.startswith("```"):
+                lines = stripped.splitlines()
+                if lines:
+                    lines = lines[1:]
+                if lines and lines[-1].strip().startswith("```"):
+                    lines = lines[:-1]
+                fenced = "\n".join(lines).strip()
+                if fenced:
+                    try:
+                        return json.loads(fenced)
+                    except json.JSONDecodeError:
+                        return None
+            return None
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type in {"text", "output_text"}:
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    text_parts.append(text)
+        if text_parts:
+            try:
+                return json.loads("".join(text_parts))
+            except json.JSONDecodeError:
+                return None
+    return None
 
 
 def _normalize_claim_extraction_payload(payload: Any) -> Any:
