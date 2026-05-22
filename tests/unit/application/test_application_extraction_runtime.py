@@ -2,7 +2,10 @@
 
 from datetime import UTC, datetime
 
-from sourcetrace.application.extraction_runtime import build_llm_claim_extractor
+from sourcetrace.application.extraction_runtime import (
+    _deduplicate_claim_items,
+    build_llm_claim_extractor,
+)
 from sourcetrace.application.extraction import ClaimExtractionRequest
 from sourcetrace.domain import Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
@@ -1619,6 +1622,82 @@ def test_build_llm_claim_extractor_keeps_fallback_when_similarity_match_is_ambig
     assert outcome.evidence_links[0].rationale == "Initial extraction link from chunk chunk-span:unknown."
 
 
+def test_build_llm_claim_extractor_prefers_non_heading_chunk_when_similarity_scores_are_close() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "exact_text": "Net importers of fuel and fertilizer, such as Egypt, Mozambique, and Rwanda, are most exposed to war-driven price increases.",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="# Reuters summary: net importers of fuel and fertilizer face higher price risks",
+            start_char=0,
+            end_char=83,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Net importers of fuel and fertilizer, such as Egypt, Mozambique, and Rwanda, are most exposed to war-driven price increases.",
+            start_char=84,
+            end_char=208,
+            chunk_index=1,
+            position_reference="p2",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-3",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Oil exporters are relatively better insulated.",
+            start_char=209,
+            end_char=255,
+            chunk_index=2,
+            position_reference="p3",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2", "chunk-3"),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].chunk_id == "chunk-2"
+    assert outcome.claims[0].source_span_reference == "p2"
+    assert outcome.evidence_links[0].chunk_id == "chunk-2"
+
+
 def test_build_llm_claim_extractor_prefers_longer_claim_when_shorter_version_is_only_a_near_duplicate() -> None:
     def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
         return LlmStructuredGenerationResult(
@@ -1882,3 +1961,371 @@ def test_build_llm_claim_extractor_carry_through_although_clause_preserves_near_
         "Core fact evidence.",
         "Longer duplicate evidence.",
     )
+
+
+def test_build_llm_claim_extractor_carry_through_while_clause_should_prefer_core_fact() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "exact_text": "Inflation rose because of higher energy prices.",
+                        "evidence": [{"snippet": "Core fact evidence."}],
+                    },
+                    {
+                        "exact_text": "Inflation rose because of higher energy prices, while economists said the increase may prove temporary.",
+                        "evidence": [{"snippet": "Carry-through evidence."}],
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "Inflation rose because of higher energy prices, while economists said the increase may prove temporary."
+            ),
+            start_char=0,
+            end_char=100,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].exact_text == "Inflation rose because of higher energy prices."
+    assert outcome.evidence_links[0].snippet == "Core fact evidence."
+
+
+def test_build_llm_claim_extractor_split_while_clause_drops_standalone_caveat_claim() -> None:
+    payload_claim_items = (
+        {
+            "exact_text": "Inflation rose because of higher energy prices.",
+            "evidence": [{"snippet": "Core fact evidence."}],
+        },
+        {
+            "exact_text": "Inflation rose because of higher energy prices, while economists said the increase may prove temporary.",
+            "evidence": [{"snippet": "Carry-through evidence."}],
+        },
+        {
+            "exact_text": "Economists said the increase might only be temporary.",
+            "evidence": [{"snippet": "Standalone caveat evidence."}],
+        },
+    )
+
+    deduplicated = _deduplicate_claim_items(payload_claim_items)
+    assert tuple(item["exact_text"] for item in deduplicated) == (
+        "Inflation rose because of higher energy prices.",
+    )
+
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={"claims": list(payload_claim_items)},
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "Inflation rose because of higher energy prices, while economists said the increase may prove temporary."
+            ),
+            start_char=0,
+            end_char=100,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert tuple(claim.exact_text for claim in outcome.claims) == (
+        "Inflation rose because of higher energy prices.",
+    )
+    assert tuple(link.snippet for link in outcome.evidence_links) == (
+        "Core fact evidence.",
+    )
+
+
+def test_build_llm_claim_extractor_split_despite_clause_drops_normalized_caveat_claim() -> None:
+    payload_claim_items = (
+        {
+            "exact_text": "Food prices rose because retail margins widened.",
+            "evidence": [{"snippet": "Core fact evidence."}],
+        },
+        {
+            "exact_text": (
+                "Food prices rose because retail margins widened, despite analysts saying wholesale costs had eased."
+            ),
+            "evidence": [{"snippet": "Carry-through evidence."}],
+        },
+        {
+            "exact_text": "Analysts said that wholesale costs had eased.",
+            "evidence": [{"snippet": "Standalone caveat evidence."}],
+        },
+    )
+
+    deduplicated = _deduplicate_claim_items(payload_claim_items)
+    assert tuple(item["exact_text"] for item in deduplicated) == (
+        "Food prices rose because retail margins widened.",
+    )
+
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={"claims": list(payload_claim_items)},
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "Food prices rose because retail margins widened, despite analysts saying wholesale costs had eased."
+            ),
+            start_char=0,
+            end_char=95,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert tuple(claim.exact_text for claim in outcome.claims) == (
+        "Food prices rose because retail margins widened.",
+    )
+    assert tuple(link.snippet for link in outcome.evidence_links) == (
+        "Core fact evidence.",
+    )
+
+
+def test_deduplicate_claim_items_drops_subordinate_attribution_linked_by_source_sentence() -> None:
+    source_sentence = (
+        "Inflation rose because of higher energy prices, while economists said the increase may prove temporary."
+    )
+    payload_claim_items = (
+        {
+            "exact_text": "Inflation rose because of higher energy prices.",
+            "evidence": [{"snippet": source_sentence}],
+        },
+        {
+            "exact_text": "Economists said the increase might only be temporary.",
+            "evidence": [{"snippet": source_sentence}],
+        },
+    )
+
+    deduplicated = _deduplicate_claim_items(payload_claim_items)
+
+    assert tuple(item["exact_text"] for item in deduplicated) == (
+        "Inflation rose because of higher energy prices.",
+    )
+
+
+def test_deduplicate_claim_items_uses_attributed_statement_type_for_bundle_policy() -> None:
+    source_sentence = (
+        "Inflation rose because of higher energy prices, while economists said the increase may prove temporary."
+    )
+    payload_claim_items = (
+        {
+            "claim_id": "claim-core",
+            "type": "factual",
+            "statement": "Inflation rose because of higher energy prices.",
+            "evidence": [{"snippet": source_sentence}],
+        },
+        {
+            "claim_id": "claim-attribution",
+            "type": "attributed_statement",
+            "statement": "The increase may prove temporary.",
+            "evidence": [{"snippet": source_sentence}],
+        },
+    )
+
+    deduplicated = _deduplicate_claim_items(payload_claim_items)
+
+    assert tuple(item["claim_id"] for item in deduplicated) == ("claim-core",)
+
+
+def test_deduplicate_claim_items_uses_causal_type_before_text_role_heuristics() -> None:
+    source_sentence = (
+        "According to analysts, food prices rose because retail margins widened, "
+        "while economists said the increase may prove temporary."
+    )
+    payload_claim_items = (
+        {
+            "claim_id": "claim-causal",
+            "type": "causal",
+            "statement": (
+                "According to analysts, food prices rose because retail margins widened."
+            ),
+            "evidence": [{"snippet": source_sentence}],
+        },
+        {
+            "claim_id": "claim-attribution",
+            "type": "attributed_statement",
+            "statement": "The increase may prove temporary.",
+            "evidence": [{"snippet": source_sentence}],
+        },
+    )
+
+    deduplicated = _deduplicate_claim_items(payload_claim_items)
+
+    assert tuple(item["claim_id"] for item in deduplicated) == ("claim-causal",)
+
+
+def test_deduplicate_claim_items_prefers_carry_through_over_subordinate_without_core() -> None:
+    payload_claim_items = (
+        {
+            "exact_text": "Analysts said that wholesale costs had eased.",
+            "evidence": [{"snippet": "Standalone caveat evidence."}],
+        },
+        {
+            "exact_text": (
+                "Food prices rose because retail margins widened, despite analysts saying wholesale costs had eased."
+            ),
+            "evidence": [{"snippet": "Carry-through evidence."}],
+        },
+    )
+
+    deduplicated = _deduplicate_claim_items(payload_claim_items)
+
+    assert tuple(item["exact_text"] for item in deduplicated) == (
+        "Food prices rose because retail margins widened, despite analysts saying wholesale costs had eased.",
+    )
+
+
+def test_build_llm_claim_extractor_carry_through_despite_clause_should_prefer_core_fact() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "exact_text": "Inflation rose because of higher energy prices.",
+                        "evidence": [{"snippet": "Core fact evidence."}],
+                    },
+                    {
+                        "exact_text": "Inflation rose because of higher energy prices, despite economists saying the increase may prove temporary.",
+                        "evidence": [{"snippet": "Carry-through evidence."}],
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "Inflation rose because of higher energy prices, despite economists saying the increase may prove temporary."
+            ),
+            start_char=0,
+            end_char=108,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert len(outcome.claims) == 1
+    assert outcome.claims[0].exact_text == "Inflation rose because of higher energy prices."
+    assert outcome.evidence_links[0].snippet == "Core fact evidence."

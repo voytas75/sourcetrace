@@ -1,6 +1,8 @@
 """Minimal application runtime for LLM-backed claim extraction."""
 
+from os import environ
 from typing import TYPE_CHECKING
+import json
 import re
 
 from sourcetrace.application.extraction import ClaimExtractionOutcome, ClaimExtractionRequest
@@ -53,6 +55,122 @@ _CONVERSATIONAL_CLAIM_PATTERNS = (
     "no -",
     "no, ",
 )
+_SUBORDINATE_CLAUSE_CONTENT_TOKEN_STOP_WORDS = frozenset(
+    (
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "be",
+        "been",
+        "being",
+        "but",
+        "by",
+        "can",
+        "could",
+        "despite",
+        "did",
+        "do",
+        "does",
+        "even",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "however",
+        "if",
+        "in",
+        "is",
+        "it",
+        "may",
+        "might",
+        "of",
+        "only",
+        "or",
+        "prove",
+        "proved",
+        "proves",
+        "remain",
+        "remained",
+        "remains",
+        "said",
+        "say",
+        "saying",
+        "says",
+        "should",
+        "that",
+        "the",
+        "though",
+        "to",
+        "was",
+        "were",
+        "while",
+        "will",
+        "with",
+    )
+)
+_SUBORDINATE_CLAUSE_CONTENT_TOKEN_ALIASES = {
+    "analysts": "analyst",
+    "costs": "cost",
+    "eased": "ease",
+    "eases": "ease",
+    "easing": "ease",
+    "economists": "economist",
+    "increases": "increase",
+    "prices": "price",
+    "temporarily": "temporary",
+}
+_CONTEXTUAL_CLAIM_CONNECTOR_PATTERNS = (
+    re.compile(r"\bwhile\s+[^,.;:]+\b(?:said|saying|says)\b", re.IGNORECASE),
+    re.compile(r"\bdespite\s+[^,.;:]+\b(?:said|saying|says)\b", re.IGNORECASE),
+    re.compile(r"\balthough\s+[^,.;:]+\b(?:said|saying|says)\b", re.IGNORECASE),
+    re.compile(r"\bthough\s+[^,.;:]+\b(?:said|saying|says)\b", re.IGNORECASE),
+    re.compile(r"\bhowever,?\s+[^.]+\b(?:said|saying|says)\b", re.IGNORECASE),
+)
+_CLAIM_ROLE_CORE_FACT = "core_fact"
+_CLAIM_ROLE_CONTEXTUAL_CARRY_THROUGH = "contextual_carry_through"
+_CLAIM_ROLE_SUBORDINATE_ATTRIBUTION = "subordinate_attribution"
+_CLAIM_TYPE_ROLES = {
+    "attributed_statement": _CLAIM_ROLE_SUBORDINATE_ATTRIBUTION,
+    "causal": _CLAIM_ROLE_CORE_FACT,
+    "causal_statement": _CLAIM_ROLE_CORE_FACT,
+    "fact": _CLAIM_ROLE_CORE_FACT,
+    "factual": _CLAIM_ROLE_CORE_FACT,
+    "factual_statement": _CLAIM_ROLE_CORE_FACT,
+}
+
+
+def _claim_debug_enabled() -> bool:
+    return environ.get("SOURCETRACE_DEBUG_CLAIM_PIPELINE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _safe_debug_preview(value: object, *, limit: int = 1200) -> str:
+    try:
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        text = repr(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}…"
+
+
+def _debug_claim_pipeline_stage(*, stage: str, payload: object) -> None:
+    if not _claim_debug_enabled():
+        return
+    print(
+        "[sourcetrace.claim-debug] "
+        f"stage={stage} "
+        f"payload_type={type(payload).__name__} "
+        f"payload_preview={_safe_debug_preview(payload)!r}",
+        flush=True,
+    )
 
 
 class _LlmClaimExtractor:
@@ -81,8 +199,11 @@ class _LlmClaimExtractor:
             if chunk.chunk_id in request.chunk_ids
         )
         result = self._extract_claims(prepared_text)
+        _debug_claim_pipeline_stage(stage="raw_payload", payload=result.payload)
         claim_items, dropped_claim_items = _claim_items_for(result.payload)
+        _debug_claim_pipeline_stage(stage="claim_items_for", payload=claim_items)
         claim_items = _deduplicate_claim_items(claim_items)
+        _debug_claim_pipeline_stage(stage="deduplicated_claim_items", payload=claim_items)
         claims = tuple(
             Claim(
                 claim_id=(
@@ -326,6 +447,7 @@ def _claim_items_for(payload: dict[str, object]) -> tuple[tuple[dict[str, object
 def _deduplicate_claim_items(
     items: tuple[dict[str, object], ...],
 ) -> tuple[dict[str, object], ...]:
+    source_texts = _claim_item_bundle_source_texts(items)
     deduplicated: list[dict[str, object]] = []
     for item in items:
         claim_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS)
@@ -349,7 +471,37 @@ def _deduplicate_claim_items(
             break
         else:
             deduplicated.append(item)
-    return tuple(deduplicated)
+    return _apply_role_based_claim_bundle_policy(
+        tuple(deduplicated),
+        source_texts=source_texts,
+    )
+
+
+def _claim_item_bundle_source_texts(
+    items: tuple[dict[str, object], ...],
+) -> tuple[str, ...]:
+    source_texts: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        candidate_texts = [
+            text
+            for text in (
+                _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS),
+                *(
+                    _first_normalized_item_string(evidence, *_EVIDENCE_SNIPPET_KEYS)
+                    for evidence in _evidence_items_for(item)
+                ),
+            )
+            if text is not None
+        ]
+        for candidate_text in candidate_texts:
+            for source_text in _source_sentence_spans(candidate_text):
+                normalized = _normalized_claim_text_for_subsequence(source_text)
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                source_texts.append(source_text)
+    return tuple(source_texts)
 
 
 def _resolve_duplicate_claim_item(
@@ -371,6 +523,310 @@ def _resolve_duplicate_claim_item(
             return candidate
         return existing
     return None
+
+
+def _apply_role_based_claim_bundle_policy(
+    items: tuple[dict[str, object], ...],
+    *,
+    source_texts: tuple[str, ...],
+) -> tuple[dict[str, object], ...]:
+    item_texts = tuple(
+        _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS) or "" for item in items
+    )
+    item_roles = tuple(
+        _claim_item_role(item=item, text=item_text)
+        for item, item_text in zip(items, item_texts, strict=True)
+    )
+    dropped_indices: set[int] = set()
+    for bundle_indices in _claim_item_bundle_index_groups(
+        items=items,
+        item_texts=item_texts,
+        item_roles=item_roles,
+        source_texts=source_texts,
+    ):
+        bundle_roles = {item_roles[index] for index in bundle_indices}
+        if _CLAIM_ROLE_CORE_FACT in bundle_roles:
+            dropped_indices.update(
+                index
+                for index in bundle_indices
+                if item_roles[index]
+                in (
+                    _CLAIM_ROLE_CONTEXTUAL_CARRY_THROUGH,
+                    _CLAIM_ROLE_SUBORDINATE_ATTRIBUTION,
+                )
+            )
+            continue
+        if _CLAIM_ROLE_CONTEXTUAL_CARRY_THROUGH in bundle_roles:
+            dropped_indices.update(
+                index
+                for index in bundle_indices
+                if item_roles[index] == _CLAIM_ROLE_SUBORDINATE_ATTRIBUTION
+            )
+    if not dropped_indices:
+        return items
+    return tuple(item for index, item in enumerate(items) if index not in dropped_indices)
+
+
+def _claim_item_bundle_index_groups(
+    *,
+    items: tuple[dict[str, object], ...],
+    item_texts: tuple[str, ...],
+    item_roles: tuple[str, ...],
+    source_texts: tuple[str, ...],
+) -> tuple[tuple[int, ...], ...]:
+    if len(items) < 2:
+        return ()
+    parents = list(range(len(items)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    for left_index in range(len(items)):
+        for right_index in range(left_index + 1, len(items)):
+            if _claim_items_are_bundle_related(
+                left=items[left_index],
+                left_text=item_texts[left_index],
+                left_role=item_roles[left_index],
+                right=items[right_index],
+                right_text=item_texts[right_index],
+                right_role=item_roles[right_index],
+                source_texts=source_texts,
+            ):
+                union(left_index, right_index)
+
+    groups_by_root: dict[int, list[int]] = {}
+    for index in range(len(items)):
+        groups_by_root.setdefault(find(index), []).append(index)
+    return tuple(
+        tuple(group)
+        for group in groups_by_root.values()
+        if len(group) > 1
+    )
+
+
+def _claim_items_are_bundle_related(
+    *,
+    left: dict[str, object],
+    left_text: str,
+    left_role: str,
+    right: dict[str, object],
+    right_text: str,
+    right_role: str,
+    source_texts: tuple[str, ...],
+) -> bool:
+    if not left_text or not right_text:
+        return False
+    if left_role == right_role == _CLAIM_ROLE_CORE_FACT:
+        return False
+    if _roles_match(
+        left_role,
+        right_role,
+        _CLAIM_ROLE_CORE_FACT,
+        _CLAIM_ROLE_CONTEXTUAL_CARRY_THROUGH,
+    ):
+        return _is_carry_through_duplicate_claim_text(left_text, right_text)
+    if _roles_match(
+        left_role,
+        right_role,
+        _CLAIM_ROLE_CONTEXTUAL_CARRY_THROUGH,
+        _CLAIM_ROLE_SUBORDINATE_ATTRIBUTION,
+    ):
+        carry_text, subordinate_text = _texts_by_role(
+            left_text=left_text,
+            left_role=left_role,
+            right_text=right_text,
+            right_role=right_role,
+            role=_CLAIM_ROLE_CONTEXTUAL_CARRY_THROUGH,
+        )
+        return _contains_subordinate_clause_text(
+            container_text=carry_text,
+            subordinate_text=subordinate_text,
+        )
+    if _roles_match(
+        left_role,
+        right_role,
+        _CLAIM_ROLE_CORE_FACT,
+        _CLAIM_ROLE_SUBORDINATE_ATTRIBUTION,
+    ):
+        core_text, subordinate_text = _texts_by_role(
+            left_text=left_text,
+            left_role=left_role,
+            right_text=right_text,
+            right_role=right_role,
+            role=_CLAIM_ROLE_CORE_FACT,
+        )
+        return _has_claim_bundle_source_bridge(
+            core_text=core_text,
+            subordinate_text=subordinate_text,
+            source_texts=source_texts,
+        )
+    return False
+
+
+def _roles_match(left_role: str, right_role: str, first_role: str, second_role: str) -> bool:
+    return {left_role, right_role} == {first_role, second_role}
+
+
+def _texts_by_role(
+    *,
+    left_text: str,
+    left_role: str,
+    right_text: str,
+    right_role: str,
+    role: str,
+) -> tuple[str, str]:
+    if left_role == role:
+        return left_text, right_text
+    if right_role == role:
+        return right_text, left_text
+    return left_text, right_text
+
+
+def _has_claim_bundle_source_bridge(
+    *,
+    core_text: str,
+    subordinate_text: str,
+    source_texts: tuple[str, ...],
+) -> bool:
+    return any(
+        _is_carry_through_context_claim_text(source_text)
+        and _contains_subordinate_clause_text(
+            container_text=source_text,
+            subordinate_text=subordinate_text,
+        )
+        and _is_carry_through_duplicate_claim_text(core_text, source_text)
+        for source_text in source_texts
+    )
+
+
+def _claim_text_role(text: str) -> str:
+    if _is_carry_through_context_claim_text(text):
+        return _CLAIM_ROLE_CONTEXTUAL_CARRY_THROUGH
+    if _is_subordinate_clause_claim_text(text):
+        return _CLAIM_ROLE_SUBORDINATE_ATTRIBUTION
+    return _CLAIM_ROLE_CORE_FACT
+
+
+def _claim_item_role(*, item: dict[str, object], text: str) -> str:
+    payload_type_role = _claim_payload_type_role(item.get("type"))
+    if payload_type_role is not None:
+        return payload_type_role
+    return _claim_text_role(text)
+
+
+def _claim_payload_type_role(value: object) -> str | None:
+    claim_type = _normalized_claim_payload_type(value)
+    if claim_type is None:
+        return None
+    return _CLAIM_TYPE_ROLES.get(claim_type)
+
+
+def _normalized_claim_payload_type(value: object) -> str | None:
+    normalized = _normalized_string(value)
+    if normalized is None:
+        return None
+    return re.sub(r"[\s-]+", "_", normalized.casefold())
+
+
+def _contains_subordinate_clause_text(*, container_text: str, subordinate_text: str) -> bool:
+    container = _normalized_claim_text_for_subsequence(container_text)
+    subordinate = _normalized_claim_text_for_subsequence(subordinate_text)
+    if not container or not subordinate:
+        return False
+    if subordinate in container:
+        return True
+    return _has_subordinate_clause_content_coverage(
+        container_text=container_text,
+        subordinate_text=subordinate_text,
+    )
+
+
+def _has_subordinate_clause_content_coverage(
+    *,
+    container_text: str,
+    subordinate_text: str,
+) -> bool:
+    container_tokens = set(_subordinate_clause_content_tokens(container_text))
+    subordinate_tokens = set(_subordinate_clause_content_tokens(subordinate_text))
+    if len(subordinate_tokens) < 3:
+        return False
+    shared_tokens = subordinate_tokens & container_tokens
+    return (
+        len(shared_tokens) >= 3
+        and len(shared_tokens) / len(subordinate_tokens) >= 0.67
+    )
+
+
+def _subordinate_clause_content_tokens(text: str) -> tuple[str, ...]:
+    return tuple(
+        canonical_token
+        for raw_token in re.findall(r"\w+", text.casefold())
+        if (
+            canonical_token := _canonical_subordinate_clause_content_token(raw_token)
+        )
+        is not None
+    )
+
+
+def _canonical_subordinate_clause_content_token(token: str) -> str | None:
+    canonical = _SUBORDINATE_CLAUSE_CONTENT_TOKEN_ALIASES.get(token, token)
+    if canonical in _SUBORDINATE_CLAUSE_CONTENT_TOKEN_STOP_WORDS:
+        return None
+    if len(canonical) < 3:
+        return None
+    return canonical
+
+
+def _is_core_fact_claim_text(text: str) -> bool:
+    return not _is_subordinate_clause_claim_text(text) and not _is_carry_through_context_claim_text(
+        text
+    )
+
+
+def _is_carry_through_context_claim_text(text: str) -> bool:
+    if any(pattern.search(text) for pattern in _CONTEXTUAL_CLAIM_CONNECTOR_PATTERNS):
+        return True
+    normalized = f" {_normalized_claim_text_for_subsequence(text)} "
+    return any(
+        marker in normalized
+        for marker in (
+            " while ",
+            " despite ",
+            " though ",
+            " even though ",
+            " however ",
+            " although ",
+            " but ",
+        )
+    )
+
+
+def _is_subordinate_clause_claim_text(text: str) -> bool:
+    normalized = f" {_normalized_claim_text_for_subsequence(text)} "
+    return any(
+        marker in normalized
+        for marker in (
+            " economists said ",
+            " economist said ",
+            " analysts said ",
+            " analyst said ",
+            " bank of england has said ",
+            " has said ",
+            " warned ",
+            " according to ",
+            " said the increase may ",
+            " saying ",
+        )
+    )
 
 
 def _is_carry_through_duplicate_claim_text(left: str, right: str) -> bool:
@@ -411,7 +867,18 @@ def _looks_like_carry_through_suffix(text: str) -> bool:
     normalized = normalized.lstrip(",;:—- ")
     if not normalized:
         return False
-    return normalized.startswith(("but ", "however ", "however, ", "although ", "if "))
+    return normalized.startswith((
+        "but ",
+        "however ",
+        "however, ",
+        "although ",
+        "if ",
+        "while ",
+        "though ",
+        "even though ",
+        "despite ",
+        "despite the fact that ",
+    ))
 
 
 def _prefer_core_fact_claim_item(
@@ -584,12 +1051,55 @@ def _infer_chunk_from_claim_similarity(
             continue
         score, shared_term_count = similarity
         scored_candidates.append((score, shared_term_count, chunk))
-    if len(scored_candidates) != 1:
+    if not scored_candidates:
         return None
-    score, _, chunk = scored_candidates[0]
+    scored_candidates.sort(
+        key=lambda entry: (
+            entry[0],
+            entry[1],
+            _is_heading_like_chunk(entry[2]),
+            -entry[2].chunk_index,
+        ),
+        reverse=True,
+    )
+    score, shared_term_count, chunk = scored_candidates[0]
     if score < 0.6:
         return None
+    if len(scored_candidates) > 1:
+        runner_up = scored_candidates[1]
+        if _similarity_candidates_are_ambiguous(
+            best=(score, shared_term_count, chunk),
+            runner_up=runner_up,
+        ):
+            return None
     return chunk
+
+
+def _similarity_candidates_are_ambiguous(
+    *,
+    best: tuple[float, int, DocumentChunk],
+    runner_up: tuple[float, int, DocumentChunk],
+) -> bool:
+    best_score, best_shared_term_count, best_chunk = best
+    runner_up_score, runner_up_shared_term_count, runner_up_chunk = runner_up
+    if best_score - runner_up_score >= 0.1:
+        return False
+    if best_shared_term_count - runner_up_shared_term_count >= 2:
+        return False
+    if _is_heading_like_chunk(best_chunk) and not _is_heading_like_chunk(runner_up_chunk):
+        return True
+    if not _is_heading_like_chunk(best_chunk) and _is_heading_like_chunk(runner_up_chunk):
+        return False
+    return True
+
+
+def _is_heading_like_chunk(chunk: DocumentChunk) -> bool:
+    raw_text = _normalized_string(chunk.raw_text)
+    if raw_text is None:
+        return False
+    if len(raw_text) <= 140 and raw_text.lstrip().startswith("#"):
+        return True
+    return False
 
 
 def _best_chunk_similarity(
