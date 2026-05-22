@@ -66,3 +66,23 @@ def test_claim_extraction_gateway_requires_single_raw_json_object_without_wrappe
     assert "do not wrap the json in markdown or code fences" in prompt
     assert "do not include any text before or after the json object" in prompt
     assert 'return {"claims": []}' in prompt
+
+
+def test_claim_extraction_gateway_instructs_stable_selection_for_attributed_caveats() -> None:
+    recorder = _Recorder()
+    gateway = build_claim_extraction_gateway(
+        execution=StructuredGenerationRuntime(generate_structured=recorder)
+    )
+
+    gateway(
+        "The company raised guidance, although analysts said demand could soften later."
+    )
+
+    assert recorder.messages is not None
+    prompt = recorder.messages[0].content.lower()
+    assert "while, despite, although, though, however, or but" in prompt
+    assert "secondary clause is attribution, caveat, or context" in prompt
+    assert "return the main factual proposition as the claim" in prompt
+    assert "do not emit a separate attribution-only claim" in prompt
+    assert "prefer one claim for the main proposition" in prompt
+    assert "using source wording when possible" in prompt
