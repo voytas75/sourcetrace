@@ -52,12 +52,15 @@ Run the repo-owned launcher with runtime-config + LLM wiring:
 2. export `SOURCETRACE_LLM_API_KEY`
 3. export `SOURCETRACE_LLM_BASE_URL`
 4. export `SOURCETRACE_LLM_API_VERSION`
-5. ensure those exports are visible to the launcher process itself (for example by keeping them in the shell that starts the process, or by sourcing `~/.bashrc` before launch)
-6. `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=/home/voytas/projects/sourcetrace/src ./.venv/bin/python -m sourcetrace.local_launcher'`
+5. optional but recommended for durable continuity packs: export `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR` to a writable local directory
+6. ensure those exports are visible to the launcher process itself (for example by keeping them in the shell that starts the process, or by sourcing `~/.bashrc` before launch)
+7. `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=/home/voytas/projects/sourcetrace/src ./.venv/bin/python -m sourcetrace.local_launcher'`
    - or `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=/home/voytas/projects/sourcetrace/src uv run sourcetrace-local'`
    - the launcher sets `LITELLM_LOG=ERROR` by default unless you already exported a different value
    - current verified shell-init shape for local launchers is: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_VERSION`, plus mirrored `SOURCETRACE_LLM_API_KEY`, `SOURCETRACE_LLM_BASE_URL`, `SOURCETRACE_LLM_API_VERSION`
    - if you keep these exports in `~/.bashrc`, place them above the non-interactive guard (`case $- in ... return`) so `bash -lc 'source ~/.bashrc && ...'` actually loads them for automation
+   - if `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR` is set, the local launcher switches continuity-pack storage from in-memory to file-backed for `active continuity pack per case`
+   - verify the effective mode with `GET /api/ready` or `GET /api/runtime` and inspect `continuity_pack_persistence.enabled`, `backend`, and `root_dir`
 
 Expected startup: `SourceTrace local server listening on http://127.0.0.1:8000`
 Use `Ctrl+C` to stop the server cleanly.
@@ -149,9 +152,9 @@ Do weryfikacji:
    - `curl http://127.0.0.1:8000/api/health`
    - Expected: `200 OK` with `{ "status": "ok" }`
    - `curl http://127.0.0.1:8000/api/ready`
-   - Expected: `200 OK` with JSON containing `status: ready` and `checks`
+   - Expected: `200 OK` with JSON containing `status: ready`, `checks`, and `diagnostics.continuity_pack_persistence`
    - `curl http://127.0.0.1:8000/api/runtime`
-   - Expected: `200 OK` with JSON containing `runtime.entrypoint`
+   - Expected: `200 OK` with JSON containing `runtime.entrypoint` and `runtime.continuity_pack_persistence`
    - `curl http://127.0.0.1:8000/api/capabilities`
    - Expected: `200 OK` with JSON listing `routes.product`, `routes.dev`, and runtime capability flags
 5. Create a case:
