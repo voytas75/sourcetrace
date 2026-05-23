@@ -59,7 +59,7 @@ Run the repo-owned launcher with runtime-config + LLM wiring:
    - the launcher sets `LITELLM_LOG=ERROR` by default unless you already exported a different value
    - current verified shell-init shape for local launchers is: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_VERSION`, plus mirrored `SOURCETRACE_LLM_API_KEY`, `SOURCETRACE_LLM_BASE_URL`, `SOURCETRACE_LLM_API_VERSION`
    - if you keep these exports in `~/.bashrc`, place them above the non-interactive guard (`case $- in ... return`) so `bash -lc 'source ~/.bashrc && ...'` actually loads them for automation
-   - if `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR` is set, the local launcher switches continuity-pack storage from in-memory to file-backed for `active continuity pack per case`
+   - if `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR` is set, the local launcher switches continuity-pack storage from in-memory to file-backed for `active continuity pack per case`; replace keeps `latest_previous` and clear removes only `active`
    - verify the effective mode with `GET /api/ready` or `GET /api/runtime` and inspect `continuity_pack_persistence.enabled`, `backend`, and `root_dir`
 
 Expected startup: `SourceTrace local server listening on http://127.0.0.1:8000`
@@ -166,7 +166,20 @@ Do weryfikacji:
         "description": "Track public claims."
       }'`
    - Expected: `201 Created` with JSON containing `case.case_id`
-6. Attach a document to that case:
+6. Create or inspect a continuity pack for that case:
+   - assign one from an existing artifact:
+     - `curl -X POST http://127.0.0.1:8000/api/cases/case-1/continuity-pack \
+        -H 'Content-Type: application/json' \
+        -d '{
+          "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        }'`
+   - inspect the case continuity-pack read surface:
+     - `curl http://127.0.0.1:8000/api/cases/case-1/continuity-pack`
+   - Expected: `200 OK` with `resource: case_continuity_pack`, `continuity_pack.assigned`, nested `latest_previous`, `artifacts.active`, `artifacts.latest_previous`, and convenience `actions`
+   - Semantics: for an existing case this route is now a read model, so after clear it still returns `200 OK` with an empty continuity-pack state instead of `404`
+   - Replace semantics: assigning a new continuity pack moves the previous active one into `latest_previous`
+   - Clear semantics: `DELETE /api/cases/case-1/continuity-pack` removes only the active assignment; `latest_previous` remains available when present
+7. Attach a document to that case:
    - `curl -X POST http://127.0.0.1:8000/api/cases/case-1/documents \
       -H 'Content-Type: application/json' \
       -d '{
@@ -301,6 +314,9 @@ Do weryfikacji:
 - Current continuity-pack examples:
   - `docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md`
   - `docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md`
+- Runtime continuity-pack model is now `active + latest_previous` per case, not full history.
+- `GET /api/cases/{case_id}/continuity-pack` now acts as a read model for existing cases: it returns `200 OK` with current continuity-pack state, artifact pointers, and convenience actions even after clear.
+- Replace keeps the former active pack as `latest_previous`; clear removes only `active`.
 - Use a continuity pack selectively when an existing observation or research artifact already contains enough evidence for a real next-step decision, but still needs a decision-ready wrapper.
 - Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles; the fallback is improved, and leading `Yes/No` answer-style openings are now filtered, but the cleanup is still not fully semantic.
 - Current verified contrast note continuity: inline note-style contrast inputs no longer fall into `empty` just because `extract-claims` ran before an explicit `prepare`, but exact claim shape can still vary between the stronger restriction clause and an additional reopening clause.

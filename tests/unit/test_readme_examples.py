@@ -43,6 +43,10 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "Current verified continuity: if the document was created earlier with inline `content` or `text`" in readme
     assert "`POST /api/documents/{document_id}/extract-claims` now also auto-prepares stored inline content when chunks are still missing" in readme
     assert "SOURCETRACE_CONTINUITY_PACK_ROOT_DIR" in readme
+    assert "active continuity pack per case" in readme
+    assert "latest_previous" in readme
+    assert "GET /api/cases/{case_id}/continuity-pack" in readme
+    assert "after clear it still returns `200 OK`" in readme
     assert "continuity_pack_persistence.enabled" in readme
     assert "continuity_pack_persistence" in readme
     assert "requires an already running local server on `127.0.0.1:8000`" in readme
