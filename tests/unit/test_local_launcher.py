@@ -98,7 +98,26 @@ def test_resolve_continuity_pack_root_dir_uses_env_override(tmp_path: Path) -> N
     try:
         environ["SOURCETRACE_CONTINUITY_PACK_ROOT_DIR"] = str(root_dir)
 
-        assert _resolve_continuity_pack_root_dir() == root_dir
+        assert _resolve_continuity_pack_root_dir() == root_dir.resolve()
+    finally:
+        if original_root_dir is None:
+            environ.pop("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR", None)
+        else:
+            environ["SOURCETRACE_CONTINUITY_PACK_ROOT_DIR"] = original_root_dir
+
+
+def test_resolve_continuity_pack_root_dir_rejects_file_path(tmp_path: Path) -> None:
+    original_root_dir = environ.get("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR")
+    file_path = tmp_path / "continuity-pack.json"
+    file_path.write_text("{}", encoding="utf-8")
+    try:
+        environ["SOURCETRACE_CONTINUITY_PACK_ROOT_DIR"] = str(file_path)
+
+        with pytest.raises(
+            ValueError,
+            match="SOURCETRACE_CONTINUITY_PACK_ROOT_DIR must point to a directory.",
+        ):
+            _resolve_continuity_pack_root_dir()
     finally:
         if original_root_dir is None:
             environ.pop("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR", None)

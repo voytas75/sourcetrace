@@ -78,7 +78,12 @@ def _resolve_continuity_pack_root_dir() -> Path | None:
     raw_root_dir = environ.get("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR", "").strip()
     if not raw_root_dir:
         return None
-    return Path(raw_root_dir)
+    resolved_root_dir = Path(raw_root_dir).expanduser().resolve()
+    if resolved_root_dir.exists() and not resolved_root_dir.is_dir():
+        raise ValueError(
+            "SOURCETRACE_CONTINUITY_PACK_ROOT_DIR must point to a directory."
+        )
+    return resolved_root_dir
 
 
 def build_local_server_runtime(

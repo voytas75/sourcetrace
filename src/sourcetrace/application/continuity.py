@@ -89,6 +89,7 @@ def build_continuity_pack_request_from_artifact(
         heading: _extract_markdown_section_items(text, heading)
         for heading in CONTINUITY_PACK_SECTIONS
     }
+    _validate_artifact_sections(sections)
     decision_snapshot = _extract_markdown_section_items(text, "Decision snapshot")
     derived_title = title.strip() if title and title.strip() else _derive_title(text, resolved_path)
     return ContinuityPackRequest(
@@ -106,10 +107,10 @@ def _resolve_artifact_path(artifact_path: str) -> Path:
     candidate = Path(artifact_path).expanduser()
     resolved = candidate if candidate.is_absolute() else (REPO_ROOT / candidate)
     resolved = resolved.resolve()
-    if not resolved.exists():
-        raise ValueError(f"artifact_path not found: {artifact_path}")
     if REPO_ROOT not in resolved.parents and resolved != REPO_ROOT:
         raise ValueError("artifact_path must stay inside the repo root.")
+    if not resolved.exists():
+        raise ValueError(f"artifact_path not found: {artifact_path}")
     return resolved
 
 
@@ -144,6 +145,16 @@ def _extract_markdown_section_items(text: str, heading: str) -> tuple[str, ...]:
         if items:
             items[-1] = f"{items[-1]} {stripped}".strip()
     return tuple(item for item in items if item)
+
+
+def _validate_artifact_sections(sections: dict[str, tuple[str, ...]]) -> None:
+    missing_sections = [heading for heading, items in sections.items() if not items]
+    if missing_sections:
+        joined = ", ".join(missing_sections)
+        raise ValueError(
+            "artifact_path is missing required continuity-pack sections with bullet items: "
+            f"{joined}"
+        )
 
 
 __all__ = [

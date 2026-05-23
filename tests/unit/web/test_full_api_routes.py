@@ -858,6 +858,41 @@ def test_wsgi_can_assemble_continuity_pack_from_artifact() -> None:
     assert payload["continuity_pack"]["recommended_next_test"]
 
 
+def test_wsgi_rejects_missing_continuity_pack_artifact_path() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/continuity-packs/assemble-from-artifact",
+        payload={"artifact_path": "docs/plans/missing-continuity-pack.md"},
+    )
+
+    assert status == "400 Bad Request"
+    payload = json.loads(body)
+    assert payload["status"] == "invalid_request"
+    assert payload["error"] == "artifact_path not found: docs/plans/missing-continuity-pack.md"
+
+
+def test_wsgi_rejects_incomplete_continuity_pack_artifact() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/continuity-packs/assemble-from-artifact",
+        payload={"artifact_path": "docs/plans/2026-05-23-broken-continuity-pack.md"},
+    )
+
+    assert status == "400 Bad Request"
+    payload = json.loads(body)
+    assert payload["status"] == "invalid_request"
+    assert payload["error"] == (
+        "artifact_path is missing required continuity-pack sections with bullet items: "
+        "Recommended next test"
+    )
+
+
 def test_wsgi_can_render_continuity_pack_markdown_from_artifact() -> None:
     app = SourceTraceWSGIApp(delivery=create_default_delivery())
 
@@ -875,6 +910,22 @@ def test_wsgi_can_render_continuity_pack_markdown_from_artifact() -> None:
     assert body.startswith("# ")
     assert "## Potwierdzone" in body
     assert "## Recommended next test" in body
+
+
+def test_wsgi_rejects_artifact_outside_repo_for_continuity_pack_render() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/continuity-packs/render-markdown",
+        payload={"artifact_path": "../outside.md"},
+    )
+
+    assert status == "400 Bad Request"
+    payload = json.loads(body)
+    assert payload["status"] == "invalid_request"
+    assert payload["error"] == "artifact_path must stay inside the repo root."
 
 
 def test_wsgi_can_render_continuity_pack_html_view() -> None:
