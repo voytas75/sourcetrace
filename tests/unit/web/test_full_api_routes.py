@@ -842,6 +842,64 @@ def test_wsgi_rejects_continuity_pack_html_view_without_artifact_path() -> None:
     assert payload["error"] == "artifact_path query parameter is required."
 
 
+def test_wsgi_can_assign_and_get_case_continuity_pack() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    created_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"case_id": "case-1", "title": "Continuity case"},
+    )
+    assert created_status == "201 Created"
+
+    assign_status, _, assign_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-1/continuity-pack",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        },
+    )
+    assert assign_status == "200 OK"
+    assigned_payload = json.loads(assign_body)
+    assert assigned_payload["resource"] == "continuity_pack"
+    assert assigned_payload["continuity_pack"]["source_artifact_path"].endswith(
+        "reuters-a1.md"
+    )
+
+    get_status, _, get_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/cases/case-1/continuity-pack",
+    )
+    assert get_status == "200 OK"
+    retrieved_payload = json.loads(get_body)
+    assert retrieved_payload["continuity_pack"] == assigned_payload["continuity_pack"]
+
+
+def test_wsgi_case_continuity_pack_missing_for_existing_case() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    created_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"case_id": "case-2", "title": "Empty continuity case"},
+    )
+    assert created_status == "201 Created"
+
+    status, _, body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/cases/case-2/continuity-pack",
+    )
+
+    assert status == "404 Not Found"
+    payload = json.loads(body)
+    assert payload["error"] == "continuity_pack_not_found"
+
+
 
 def _document() -> Document:
     return Document(

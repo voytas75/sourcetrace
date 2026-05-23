@@ -393,15 +393,38 @@ class SourceTraceDelivery:
         *,
         title: str | None = None,
     ) -> ContinuityPackOutcome | None:
-        """Auto-build a continuity pack from an existing repo artifact."""
+        """Build a continuity-pack preview directly from an existing repo artifact."""
 
-        request = build_continuity_pack_request_from_artifact(
-            artifact_path,
-            title=title,
-        )
-        return self.assemble_continuity_pack(request)
+        if self.continuity_pack_execution is None:
+            return None
+        request = build_continuity_pack_request_from_artifact(artifact_path, title=title)
+        return self.continuity_pack_execution.assemble_pack(request)
+
+    def assign_case_continuity_pack(
+        self,
+        case_id: str,
+        *,
+        artifact_path: str,
+        title: str | None = None,
+    ) -> ContinuityPackOutcome | None:
+        """Build and persist the active continuity pack for an existing case."""
+
+        if self.persistence.cases.get_case(case_id) is None:
+            return None
+        outcome = self.build_continuity_pack_from_artifact(artifact_path, title=title)
+        if outcome is None:
+            return None
+        return self.persistence.cases.save_continuity_pack(case_id, outcome)
+
+    def get_case_continuity_pack(self, case_id: str) -> ContinuityPackOutcome | None:
+        """Return the active continuity pack for one case."""
+
+        if self.persistence.cases.get_case(case_id) is None:
+            return None
+        return self.persistence.cases.get_continuity_pack(case_id)
 
     def render_continuity_pack_markdown(
+
         self,
         request: ContinuityPackRequest,
     ) -> str | None:

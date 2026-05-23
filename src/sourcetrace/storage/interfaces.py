@@ -11,6 +11,7 @@ from sourcetrace.domain.claims import (
     ClaimReviewDecision,
     ClaimVerification,
 )
+from sourcetrace.application.continuity import ContinuityPackOutcome
 from sourcetrace.domain.documents import Document
 from sourcetrace.domain.documents import DocumentCredibilityAssessment
 
@@ -25,6 +26,16 @@ class CaseRepository(Protocol):
         ...
 
     def list_cases(self) -> tuple[Case, ...]:
+        ...
+
+    def save_continuity_pack(
+        self,
+        case_id: str,
+        continuity_pack: ContinuityPackOutcome,
+    ) -> ContinuityPackOutcome:
+        ...
+
+    def get_continuity_pack(self, case_id: str) -> ContinuityPackOutcome | None:
         ...
 
 

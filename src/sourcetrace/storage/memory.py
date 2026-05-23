@@ -1,5 +1,6 @@
 """In-memory persistence adapters for the first runtime path."""
 
+from sourcetrace.application.continuity import ContinuityPackOutcome
 from sourcetrace.domain.cases import Case
 from sourcetrace.domain.chunks import DocumentChunk
 from sourcetrace.domain.claims import (
@@ -18,6 +19,7 @@ class InMemoryCaseRepository:
 
     def __init__(self) -> None:
         self._cases: dict[str, Case] = {}
+        self._continuity_packs: dict[str, ContinuityPackOutcome] = {}
 
     def save_case(self, case: Case) -> Case:
         self._cases[case.case_id] = case
@@ -31,6 +33,17 @@ class InMemoryCaseRepository:
             self._cases[case_id]
             for case_id in sorted(self._cases)
         )
+
+    def save_continuity_pack(
+        self,
+        case_id: str,
+        continuity_pack: ContinuityPackOutcome,
+    ) -> ContinuityPackOutcome:
+        self._continuity_packs[case_id] = continuity_pack
+        return continuity_pack
+
+    def get_continuity_pack(self, case_id: str) -> ContinuityPackOutcome | None:
+        return self._continuity_packs.get(case_id)
 
 
 class InMemoryDocumentRepository:

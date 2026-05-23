@@ -157,6 +157,15 @@ class SourceTraceWSGIApp:
                     )
             if parts[3] == "claims" and method == "GET":
                 return self._list_case_claims(case_id, start_response)
+            if parts[3] == "continuity-pack":
+                if method == "GET":
+                    return self._get_case_continuity_pack(case_id, start_response)
+                if method == "POST":
+                    return self._assign_case_continuity_pack(
+                        case_id,
+                        environ,
+                        start_response,
+                    )
         if len(parts) == 3 and parts[:2] == ("api", "documents"):
             if method == "GET":
                 return self._get_document(parts[2], start_response)
@@ -489,6 +498,47 @@ class SourceTraceWSGIApp:
             start_response,
             "200 OK",
             {"claims": [claim_to_payload(claim) for claim in claims]},
+        )
+
+    def _assign_case_continuity_pack(
+        self,
+        case_id: str,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        payload = _read_json(environ)
+        outcome = self.delivery.assign_case_continuity_pack(
+            case_id,
+            artifact_path=_required_str(payload, "artifact_path"),
+            title=_optional_str(payload.get("title")),
+        )
+        if outcome is None:
+            return _missing_response(start_response, "case", case_id)
+        return _json_response(
+            start_response,
+            "200 OK",
+            continuity_pack_outcome_to_payload(outcome),
+        )
+
+    def _get_case_continuity_pack(
+        self,
+        case_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        case = self.delivery.get_case(case_id)
+        if case is None:
+            return _missing_response(start_response, "case", case_id)
+        outcome = self.delivery.get_case_continuity_pack(case_id)
+        if outcome is None:
+            return _json_response(
+                start_response,
+                "404 Not Found",
+                {"error": "continuity_pack_not_found", "status": "not_found"},
+            )
+        return _json_response(
+            start_response,
+            "200 OK",
+            continuity_pack_outcome_to_payload(outcome),
         )
 
     def _get_claim(
