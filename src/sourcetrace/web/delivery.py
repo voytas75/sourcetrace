@@ -11,15 +11,18 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from sourcetrace.application import (
+    CONTINUITY_PACK_SECTIONS,
     CaseCreationOutcome,
     CaseCreationRequest,
     ClaimExtractionOutcome,
     ClaimExtractionRequest,
     ClaimExtractionRuntime,
+    ContinuityPack,
+    ContinuityPackOutcome,
+    ContinuityPackRequest,
     CredibilityAssessmentExecution,
     CredibilityAssessmentOutcome,
     CredibilityAssessmentRequest,
-    ClaimVerificationExecution,
     DocumentPreparationOutcome,
     DocumentPreparationRequest,
     ReportAssemblyExecution,
@@ -27,7 +30,13 @@ from sourcetrace.application import (
     ReportAssemblyRequest,
     SourceIngestionOutcome,
     SourceIngestionRequest,
+    build_continuity_pack_request_from_artifact,
     build_llm_credibility_assessor,
+    render_continuity_pack_markdown,
+)
+from sourcetrace.application.interfaces import (
+    ClaimVerificationExecution,
+    ContinuityPackExecution,
 )
 from sourcetrace.application.extraction_runtime import build_llm_claim_extractor
 from sourcetrace.domain import (
@@ -93,12 +102,23 @@ class VerificationInspection:
 
 
 @dataclass(frozen=True)
+class ContinuityPackInspection:
+    """Analyst-facing view of an assembled continuity pack."""
+
+    title: str
+    source_artifact_path: str
+    sections: dict[str, tuple[str, ...]]
+    decision_snapshot: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class SourceTraceDelivery:
     """Delivery surface for product resources, verification, review, and reports."""
 
     persistence: CorePersistence
     verification_runtime: ClaimVerificationRuntime
     report_assembly: ReportAssemblyExecution
+    continuity_pack_execution: ContinuityPackExecution | None = None
     credibility_assessment: CredibilityAssessmentExecution | None = None
     claim_extraction_runtime: ClaimExtractionRuntime | None = None
 
@@ -335,6 +355,76 @@ class SourceTraceDelivery:
             )
         )
 
+    def assemble_continuity_pack(
+        self,
+        request: ContinuityPackRequest,
+    ) -> ContinuityPackOutcome | None:
+        """Assemble a decision-ready continuity pack from caller-provided sections."""
+
+        if self.continuity_pack_execution is None:
+            return None
+        return self.continuity_pack_execution.assemble_pack(request)
+
+    def inspect_continuity_pack(
+        self,
+        request: ContinuityPackRequest,
+    ) -> ContinuityPackInspection | None:
+        """Return an analyst-facing inspection view for continuity-pack sections."""
+
+        outcome = self.assemble_continuity_pack(request)
+        if outcome is None:
+            return None
+        continuity_pack = outcome.continuity_pack
+        return ContinuityPackInspection(
+            title=continuity_pack.title,
+            source_artifact_path=continuity_pack.source_artifact_path,
+            sections={
+                CONTINUITY_PACK_SECTIONS[0]: continuity_pack.confirmed,
+                CONTINUITY_PACK_SECTIONS[1]: continuity_pack.assumptions,
+                CONTINUITY_PACK_SECTIONS[2]: continuity_pack.to_verify,
+                CONTINUITY_PACK_SECTIONS[3]: continuity_pack.recommended_next_test,
+            },
+            decision_snapshot=continuity_pack.decision_snapshot,
+        )
+
+    def build_continuity_pack_from_artifact(
+        self,
+        artifact_path: str,
+        *,
+        title: str | None = None,
+    ) -> ContinuityPackOutcome | None:
+        """Auto-build a continuity pack from an existing repo artifact."""
+
+        request = build_continuity_pack_request_from_artifact(
+            artifact_path,
+            title=title,
+        )
+        return self.assemble_continuity_pack(request)
+
+    def render_continuity_pack_markdown(
+        self,
+        request: ContinuityPackRequest,
+    ) -> str | None:
+        """Render a continuity pack request as markdown preview."""
+
+        outcome = self.assemble_continuity_pack(request)
+        if outcome is None:
+            return None
+        return render_continuity_pack_markdown(outcome.continuity_pack)
+
+    def render_continuity_pack_markdown_from_artifact(
+        self,
+        artifact_path: str,
+        *,
+        title: str | None = None,
+    ) -> str | None:
+        """Auto-build a continuity pack from a repo artifact and render markdown."""
+
+        outcome = self.build_continuity_pack_from_artifact(artifact_path, title=title)
+        if outcome is None:
+            return None
+        return render_continuity_pack_markdown(outcome.continuity_pack)
+
     def assess_document_credibility(
         self,
         document_id: str,
@@ -382,6 +472,7 @@ class SourceTraceDelivery:
                 "persistence": True,
                 "verification_runtime": True,
                 "claim_extraction": self.claim_extraction_runtime is not None,
+                "continuity_pack": self.continuity_pack_execution is not None,
                 "credibility_assessment": self.credibility_assessment is not None,
             },
         }
@@ -395,6 +486,7 @@ class SourceTraceDelivery:
                 "storage": self.persistence.__class__.__name__,
                 "verification_runtime": "enabled",
                 "claim_extraction": _enabled(self.claim_extraction_runtime),
+                "continuity_pack": _enabled(self.continuity_pack_execution),
                 "credibility_assessment": _enabled(self.credibility_assessment),
                 "reporting": "enabled",
                 "dev_routes": "enabled",
@@ -411,6 +503,7 @@ class SourceTraceDelivery:
                 "claims": ["list_for_case", "get", "extract", "verify"],
                 "evidence": ["list_for_claim"],
                 "reviews": ["create", "get"],
+                "continuity_packs": ["assemble_preview", "assemble_from_artifact", "render_markdown"],
                 "credibility_assessments": ["create", "get"],
                 "reports": ["get_json", "get_markdown"],
             },
@@ -433,8 +526,9 @@ class SourceTraceDelivery:
                     "/api/claims/{claim_id}/verification",
                     "/api/claims/{claim_id}/evidence",
                     "/api/claims/{claim_id}/review",
-                    "/api/verify",
-                    "/api/reviews",
+                    "/api/continuity-packs/assemble-preview",
+                    "/api/continuity-packs/assemble-from-artifact",
+                    "/api/continuity-packs/render-markdown",
                     "/api/reports/{case_id}",
                     "/api/reports/{case_id}.json",
                     "/api/reports/{case_id}.md",
@@ -470,18 +564,20 @@ class SourceTraceDelivery:
             replace(case, claim_ids=case.claim_ids + new_claim_ids)
         )
 
-
 @dataclass(frozen=True)
 class PersistenceReportAssembler:
-    """Report assembler that reads verified claim context from persistence."""
+    """Compose report entries from persisted claim, verification, and review state."""
 
     persistence: CorePersistence
 
     def __call__(self, request: ReportAssemblyRequest) -> ReportAssemblyOutcome:
+        return self.assemble_report(request)
+
+    def assemble_report(self, request: ReportAssemblyRequest) -> ReportAssemblyOutcome:
         entries = tuple(
-            entry
-            for decision in request.review_decisions
-            if (entry := self._entry_for_decision(decision)) is not None
+            _report_entry_from_review(self.persistence, review_decision)
+            for review_decision in request.review_decisions
+            if not _is_excluded_from_report(review_decision)
         )
         case_report = CaseReport(
             case_id=request.case_id,
@@ -495,36 +591,56 @@ class PersistenceReportAssembler:
             case_report=case_report,
         )
 
-    def _entry_for_decision(
-        self,
-        decision: ClaimReviewDecision,
-    ) -> ClaimReportEntry | None:
-        if _is_excluded_from_report(decision):
-            return None
 
-        claim = self.persistence.claims.get_claim(decision.claim_id)
-        verification = _get_verification(self.persistence, decision.claim_id)
-        final_verdict = (
-            decision.final_verdict
-            or (verification.verdict if verification is not None else None)
-            or (claim.system_verdict if claim is not None else None)
-            or VerificationVerdict.INSUFFICIENT_EVIDENCE
-        )
-        return ClaimReportEntry(
-            claim_id=decision.claim_id,
-            case_id=decision.case_id,
-            final_verdict=final_verdict,
-            human_review_status=decision.human_review_status,
-            summary_text=_entry_summary(decision, claim, final_verdict),
-            supporting_chunk_ids=(
-                verification.supporting_chunk_ids if verification is not None else ()
+@dataclass(frozen=True)
+class ContinuityPackAssemblerRuntime:
+    """Assemble caller-provided continuity-pack sections into a stable artifact."""
+
+    def __call__(self, request: ContinuityPackRequest) -> ContinuityPackOutcome:
+        continuity_pack = ContinuityPack(
+            title=request.title,
+            source_artifact_path=request.source_artifact_path,
+            confirmed=tuple(item.strip() for item in request.confirmed if item.strip()),
+            assumptions=tuple(item.strip() for item in request.assumptions if item.strip()),
+            to_verify=tuple(item.strip() for item in request.to_verify if item.strip()),
+            recommended_next_test=tuple(
+                item.strip() for item in request.recommended_next_test if item.strip()
             ),
-            contradicting_chunk_ids=(
-                verification.contradicting_chunk_ids
-                if verification is not None
-                else ()
+            decision_snapshot=tuple(
+                item.strip() for item in request.decision_snapshot if item.strip()
             ),
         )
+        return ContinuityPackOutcome(
+            request=request,
+            continuity_pack=continuity_pack,
+        )
+
+
+def _report_entry_from_review(
+    persistence: CorePersistence,
+    decision: ClaimReviewDecision,
+) -> ClaimReportEntry:
+    claim = persistence.claims.get_claim(decision.claim_id)
+    verification = _get_verification(persistence, decision.claim_id)
+    final_verdict = (
+        decision.final_verdict
+        or (verification.verdict if verification is not None else None)
+        or (claim.system_verdict if claim is not None else None)
+        or VerificationVerdict.INSUFFICIENT_EVIDENCE
+    )
+    return ClaimReportEntry(
+        claim_id=decision.claim_id,
+        case_id=decision.case_id,
+        final_verdict=final_verdict,
+        human_review_status=decision.human_review_status,
+        summary_text=_entry_summary(decision, claim, final_verdict),
+        supporting_chunk_ids=(
+            verification.supporting_chunk_ids if verification is not None else ()
+        ),
+        contradicting_chunk_ids=(
+            verification.contradicting_chunk_ids if verification is not None else ()
+        ),
+    )
 
 
 def create_default_delivery(
@@ -550,6 +666,9 @@ def create_default_delivery(
     report_assembly = ReportAssemblyExecution(
         assemble_report=PersistenceReportAssembler(persistence=persistence)
     )
+    continuity_pack_execution = ContinuityPackExecution(
+        assemble_pack=ContinuityPackAssemblerRuntime()
+    )
     credibility_assessment = _build_credibility_assessment_execution(
         credibility_draft=credibility_draft,
         credibility_assessed_at=credibility_assessed_at,
@@ -562,6 +681,7 @@ def create_default_delivery(
         persistence=persistence,
         verification_runtime=verification_runtime,
         report_assembly=report_assembly,
+        continuity_pack_execution=continuity_pack_execution,
         credibility_assessment=credibility_assessment,
         claim_extraction_runtime=claim_extraction_runtime,
     )
@@ -667,11 +787,14 @@ def claim_extraction_outcome_to_payload(
 def verification_inspection_to_payload(
     inspection: VerificationInspection,
 ) -> dict[str, object]:
-    """Serialize a verification inspection for JSON responses."""
+    """Serialize an analyst-facing verification inspection view."""
 
     return {
         "claim": claim_to_payload(inspection.claim),
         "verification": verification_to_payload(inspection.verification),
+        "evidence_links": [
+            evidence_link_to_payload(link) for link in inspection.evidence_links
+        ],
         "evidence_summary": {
             "evidence_count": inspection.evidence_count,
             "supporting_evidence_count": inspection.supporting_evidence_count,
@@ -680,9 +803,51 @@ def verification_inspection_to_payload(
             "has_review": inspection.has_review,
             "has_report_entry": inspection.has_report_entry,
         },
-        "evidence_links": [
-            evidence_link_to_payload(link) for link in inspection.evidence_links
-        ],
+    }
+
+
+def continuity_pack_to_payload(
+    continuity_pack: ContinuityPack,
+) -> dict[str, object]:
+    """Serialize a continuity-pack artifact for JSON API responses."""
+
+    return {
+        "title": continuity_pack.title,
+        "source_artifact_path": continuity_pack.source_artifact_path,
+        "confirmed": list(continuity_pack.confirmed),
+        "assumptions": list(continuity_pack.assumptions),
+        "to_verify": list(continuity_pack.to_verify),
+        "recommended_next_test": list(continuity_pack.recommended_next_test),
+        "decision_snapshot": list(continuity_pack.decision_snapshot),
+    }
+
+
+def continuity_pack_outcome_to_payload(
+    outcome: ContinuityPackOutcome,
+) -> dict[str, object]:
+    """Serialize a continuity-pack assembly outcome for JSON API responses."""
+
+    continuity_pack_payload = continuity_pack_to_payload(outcome.continuity_pack)
+    return {
+        "status": "ready",
+        "summary": "Continuity pack assembled from the provided artifact sections.",
+        "next_step": "Review the continuity pack and decide whether to park, execute, or escalate.",
+        "resource": "continuity_pack",
+        "resource_id": outcome.request.source_artifact_path,
+        "continuity_pack": continuity_pack_payload,
+    }
+
+
+def continuity_pack_inspection_to_payload(
+    inspection: ContinuityPackInspection,
+) -> dict[str, object]:
+    """Serialize an analyst-facing continuity-pack inspection view."""
+
+    return {
+        "title": inspection.title,
+        "source_artifact_path": inspection.source_artifact_path,
+        "sections": {name: list(items) for name, items in inspection.sections.items()},
+        "decision_snapshot": list(inspection.decision_snapshot),
     }
 
 

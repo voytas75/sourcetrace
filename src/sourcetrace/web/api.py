@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from typing import Any
 from wsgiref.simple_server import WSGIServer, make_server
 
-from sourcetrace.application import DocumentPreparationOutcome, DocumentPreparationRequest
+from sourcetrace.application import (
+    ContinuityPackRequest,
+    build_continuity_pack_request_from_artifact,
+    render_continuity_pack_markdown,
+    DocumentPreparationOutcome,
+    DocumentPreparationRequest,
+)
 from sourcetrace.web.delivery import (
     SourceTraceDelivery,
     VerificationDeliveryRequest,
@@ -18,6 +24,7 @@ from sourcetrace.web.delivery import (
     chunk_to_payload,
     claim_extraction_outcome_to_payload,
     claim_from_payload,
+    continuity_pack_outcome_to_payload,
     create_default_delivery,
     credibility_assessment_response_payload,
     document_credibility_assessment_to_payload,
@@ -192,6 +199,12 @@ class SourceTraceWSGIApp:
             return self._seed_document(environ, start_response)
         if method == "POST" and path == "/api/reviews":
             return self._record_review(environ, start_response)
+        if method == "POST" and path == "/api/continuity-packs/assemble-preview":
+            return self._assemble_continuity_pack_preview(environ, start_response)
+        if method == "POST" and path == "/api/continuity-packs/assemble-from-artifact":
+            return self._assemble_continuity_pack_from_artifact(environ, start_response)
+        if method == "POST" and path == "/api/continuity-packs/render-markdown":
+            return self._render_continuity_pack_markdown_preview(environ, start_response)
         if method == "GET" and path.startswith("/api/reports/"):
             return self._render_report(path, start_response)
         if method == "GET" and path.startswith("/cases/"):
@@ -560,6 +573,114 @@ class SourceTraceWSGIApp:
             {"review_decision": review_decision_to_payload(review_decision)},
         )
 
+    def _assemble_continuity_pack_preview(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        payload = _read_json(environ)
+        outcome = self.delivery.assemble_continuity_pack(
+            ContinuityPackRequest(
+                title=_required_str(payload, "title"),
+                source_artifact_path=_required_str(payload, "source_artifact_path"),
+                confirmed=_string_tuple(payload.get("confirmed"), field_name="confirmed"),
+                assumptions=_string_tuple(payload.get("assumptions"), field_name="assumptions"),
+                to_verify=_string_tuple(payload.get("to_verify"), field_name="to_verify"),
+                recommended_next_test=_string_tuple(
+                    payload.get("recommended_next_test"),
+                    field_name="recommended_next_test",
+                ),
+                decision_snapshot=_string_tuple(
+                    payload.get("decision_snapshot", ()),
+                    field_name="decision_snapshot",
+                ),
+            )
+        )
+        if outcome is None:
+            return _json_response(
+                start_response,
+                "501 Not Implemented",
+                {
+                    "error": "continuity_pack_not_available",
+                    "status": "unsupported",
+                },
+            )
+        return _json_response(
+            start_response,
+            "200 OK",
+            continuity_pack_outcome_to_payload(outcome),
+        )
+
+    def _assemble_continuity_pack_from_artifact(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        payload = _read_json(environ)
+        outcome = self.delivery.build_continuity_pack_from_artifact(
+            _required_str(payload, "artifact_path"),
+            title=_optional_str(payload.get("title")),
+        )
+        if outcome is None:
+            return _json_response(
+                start_response,
+                "501 Not Implemented",
+                {
+                    "error": "continuity_pack_not_available",
+                    "status": "unsupported",
+                },
+            )
+        return _json_response(
+            start_response,
+            "200 OK",
+            continuity_pack_outcome_to_payload(outcome),
+        )
+
+    def _render_continuity_pack_markdown_preview(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        payload = _read_json(environ)
+        artifact_path = _optional_str(payload.get("artifact_path"))
+        if artifact_path:
+            markdown = self.delivery.render_continuity_pack_markdown_from_artifact(
+                artifact_path,
+                title=_optional_str(payload.get("title")),
+            )
+        else:
+            request = ContinuityPackRequest(
+                title=_required_str(payload, "title"),
+                source_artifact_path=_required_str(payload, "source_artifact_path"),
+                confirmed=_string_tuple(payload.get("confirmed"), field_name="confirmed"),
+                assumptions=_string_tuple(payload.get("assumptions"), field_name="assumptions"),
+                to_verify=_string_tuple(payload.get("to_verify"), field_name="to_verify"),
+                recommended_next_test=_string_tuple(
+                    payload.get("recommended_next_test"),
+                    field_name="recommended_next_test",
+                ),
+                decision_snapshot=_string_tuple(
+                    payload.get("decision_snapshot", ()),
+                    field_name="decision_snapshot",
+                ),
+            )
+            markdown = self.delivery.render_continuity_pack_markdown(request)
+        if markdown is None:
+            return _json_response(
+                start_response,
+                "501 Not Implemented",
+                {
+                    "error": "continuity_pack_not_available",
+                    "status": "unsupported",
+                },
+            )
+        return _text_response(
+            start_response,
+            "200 OK",
+            "text/markdown; charset=utf-8",
+            markdown,
+        )
+
     def _seed_document(
         self,
         environ: WsgiEnviron,
@@ -745,6 +866,28 @@ def _object_payload(
     if not isinstance(value, dict):
         raise ValueError(f"{key} must be an object.")
     return value
+
+
+def _required_str(payload: dict[str, object], key: str) -> str:
+    value = str(payload.get(key) or "").strip()
+    if not value:
+        raise ValueError(f"{key} is required.")
+    return value
+
+
+def _string_tuple(value: object, *, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        raise ValueError(f"{field_name} must be an array of strings.")
+    if not isinstance(value, list | tuple):
+        raise ValueError(f"{field_name} must be an array of strings.")
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} must be an array of strings.")
+        stripped = item.strip()
+        if stripped:
+            items.append(stripped)
+    return tuple(items)
 
 
 def _path_parts(path: str) -> tuple[str, ...]:

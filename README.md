@@ -27,6 +27,7 @@ Confirmed baseline now:
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
 - `docs/research/research-ledger.md` — rolling research notes and architecture implications
 - `docs/plans/execution-blueprint-v0.md` — provisional plan between research and implementation
+- `docs/plans/2026-05-23-continuity-pack-usage-note.md` — when to create a decision-ready continuity-pack wrapper over an existing artifact
 - `notes/` — working notes
 - `src/sourcetrace/` — application package
 - `tests/` — unit/integration/doc assertions
@@ -292,6 +293,12 @@ Do weryfikacji:
   - `docs/plans/test-use-observation-template.md`
 - Example filled note:
   - `docs/plans/test-use-observation-example-bbc.md`
+- Continuity-pack guidance:
+  - `docs/plans/2026-05-23-continuity-pack-usage-note.md`
+- Current continuity-pack examples:
+  - `docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md`
+  - `docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md`
+- Use a continuity pack selectively when an existing observation or research artifact already contains enough evidence for a real next-step decision, but still needs a decision-ready wrapper.
 - Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles; the fallback is improved, and leading `Yes/No` answer-style openings are now filtered, but the cleanup is still not fully semantic.
 - Current verified contrast note continuity: inline note-style contrast inputs no longer fall into `empty` just because `extract-claims` ran before an explicit `prepare`, but exact claim shape can still vary between the stronger restriction clause and an additional reopening clause.
 

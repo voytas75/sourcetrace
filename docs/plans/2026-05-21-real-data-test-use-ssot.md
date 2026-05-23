@@ -41,6 +41,8 @@ Interpretation:
 - Test-use note-taking artifacts already exist:
   - `docs/plans/test-use-observation-template.md`
   - `docs/plans/test-use-observation-example-bbc.md`
+- Continuity-pack guidance for decision checkpoints now exists:
+  - `docs/plans/2026-05-23-continuity-pack-usage-note.md`
 
 ## Important known limitation
 The current main product-quality risk is still extraction/normalization quality on real articles.

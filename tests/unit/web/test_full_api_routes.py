@@ -4,7 +4,7 @@ from io import BytesIO
 from typing import cast
 from wsgiref.util import setup_testing_defaults
 
-from sourcetrace.application import ClaimExtractionRuntime
+from sourcetrace.application import ClaimExtractionRuntime, ContinuityPackRequest
 from sourcetrace.application.extraction import ClaimExtractionOutcome, ClaimExtractionRequest
 from sourcetrace.domain import Case, Claim, ClaimEvidenceLink, Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
@@ -638,12 +638,171 @@ def test_wsgi_operational_endpoints_describe_runtime_and_capabilities() -> None:
     assert health_status == "200 OK"
     assert json.loads(health_body) == {"status": "ok"}
     assert ready_status == "200 OK"
-    assert json.loads(ready_body)["checks"]["delivery"] is True
+    ready_payload = json.loads(ready_body)
+    assert ready_payload["checks"]["delivery"] is True
+    assert ready_payload["checks"]["continuity_pack"] is True
     assert runtime_status == "200 OK"
-    assert json.loads(runtime_body)["runtime"]["entrypoint"] == "wsgi"
+    runtime_payload = json.loads(runtime_body)
+    assert runtime_payload["runtime"]["entrypoint"] == "wsgi"
+    assert runtime_payload["runtime"]["continuity_pack"] == "enabled"
     assert capabilities_status == "200 OK"
-    assert "/api/cases/{case_id}/documents" in json.loads(capabilities_body)["routes"]["product"]
-    assert "/api/dev/documents" in json.loads(capabilities_body)["routes"]["dev"]
+    capabilities_payload = json.loads(capabilities_body)
+    assert "/api/cases/{case_id}/documents" in capabilities_payload["routes"]["product"]
+    assert "/api/dev/documents" in capabilities_payload["routes"]["dev"]
+    assert capabilities_payload["capabilities"]["continuity_packs"] == [
+        "assemble_preview",
+        "assemble_from_artifact",
+        "render_markdown",
+    ]
+
+
+def test_delivery_can_assemble_continuity_pack_preview() -> None:
+    delivery = create_default_delivery()
+
+    inspection = delivery.inspect_continuity_pack(
+        ContinuityPackRequest(
+            title="Reuters A1 continuity pack",
+            source_artifact_path="docs/plans/2026-05-21-observation-a1-reuters-south-africa-risks.md",
+            confirmed=("Evidence exists.", "The observation note is decision-relevant."),
+            assumptions=("Decision owner is still the same.",),
+            to_verify=("Whether broader rollout is justified.",),
+            recommended_next_test=("Run one bounded follow-up on another source class.",),
+            decision_snapshot=("Ready for bounded follow-up.",),
+        )
+    )
+
+    assert inspection is not None
+    assert inspection.title == "Reuters A1 continuity pack"
+    assert inspection.source_artifact_path.endswith("reuters-south-africa-risks.md")
+    assert inspection.sections["Potwierdzone"] == (
+        "Evidence exists.",
+        "The observation note is decision-relevant.",
+    )
+    assert inspection.sections["Recommended next test"] == (
+        "Run one bounded follow-up on another source class.",
+    )
+    assert inspection.decision_snapshot == ("Ready for bounded follow-up.",)
+
+
+def test_delivery_can_build_continuity_pack_from_artifact() -> None:
+    delivery = create_default_delivery()
+
+    outcome = delivery.build_continuity_pack_from_artifact(
+        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    )
+
+    assert outcome is not None
+    assert outcome.continuity_pack.title
+    assert outcome.continuity_pack.source_artifact_path.endswith(
+        "2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    )
+    assert outcome.continuity_pack.confirmed
+    assert outcome.continuity_pack.recommended_next_test
+
+
+def test_delivery_can_render_continuity_pack_markdown_from_artifact() -> None:
+    delivery = create_default_delivery()
+
+    markdown = delivery.render_continuity_pack_markdown_from_artifact(
+        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    )
+
+    assert markdown is not None
+    assert markdown.startswith("# ")
+    assert "## Potwierdzone" in markdown
+    assert "## Recommended next test" in markdown
+
+
+def test_wsgi_can_assemble_continuity_pack_preview() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/continuity-packs/assemble-preview",
+        payload={
+            "title": "Reuters A1 continuity pack",
+            "source_artifact_path": "docs/plans/2026-05-21-observation-a1-reuters-south-africa-risks.md",
+            "confirmed": ["Evidence exists.", "The observation note is decision-relevant."],
+            "assumptions": ["Decision owner is still the same."],
+            "to_verify": ["Whether broader rollout is justified."],
+            "recommended_next_test": ["Run one bounded follow-up on another source class."],
+            "decision_snapshot": ["Ready for bounded follow-up."],
+        },
+    )
+
+    assert status == "200 OK"
+    payload = json.loads(body)
+    assert payload["resource"] == "continuity_pack"
+    assert payload["resource_id"].endswith("reuters-south-africa-risks.md")
+    assert payload["continuity_pack"]["title"] == "Reuters A1 continuity pack"
+    assert payload["continuity_pack"]["confirmed"] == [
+        "Evidence exists.",
+        "The observation note is decision-relevant.",
+    ]
+    assert payload["continuity_pack"]["recommended_next_test"] == [
+        "Run one bounded follow-up on another source class.",
+    ]
+
+
+def test_wsgi_rejects_invalid_continuity_pack_preview_payload() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/continuity-packs/assemble-preview",
+        payload={
+            "title": "",
+            "source_artifact_path": "docs/plans/example.md",
+            "confirmed": "not-a-list",
+            "assumptions": [],
+            "to_verify": [],
+            "recommended_next_test": [],
+        },
+    )
+
+    assert status == "400 Bad Request"
+    payload = json.loads(body)
+    assert payload["status"] == "invalid_request"
+
+
+def test_wsgi_can_assemble_continuity_pack_from_artifact() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/continuity-packs/assemble-from-artifact",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        },
+    )
+
+    assert status == "200 OK"
+    payload = json.loads(body)
+    assert payload["resource"] == "continuity_pack"
+    assert payload["continuity_pack"]["confirmed"]
+    assert payload["continuity_pack"]["recommended_next_test"]
+
+
+def test_wsgi_can_render_continuity_pack_markdown_from_artifact() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, headers, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/continuity-packs/render-markdown",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        },
+    )
+
+    assert status == "200 OK"
+    assert ("Content-Type", "text/markdown; charset=utf-8") in headers
+    assert body.startswith("# ")
+    assert "## Potwierdzone" in body
+    assert "## Recommended next test" in body
 
 
 

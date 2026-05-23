@@ -12,6 +12,7 @@ from sourcetrace.application.cases import (
     SourceIngestionOutcome,
     SourceIngestionRequest,
 )
+from sourcetrace.application.continuity import ContinuityPackOutcome, ContinuityPackRequest
 from sourcetrace.application.credibility import (
     CredibilityAssessmentOutcome,
     CredibilityAssessmentRequest,
@@ -153,6 +154,20 @@ class ReportAssemblyExecution:
     assemble_report: ReportAssembler
 
 
+class ContinuityPackAssembler(Protocol):
+    """Execution seam for wrapping a source artifact into a decision-ready continuity pack."""
+
+    def __call__(self, request: ContinuityPackRequest) -> ContinuityPackOutcome:
+        ...
+
+
+@dataclass(frozen=True)
+class ContinuityPackExecution:
+    """Continuity-pack seam bundle for explicit request/outcome callable wiring."""
+
+    assemble_pack: ContinuityPackAssembler
+
+
 class CredibilityAssessor(Protocol):
     """Execution seam for advisory document credibility assessment."""
 
@@ -181,6 +196,8 @@ __all__ = [
     "ClaimReviewer",
     "ClaimVerificationExecution",
     "ClaimVerifier",
+    "ContinuityPackAssembler",
+    "ContinuityPackExecution",
     "CredibilityAssessmentExecution",
     "CredibilityAssessor",
     "DocumentPreparationExecution",
