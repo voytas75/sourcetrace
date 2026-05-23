@@ -12,12 +12,14 @@ from sourcetrace.storage.memory import (
     InMemoryDocumentRepository,
     create_in_memory_persistence,
 )
+from sourcetrace.storage.filesystem import FileBackedCaseRepository
 
 __all__ = [
     "CaseRepository",
     "ClaimRepository",
     "CorePersistence",
     "DocumentRepository",
+    "FileBackedCaseRepository",
     "InMemoryCaseRepository",
     "InMemoryClaimRepository",
     "InMemoryDocumentRepository",

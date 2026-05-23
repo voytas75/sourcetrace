@@ -5,6 +5,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
+from pathlib import Path
 from unicodedata import combining, normalize as unicode_normalize
 from hashlib import sha256
 from typing import TYPE_CHECKING
@@ -64,7 +65,7 @@ from sourcetrace.pipeline import (
     LexicalChunkRetriever,
     RetrievalExecution,
 )
-from sourcetrace.storage import create_in_memory_persistence
+from sourcetrace.storage import FileBackedCaseRepository, create_in_memory_persistence
 from sourcetrace.storage.interfaces import CorePersistence
 
 if TYPE_CHECKING:
@@ -673,10 +674,18 @@ def create_default_delivery(
     claim_extraction: "ClaimExtractionGateway | None" = None,
     claim_normalization: "ClaimNormalizationGateway | None" = None,
     claim_extraction_runtime: ClaimExtractionRuntime | None = None,
+    continuity_pack_root_dir: str | Path | None = None,
 ) -> SourceTraceDelivery:
-    """Create the default in-memory analyst delivery surface."""
+    """Create the default analyst delivery surface."""
 
-    persistence = persistence or create_in_memory_persistence()
+    if persistence is None:
+        persistence = create_in_memory_persistence()
+        if continuity_pack_root_dir is not None:
+            persistence = CorePersistence(
+                cases=FileBackedCaseRepository(continuity_pack_root_dir),
+                documents=persistence.documents,
+                claims=persistence.claims,
+            )
     verification_runtime = ClaimVerificationRuntime(
         persistence=persistence,
         retrieval=RetrievalExecution(

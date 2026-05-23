@@ -18,6 +18,7 @@ from sourcetrace.web import (
     create_default_delivery,
     render_case_review_html,
 )
+from sourcetrace.storage import FileBackedCaseRepository, create_in_memory_persistence
 
 
 def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
@@ -931,6 +932,43 @@ def test_wsgi_case_continuity_pack_missing_for_existing_case() -> None:
     assert status == "404 Not Found"
     payload = json.loads(body)
     assert payload["error"] == "continuity_pack_not_found"
+
+
+def test_file_backed_case_repository_persists_active_continuity_pack(
+    tmp_path,
+) -> None:
+    continuity_root = tmp_path / "state"
+    repository = FileBackedCaseRepository(continuity_root)
+    repository.save_case(Case(case_id="case-fs", title="File-backed case", description=None))
+    persistence = create_in_memory_persistence()
+    persistence = persistence.__class__(
+        cases=repository,
+        documents=persistence.documents,
+        claims=persistence.claims,
+    )
+    delivery = create_default_delivery(persistence=persistence)
+
+    assigned = delivery.assign_case_continuity_pack(
+        "case-fs",
+        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+    )
+    assert assigned is not None
+
+    reloaded_repository = FileBackedCaseRepository(continuity_root)
+    reloaded_repository.save_case(
+        Case(case_id="case-fs", title="File-backed case", description=None)
+    )
+    reloaded_persistence = create_in_memory_persistence()
+    reloaded_persistence = reloaded_persistence.__class__(
+        cases=reloaded_repository,
+        documents=reloaded_persistence.documents,
+        claims=reloaded_persistence.claims,
+    )
+    reloaded_delivery = create_default_delivery(persistence=reloaded_persistence)
+
+    persisted = reloaded_delivery.get_case_continuity_pack("case-fs")
+    assert persisted is not None
+    assert persisted.continuity_pack == assigned.continuity_pack
 
 
 
