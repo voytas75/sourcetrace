@@ -280,7 +280,14 @@ class SourceTraceWSGIApp:
         payload = _read_json(environ)
         outcome = self.delivery.create_case(case_creation_request_from_payload(payload))
         continuity_pack = self.delivery.get_case_continuity_pack(outcome.case.case_id)
-        case_payload = case_to_payload(outcome.case, continuity_pack=continuity_pack)
+        latest_previous = self.delivery.get_latest_previous_case_continuity_pack(
+            outcome.case.case_id
+        )
+        case_payload = case_to_payload(
+            outcome.case,
+            continuity_pack=continuity_pack,
+            latest_previous_continuity_pack=latest_previous,
+        )
         return _json_response(
             start_response,
             "201 Created",
@@ -307,6 +314,9 @@ class SourceTraceWSGIApp:
                     case_to_payload(
                         case,
                         continuity_pack=self.delivery.get_case_continuity_pack(case.case_id),
+                        latest_previous_continuity_pack=(
+                            self.delivery.get_latest_previous_case_continuity_pack(case.case_id)
+                        ),
                     )
                     for case in self.delivery.list_cases()
                 ]
@@ -328,6 +338,9 @@ class SourceTraceWSGIApp:
                 "case": case_to_payload(
                     case,
                     continuity_pack=self.delivery.get_case_continuity_pack(case.case_id),
+                    latest_previous_continuity_pack=(
+                        self.delivery.get_latest_previous_case_continuity_pack(case.case_id)
+                    ),
                 )
             },
         )

@@ -133,6 +133,11 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        },
     }
     assert case_payload["status"] == "ready"
     assert case_payload["resource"] == "case"
@@ -162,6 +167,11 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        },
     }
     assert get_case_status == "200 OK"
     assert json.loads(get_case_body)["case"]["document_ids"] == ["doc-1"]
@@ -169,6 +179,11 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        },
     }
     assert docs_status == "200 OK"
     assert json.loads(docs_body)["documents"][0]["document_id"] == "doc-1"
@@ -454,6 +469,11 @@ def test_case_payload_includes_current_continuity_pack_summary() -> None:
         "assigned": True,
         "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
         "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        },
     }
 
     assert case_status == "200 OK"
@@ -462,6 +482,11 @@ def test_case_payload_includes_current_continuity_pack_summary() -> None:
         "assigned": True,
         "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
         "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        },
     }
 
 
@@ -515,6 +540,81 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
         "/cases/assign-continuity-pack?case_id=case-1&amp;artifact_path="
         "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
     ) in body
+
+
+def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and_clear() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    created_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"case_id": "case-history", "title": "Continuity history case"},
+    )
+    assert created_status == "201 Created"
+
+    first_assign_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-history/continuity-pack",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        },
+    )
+    assert first_assign_status == "200 OK"
+
+    second_assign_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-history/continuity-pack",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md"
+        },
+    )
+    assert second_assign_status == "200 OK"
+
+    case_status, _, case_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/cases/case-history",
+    )
+    assert case_status == "200 OK"
+    continuity_pack = json.loads(case_body)["case"]["continuity_pack"]
+    assert continuity_pack == {
+        "assigned": True,
+        "title": "SourceTrace Research Continuity Pack — oskarbrzycki/llm-cerebroscope",
+        "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md",
+        "latest_previous": {
+            "assigned": True,
+            "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
+            "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+        },
+    }
+
+    clear_status, _, _ = _call_wsgi(
+        app,
+        method="DELETE",
+        path="/api/cases/case-history/continuity-pack",
+    )
+    assert clear_status == "200 OK"
+
+    cleared_status, _, cleared_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/cases/case-history",
+    )
+    assert cleared_status == "200 OK"
+    cleared_continuity_pack = json.loads(cleared_body)["case"]["continuity_pack"]
+    assert cleared_continuity_pack == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+        "latest_previous": {
+            "assigned": True,
+            "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
+            "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+        },
+    }
 
 
 def test_case_review_html_renders_active_continuity_pack() -> None:

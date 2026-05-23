@@ -38,6 +38,12 @@ class CaseRepository(Protocol):
     def get_continuity_pack(self, case_id: str) -> ContinuityPackOutcome | None:
         ...
 
+    def get_latest_previous_continuity_pack(
+        self,
+        case_id: str,
+    ) -> ContinuityPackOutcome | None:
+        ...
+
     def clear_continuity_pack(self, case_id: str) -> None:
         ...
 

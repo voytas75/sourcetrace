@@ -20,7 +20,7 @@ class InMemoryCaseRepository:
     def __init__(self) -> None:
         self._cases: dict[str, Case] = {}
         self._continuity_packs: dict[str, ContinuityPackOutcome] = {}
-
+        self._latest_previous_continuity_packs: dict[str, ContinuityPackOutcome] = {}
     def save_case(self, case: Case) -> Case:
         self._cases[case.case_id] = case
         return case
@@ -39,11 +39,20 @@ class InMemoryCaseRepository:
         case_id: str,
         continuity_pack: ContinuityPackOutcome,
     ) -> ContinuityPackOutcome:
+        existing = self._continuity_packs.get(case_id)
+        if existing is not None:
+            self._latest_previous_continuity_packs[case_id] = existing
         self._continuity_packs[case_id] = continuity_pack
         return continuity_pack
 
     def get_continuity_pack(self, case_id: str) -> ContinuityPackOutcome | None:
         return self._continuity_packs.get(case_id)
+
+    def get_latest_previous_continuity_pack(
+        self,
+        case_id: str,
+    ) -> ContinuityPackOutcome | None:
+        return self._latest_previous_continuity_packs.get(case_id)
 
     def clear_continuity_pack(self, case_id: str) -> None:
         self._continuity_packs.pop(case_id, None)

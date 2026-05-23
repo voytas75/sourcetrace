@@ -2,7 +2,7 @@
 
 import json
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from sourcetrace.application.continuity import ContinuityPack, ContinuityPackOutcome, ContinuityPackRequest
@@ -51,24 +51,10 @@ class FileBackedCaseRepository(InMemoryCaseRepository):
         continuity_pack: ContinuityPackOutcome,
     ) -> None:
         payload = {
-            "request": {
-                "title": continuity_pack.request.title,
-                "source_artifact_path": continuity_pack.request.source_artifact_path,
-                "confirmed": list(continuity_pack.request.confirmed),
-                "assumptions": list(continuity_pack.request.assumptions),
-                "to_verify": list(continuity_pack.request.to_verify),
-                "recommended_next_test": list(continuity_pack.request.recommended_next_test),
-                "decision_snapshot": list(continuity_pack.request.decision_snapshot),
-            },
-            "continuity_pack": {
-                "title": continuity_pack.continuity_pack.title,
-                "source_artifact_path": continuity_pack.continuity_pack.source_artifact_path,
-                "confirmed": list(continuity_pack.continuity_pack.confirmed),
-                "assumptions": list(continuity_pack.continuity_pack.assumptions),
-                "to_verify": list(continuity_pack.continuity_pack.to_verify),
-                "recommended_next_test": list(continuity_pack.continuity_pack.recommended_next_test),
-                "decision_snapshot": list(continuity_pack.continuity_pack.decision_snapshot),
-            },
+            "active": _continuity_pack_outcome_payload(continuity_pack),
+            "latest_previous": _continuity_pack_outcome_payload(
+                self.get_latest_previous_continuity_pack(case_id)
+            ),
         }
         self._continuity_pack_path(case_id).write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
@@ -78,37 +64,16 @@ class FileBackedCaseRepository(InMemoryCaseRepository):
     def _load_continuity_packs(self) -> None:
         for path in sorted(self._continuity_pack_dir.glob("*.json")):
             payload = json.loads(path.read_text(encoding="utf-8"))
-            request_payload = payload["request"]
-            pack_payload = payload["continuity_pack"]
             case_id = path.stem
-            self._continuity_packs[case_id] = ContinuityPackOutcome(
-                request=ContinuityPackRequest(
-                    title=str(request_payload["title"]),
-                    source_artifact_path=str(request_payload["source_artifact_path"]),
-                    confirmed=tuple(str(item) for item in request_payload.get("confirmed", [])),
-                    assumptions=tuple(str(item) for item in request_payload.get("assumptions", [])),
-                    to_verify=tuple(str(item) for item in request_payload.get("to_verify", [])),
-                    recommended_next_test=tuple(
-                        str(item) for item in request_payload.get("recommended_next_test", [])
-                    ),
-                    decision_snapshot=tuple(
-                        str(item) for item in request_payload.get("decision_snapshot", [])
-                    ),
-                ),
-                continuity_pack=ContinuityPack(
-                    title=str(pack_payload["title"]),
-                    source_artifact_path=str(pack_payload["source_artifact_path"]),
-                    confirmed=tuple(str(item) for item in pack_payload.get("confirmed", [])),
-                    assumptions=tuple(str(item) for item in pack_payload.get("assumptions", [])),
-                    to_verify=tuple(str(item) for item in pack_payload.get("to_verify", [])),
-                    recommended_next_test=tuple(
-                        str(item) for item in pack_payload.get("recommended_next_test", [])
-                    ),
-                    decision_snapshot=tuple(
-                        str(item) for item in pack_payload.get("decision_snapshot", [])
-                    ),
-                ),
-            )
+            active_payload = payload.get("active")
+            latest_previous_payload = payload.get("latest_previous")
+
+            if active_payload is not None:
+                self._continuity_packs[case_id] = _continuity_pack_outcome_from_payload(active_payload)
+            if latest_previous_payload is not None:
+                self._latest_previous_continuity_packs[case_id] = _continuity_pack_outcome_from_payload(
+                    latest_previous_payload
+                )
 
     def continuity_pack_persistence_status(self) -> ContinuityPackPersistenceStatus:
         """Return operational diagnostics for continuity-pack persistence."""
@@ -123,6 +88,54 @@ class FileBackedCaseRepository(InMemoryCaseRepository):
         super().clear_continuity_pack(case_id)
         with suppress(FileNotFoundError):
             self._continuity_pack_path(case_id).unlink()
+
+
+def _continuity_pack_outcome_payload(
+    continuity_pack: ContinuityPackOutcome | None,
+) -> dict[str, object] | None:
+    if continuity_pack is None:
+        return None
+    return {
+        "request": asdict(continuity_pack.request),
+        "continuity_pack": asdict(continuity_pack.continuity_pack),
+    }
+
+
+def _continuity_pack_outcome_from_payload(
+    payload: dict[str, object],
+) -> ContinuityPackOutcome:
+    request_payload = payload["request"]
+    pack_payload = payload["continuity_pack"]
+    if not isinstance(request_payload, dict) or not isinstance(pack_payload, dict):
+        raise ValueError("Continuity-pack persistence payload must include request and continuity_pack objects.")
+    return ContinuityPackOutcome(
+        request=ContinuityPackRequest(
+            title=str(request_payload["title"]),
+            source_artifact_path=str(request_payload["source_artifact_path"]),
+            confirmed=tuple(str(item) for item in request_payload.get("confirmed", [])),
+            assumptions=tuple(str(item) for item in request_payload.get("assumptions", [])),
+            to_verify=tuple(str(item) for item in request_payload.get("to_verify", [])),
+            recommended_next_test=tuple(
+                str(item) for item in request_payload.get("recommended_next_test", [])
+            ),
+            decision_snapshot=tuple(
+                str(item) for item in request_payload.get("decision_snapshot", [])
+            ),
+        ),
+        continuity_pack=ContinuityPack(
+            title=str(pack_payload["title"]),
+            source_artifact_path=str(pack_payload["source_artifact_path"]),
+            confirmed=tuple(str(item) for item in pack_payload.get("confirmed", [])),
+            assumptions=tuple(str(item) for item in pack_payload.get("assumptions", [])),
+            to_verify=tuple(str(item) for item in pack_payload.get("to_verify", [])),
+            recommended_next_test=tuple(
+                str(item) for item in pack_payload.get("recommended_next_test", [])
+            ),
+            decision_snapshot=tuple(
+                str(item) for item in pack_payload.get("decision_snapshot", [])
+            ),
+        ),
+    )
 
 
 __all__ = ["ContinuityPackPersistenceStatus", "FileBackedCaseRepository"]

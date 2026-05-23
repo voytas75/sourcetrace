@@ -429,6 +429,16 @@ class SourceTraceDelivery:
             return None
         return self.persistence.cases.get_continuity_pack(case_id)
 
+    def get_latest_previous_case_continuity_pack(
+        self,
+        case_id: str,
+    ) -> ContinuityPackOutcome | None:
+        """Return the latest replaced continuity pack for one case."""
+
+        if self.persistence.cases.get_case(case_id) is None:
+            return None
+        return self.persistence.cases.get_latest_previous_continuity_pack(case_id)
+
     def clear_case_continuity_pack(self, case_id: str) -> bool:
         """Remove the active continuity pack from one case."""
 
@@ -761,27 +771,39 @@ def create_default_delivery(
 
 def continuity_pack_summary_to_payload(
     continuity_pack: ContinuityPackOutcome | None,
+    *,
+    latest_previous: ContinuityPackOutcome | None = None,
+    include_latest_previous: bool = True,
 ) -> dict[str, object]:
     """Serialize current continuity-pack assignment summary for case payloads."""
 
+    summary: dict[str, object]
     if continuity_pack is None:
-        return {
+        summary = {
             "assigned": False,
             "title": None,
             "source_artifact_path": None,
         }
-    pack = continuity_pack.continuity_pack
-    return {
-        "assigned": True,
-        "title": pack.title,
-        "source_artifact_path": pack.source_artifact_path,
-    }
+    else:
+        pack = continuity_pack.continuity_pack
+        summary = {
+            "assigned": True,
+            "title": pack.title,
+            "source_artifact_path": pack.source_artifact_path,
+        }
+    if include_latest_previous:
+        summary["latest_previous"] = continuity_pack_summary_to_payload(
+            latest_previous,
+            include_latest_previous=False,
+        )
+    return summary
 
 
 def case_to_payload(
     case: Case,
     *,
     continuity_pack: ContinuityPackOutcome | None = None,
+    latest_previous_continuity_pack: ContinuityPackOutcome | None = None,
 ) -> dict[str, object]:
     """Serialize a case for JSON API responses."""
 
@@ -791,7 +813,10 @@ def case_to_payload(
         "description": case.description,
         "document_ids": list(case.document_ids),
         "claim_ids": list(case.claim_ids),
-        "continuity_pack": continuity_pack_summary_to_payload(continuity_pack),
+        "continuity_pack": continuity_pack_summary_to_payload(
+            continuity_pack,
+            latest_previous=latest_previous_continuity_pack,
+        ),
     }
     return payload
 
