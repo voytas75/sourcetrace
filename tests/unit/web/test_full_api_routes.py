@@ -1249,9 +1249,28 @@ def test_wsgi_can_clear_case_continuity_pack_via_api() -> None:
         method="GET",
         path="/api/cases/case-clear/continuity-pack",
     )
-    assert get_status == "404 Not Found"
+    assert get_status == "200 OK"
     get_payload = json.loads(get_body)
-    assert get_payload["error"] == "continuity_pack_not_found"
+    assert get_payload["resource"] == "case_continuity_pack"
+    assert get_payload["case_id"] == "case-clear"
+    assert get_payload["continuity_pack"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        },
+    }
+    assert get_payload["artifacts"] == {
+        "active": None,
+        "latest_previous": None,
+    }
+    assert get_payload["actions"]["assign"] == "/api/cases/case-clear/continuity-pack"
+    assert get_payload["actions"]["clear"] == "/api/cases/case-clear/continuity-pack"
+    assert get_payload["actions"]["view_active"] is None
+    assert get_payload["actions"]["view_latest_previous"] is None
 
 
 def test_wsgi_can_clear_case_continuity_pack_from_query_and_redirect() -> None:
@@ -1290,9 +1309,28 @@ def test_wsgi_can_clear_case_continuity_pack_from_query_and_redirect() -> None:
         method="GET",
         path="/api/cases/case-clear-html/continuity-pack",
     )
-    assert get_status == "404 Not Found"
+    assert get_status == "200 OK"
     get_payload = json.loads(get_body)
-    assert get_payload["error"] == "continuity_pack_not_found"
+    assert get_payload["resource"] == "case_continuity_pack"
+    assert get_payload["case_id"] == "case-clear-html"
+    assert get_payload["continuity_pack"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        },
+    }
+    assert get_payload["artifacts"] == {
+        "active": None,
+        "latest_previous": None,
+    }
+    assert get_payload["actions"]["assign"] == "/api/cases/case-clear-html/continuity-pack"
+    assert get_payload["actions"]["clear"] == "/api/cases/case-clear-html/continuity-pack"
+    assert get_payload["actions"]["view_active"] is None
+    assert get_payload["actions"]["view_latest_previous"] is None
 
 
 def test_wsgi_case_continuity_pack_missing_for_existing_case() -> None:
@@ -1312,9 +1350,28 @@ def test_wsgi_case_continuity_pack_missing_for_existing_case() -> None:
         path="/api/cases/case-2/continuity-pack",
     )
 
-    assert status == "404 Not Found"
+    assert status == "200 OK"
     payload = json.loads(body)
-    assert payload["error"] == "continuity_pack_not_found"
+    assert payload["resource"] == "case_continuity_pack"
+    assert payload["case_id"] == "case-2"
+    assert payload["continuity_pack"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        },
+    }
+    assert payload["artifacts"] == {
+        "active": None,
+        "latest_previous": None,
+    }
+    assert payload["actions"]["assign"] == "/api/cases/case-2/continuity-pack"
+    assert payload["actions"]["clear"] == "/api/cases/case-2/continuity-pack"
+    assert payload["actions"]["view_active"] is None
+    assert payload["actions"]["view_latest_previous"] is None
 
 
 def test_file_backed_case_repository_persists_active_continuity_pack(

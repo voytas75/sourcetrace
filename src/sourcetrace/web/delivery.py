@@ -943,6 +943,48 @@ def continuity_pack_to_payload(
     }
 
 
+def continuity_pack_read_payload(
+    *,
+    case_id: str,
+    active: ContinuityPackOutcome | None,
+    latest_previous: ContinuityPackOutcome | None,
+) -> dict[str, object]:
+    """Serialize the continuity-pack read model for one case."""
+
+    return {
+        "status": "ready",
+        "resource": "case_continuity_pack",
+        "resource_id": case_id,
+        "case_id": case_id,
+        "continuity_pack": continuity_pack_summary_to_payload(
+            active,
+            latest_previous=latest_previous,
+        ),
+        "artifacts": {
+            "active": active.request.source_artifact_path if active is not None else None,
+            "latest_previous": (
+                latest_previous.request.source_artifact_path
+                if latest_previous is not None
+                else None
+            ),
+        },
+        "actions": {
+            "assign": f"/api/cases/{case_id}/continuity-pack",
+            "clear": f"/api/cases/{case_id}/continuity-pack",
+            "view_active": (
+                f"/continuity-packs/view?artifact_path={url_quote(active.request.source_artifact_path)}"
+                if active is not None
+                else None
+            ),
+            "view_latest_previous": (
+                f"/continuity-packs/view?artifact_path={url_quote(latest_previous.request.source_artifact_path)}"
+                if latest_previous is not None
+                else None
+            ),
+        },
+    }
+
+
 def continuity_pack_outcome_to_payload(
     outcome: ContinuityPackOutcome,
 ) -> dict[str, object]:

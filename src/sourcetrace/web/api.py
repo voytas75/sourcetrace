@@ -25,6 +25,7 @@ from sourcetrace.web.delivery import (
     claim_extraction_outcome_to_payload,
     claim_from_payload,
     continuity_pack_outcome_to_payload,
+    continuity_pack_read_payload,
     create_default_delivery,
     credibility_assessment_response_payload,
     document_credibility_assessment_to_payload,
@@ -589,16 +590,25 @@ class SourceTraceWSGIApp:
         if case is None:
             return _missing_response(start_response, "case", case_id)
         outcome = self.delivery.get_case_continuity_pack(case_id)
-        if outcome is None:
+        latest_previous = self.delivery.get_latest_previous_case_continuity_pack(case_id)
+        if outcome is None and latest_previous is None:
             return _json_response(
                 start_response,
-                "404 Not Found",
-                {"error": "continuity_pack_not_found", "status": "not_found"},
+                "200 OK",
+                continuity_pack_read_payload(
+                    case_id=case_id,
+                    active=None,
+                    latest_previous=None,
+                ),
             )
         return _json_response(
             start_response,
             "200 OK",
-            continuity_pack_outcome_to_payload(outcome),
+            continuity_pack_read_payload(
+                case_id=case_id,
+                active=outcome,
+                latest_previous=latest_previous,
+            ),
         )
 
     def _clear_case_continuity_pack(
