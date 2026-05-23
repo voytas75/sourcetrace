@@ -1352,6 +1352,55 @@ def test_file_backed_case_repository_persists_active_continuity_pack(
     persisted = reloaded_delivery.get_case_continuity_pack("case-fs")
     assert persisted is not None
     assert persisted.continuity_pack == assigned.continuity_pack
+    assert reloaded_delivery.get_latest_previous_case_continuity_pack("case-fs") is None
+
+
+def test_file_backed_case_repository_loads_legacy_continuity_pack_payload(
+    tmp_path,
+) -> None:
+    continuity_root = tmp_path / "state"
+    continuity_dir = continuity_root / "continuity_packs"
+    continuity_dir.mkdir(parents=True, exist_ok=True)
+    legacy_payload = {
+        "request": {
+            "title": "Legacy continuity pack",
+            "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+            "confirmed": ["Legacy confirmed item."],
+            "assumptions": ["Legacy assumption item."],
+            "to_verify": ["Legacy verify item."],
+            "recommended_next_test": ["Legacy next test item."],
+            "decision_snapshot": ["Legacy decision snapshot item."],
+        },
+        "continuity_pack": {
+            "title": "Legacy continuity pack",
+            "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+            "confirmed": ["Legacy confirmed item."],
+            "assumptions": ["Legacy assumption item."],
+            "to_verify": ["Legacy verify item."],
+            "recommended_next_test": ["Legacy next test item."],
+            "decision_snapshot": ["Legacy decision snapshot item."],
+        },
+    }
+    (continuity_dir / "case-legacy.json").write_text(
+        json.dumps(legacy_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    repository = FileBackedCaseRepository(continuity_root)
+    repository.save_case(Case(case_id="case-legacy", title="Legacy case", description=None))
+    persistence = create_in_memory_persistence()
+    persistence = persistence.__class__(
+        cases=repository,
+        documents=persistence.documents,
+        claims=persistence.claims,
+    )
+    delivery = create_default_delivery(persistence=persistence)
+
+    persisted = delivery.get_case_continuity_pack("case-legacy")
+    assert persisted is not None
+    assert persisted.continuity_pack.title == "Legacy continuity pack"
+    assert persisted.continuity_pack.confirmed == ("Legacy confirmed item.",)
+    assert delivery.get_latest_previous_case_continuity_pack("case-legacy") is None
 
 
 

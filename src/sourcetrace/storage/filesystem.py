@@ -65,6 +65,9 @@ class FileBackedCaseRepository(InMemoryCaseRepository):
         for path in sorted(self._continuity_pack_dir.glob("*.json")):
             payload = json.loads(path.read_text(encoding="utf-8"))
             case_id = path.stem
+            if _is_legacy_continuity_pack_payload(payload):
+                self._continuity_packs[case_id] = _continuity_pack_outcome_from_payload(payload)
+                continue
             active_payload = payload.get("active")
             latest_previous_payload = payload.get("latest_previous")
 
@@ -88,6 +91,12 @@ class FileBackedCaseRepository(InMemoryCaseRepository):
         super().clear_continuity_pack(case_id)
         with suppress(FileNotFoundError):
             self._continuity_pack_path(case_id).unlink()
+
+
+def _is_legacy_continuity_pack_payload(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    return "request" in payload and "continuity_pack" in payload
 
 
 def _continuity_pack_outcome_payload(
