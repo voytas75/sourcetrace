@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from os import environ
+from pathlib import Path
 from sys import executable
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ import pytest
 from sourcetrace.domain import Document
 from sourcetrace.local_launcher import (
     _missing_litellm_completion,
+    _resolve_continuity_pack_root_dir,
     _resolve_server_bind,
     build_local_server_runtime,
     main,
@@ -75,6 +77,33 @@ def test_resolve_server_bind_uses_env_override() -> None:
             environ.pop("SOURCETRACE_WWW_PORT", None)
         else:
             environ["SOURCETRACE_WWW_PORT"] = original_port
+
+
+def test_resolve_continuity_pack_root_dir_returns_none_when_env_is_missing() -> None:
+    original_root_dir = environ.get("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR")
+    try:
+        environ.pop("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR", None)
+
+        assert _resolve_continuity_pack_root_dir() is None
+    finally:
+        if original_root_dir is None:
+            environ.pop("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR", None)
+        else:
+            environ["SOURCETRACE_CONTINUITY_PACK_ROOT_DIR"] = original_root_dir
+
+
+def test_resolve_continuity_pack_root_dir_uses_env_override(tmp_path: Path) -> None:
+    original_root_dir = environ.get("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR")
+    root_dir = tmp_path / "continuity-pack-store"
+    try:
+        environ["SOURCETRACE_CONTINUITY_PACK_ROOT_DIR"] = str(root_dir)
+
+        assert _resolve_continuity_pack_root_dir() == root_dir
+    finally:
+        if original_root_dir is None:
+            environ.pop("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR", None)
+        else:
+            environ["SOURCETRACE_CONTINUITY_PACK_ROOT_DIR"] = original_root_dir
 
 
 
@@ -374,6 +403,7 @@ def test_build_local_server_runtime_wires_runtime_config_into_delivery_and_serve
     original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
     original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
     original_api_version = environ.get("SOURCETRACE_LLM_API_VERSION")
+    original_continuity_pack_root_dir = environ.get("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR")
 
     def completion_fn(**kwargs: object) -> dict[str, object]:
         captured["completion_kwargs"] = kwargs
@@ -400,11 +430,13 @@ def test_build_local_server_runtime_wires_runtime_config_into_delivery_and_serve
         environ["SOURCETRACE_LLM_API_VERSION"] = "preview"
         environ["SOURCETRACE_WWW_HOST"] = "0.0.0.0"
         environ["SOURCETRACE_WWW_PORT"] = "8002"
+        environ["SOURCETRACE_CONTINUITY_PACK_ROOT_DIR"] = "/tmp/source-trace-continuity"
         monkeypatch.setattr("sourcetrace.local_launcher.run_local_server", fake_run_local_server)
 
         runtime = build_local_server_runtime(completion_fn=completion_fn)
         delivery = captured["delivery"]
         assert isinstance(delivery, SourceTraceDelivery)
+        assert delivery.persistence.cases.__class__.__name__ == "FileBackedCaseRepository"
         delivery.persistence.documents.save_document(
             Document(
                 document_id="doc-1",
@@ -454,6 +486,10 @@ def test_build_local_server_runtime_wires_runtime_config_into_delivery_and_serve
             environ.pop("SOURCETRACE_LLM_API_VERSION", None)
         else:
             environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version
+        if original_continuity_pack_root_dir is None:
+            environ.pop("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR", None)
+        else:
+            environ["SOURCETRACE_CONTINUITY_PACK_ROOT_DIR"] = original_continuity_pack_root_dir
 
 
 def test_main_serves_and_closes_runtime(monkeypatch: pytest.MonkeyPatch) -> None:

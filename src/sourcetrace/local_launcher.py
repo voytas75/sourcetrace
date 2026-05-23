@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from os import environ
+from pathlib import Path
 from typing import Any
 
 _DEFAULT_WWW_HOST = "127.0.0.1"
@@ -73,6 +74,13 @@ def _resolve_server_bind() -> tuple[str, int]:
     return host, port
 
 
+def _resolve_continuity_pack_root_dir() -> Path | None:
+    raw_root_dir = environ.get("SOURCETRACE_CONTINUITY_PACK_ROOT_DIR", "").strip()
+    if not raw_root_dir:
+        return None
+    return Path(raw_root_dir)
+
+
 def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
@@ -88,6 +96,7 @@ def build_local_server_runtime(
         credibility_draft=llm_runtime.credibility_draft,
         claim_extraction=llm_runtime.claim_extraction,
         claim_normalization=llm_runtime.claim_normalization,
+        continuity_pack_root_dir=_resolve_continuity_pack_root_dir(),
     )
     host, port = _resolve_server_bind()
     return run_local_server(host=host, port=port, delivery=delivery)
