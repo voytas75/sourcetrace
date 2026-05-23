@@ -12,7 +12,10 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "uv run pytest -q" in readme
     assert "uv run python -m sourcetrace.web" in readme
     assert "Expected startup: `SourceTrace local server listening on http://127.0.0.1:8000`" in readme
-    assert "Use `Ctrl+C` to stop the server cleanly." in readme
+    assert "PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher" in readme
+    assert "PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15" in readme
+    assert "PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control status --mode local-launcher" in readme
+    assert "PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher" in readme
     assert "## Current state" in readme
     assert "Confirmed baseline now:" in readme
     assert "workflow envelope" in readme

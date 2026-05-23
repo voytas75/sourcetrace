@@ -54,8 +54,11 @@ Run the repo-owned launcher with runtime-config + LLM wiring:
 4. export `SOURCETRACE_LLM_API_VERSION`
 5. optional but recommended for durable continuity packs: export `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR` to a writable local directory
 6. ensure those exports are visible to the launcher process itself (for example by keeping them in the shell that starts the process, or by sourcing `~/.bashrc` before launch)
-7. `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=/home/voytas/projects/sourcetrace/src ./.venv/bin/python -m sourcetrace.local_launcher'`
-   - or `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=/home/voytas/projects/sourcetrace/src uv run sourcetrace-local'`
+7. preferred startup SSOT: `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=/home/voytas/projects/sourcetrace/src /home/voytas/projects/sourcetrace/.venv/bin/python -m sourcetrace.www_control start --mode local-launcher'`
+   - readiness probe: `bash -lc 'cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15'`
+   - status: `bash -lc 'cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control status --mode local-launcher'`
+   - stop: `bash -lc 'cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher'`
+   - lower-level fallback only if needed: `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=/home/voytas/projects/sourcetrace/src ./.venv/bin/python -m sourcetrace.local_launcher'`
    - the launcher sets `LITELLM_LOG=ERROR` by default unless you already exported a different value
    - current verified shell-init shape for local launchers is: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_VERSION`, plus mirrored `SOURCETRACE_LLM_API_KEY`, `SOURCETRACE_LLM_BASE_URL`, `SOURCETRACE_LLM_API_VERSION`
    - if you keep these exports in `~/.bashrc`, place them above the non-interactive guard (`case $- in ... return`) so `bash -lc 'source ~/.bashrc && ...'` actually loads them for automation
@@ -137,8 +140,11 @@ Do weryfikacji:
 ## Local smoke flow
 1. Start the local server:
    - lightweight in-memory front door only: `uv run python -m sourcetrace.web`
-   - repo-owned runtime-config + LLM launcher: `PYTHONPATH=src uv run python -m sourcetrace.local_launcher`
-   - installed script variant: `PYTHONPATH=src uv run sourcetrace-local`
+   - preferred repo-owned runtime-config + LLM launcher: `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher`
+   - readiness probe: `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15`
+   - status: `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control status --mode local-launcher`
+   - stop when done: `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher`
+   - lower-level fallback only if the wrapper is unavailable: `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher`
 2. Open `http://127.0.0.1:8000/`
    - Expected: `200 OK` HTML landing page listing the available smoke-test routes
 3. Fast reusable smoke (recommended after restart; requires an already running local server on `127.0.0.1:8000`):
@@ -280,7 +286,7 @@ Do weryfikacji:
 ## Test-use checklist for collecting findings
 - Current execution SSOT for the first real-data campaign:
   - `docs/plans/2026-05-21-real-data-test-use-ssot.md`
-- Start with `python -m sourcetrace.local_launcher`, not the thin `sourcetrace.web` path, if you want real LLM-backed extraction/credibility behavior.
+- Start with `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher`, not the thin `sourcetrace.web` path, if you want real LLM-backed extraction/credibility behavior.
 - For each article, record:
   - source URL
   - publisher / title / retrieved_at
@@ -323,11 +329,11 @@ Do weryfikacji:
 
 ## Example: run credibility on your own document payload
 1. Start the repo-owned launcher so the in-memory document repository and LLM-backed credibility path live in the same process:
-   - `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher'`
-   - or use the wrapper: `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-start'`
-   - readiness probe: `bash -lc 'cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-wait'`
-   - status: `bash -lc 'cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-status'`
-   - stop it later with: `bash -lc 'cd /home/voytas/projects/sourcetrace && ./.venv/bin/sourcetrace-www-stop'`
+   - `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher'`
+   - lower-level fallback only if needed: `bash -lc 'source /home/voytas/.bashrc && cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher'`
+   - readiness probe: `bash -lc 'cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15'`
+   - status: `bash -lc 'cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control status --mode local-launcher'`
+   - stop it later with: `bash -lc 'cd /home/voytas/projects/sourcetrace && PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher'`
 2. Seed your own document payload into that running process:
    - `curl -X POST http://127.0.0.1:8000/api/dev/documents \
        -H 'Content-Type: application/json' \
