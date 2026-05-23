@@ -279,7 +279,8 @@ class SourceTraceWSGIApp:
     ) -> Iterable[bytes]:
         payload = _read_json(environ)
         outcome = self.delivery.create_case(case_creation_request_from_payload(payload))
-        case_payload = case_to_payload(outcome.case)
+        continuity_pack = self.delivery.get_case_continuity_pack(outcome.case.case_id)
+        case_payload = case_to_payload(outcome.case, continuity_pack=continuity_pack)
         return _json_response(
             start_response,
             "201 Created",
@@ -301,7 +302,15 @@ class SourceTraceWSGIApp:
         return _json_response(
             start_response,
             "200 OK",
-            {"cases": [case_to_payload(case) for case in self.delivery.list_cases()]},
+            {
+                "cases": [
+                    case_to_payload(
+                        case,
+                        continuity_pack=self.delivery.get_case_continuity_pack(case.case_id),
+                    )
+                    for case in self.delivery.list_cases()
+                ]
+            },
         )
 
     def _get_case(
@@ -315,7 +324,12 @@ class SourceTraceWSGIApp:
         return _json_response(
             start_response,
             "200 OK",
-            {"case": case_to_payload(case)},
+            {
+                "case": case_to_payload(
+                    case,
+                    continuity_pack=self.delivery.get_case_continuity_pack(case.case_id),
+                )
+            },
         )
 
     def _create_case_document(

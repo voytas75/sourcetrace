@@ -759,7 +759,30 @@ def create_default_delivery(
     )
 
 
-def case_to_payload(case: Case) -> dict[str, object]:
+def continuity_pack_summary_to_payload(
+    continuity_pack: ContinuityPackOutcome | None,
+) -> dict[str, object]:
+    """Serialize current continuity-pack assignment summary for case payloads."""
+
+    if continuity_pack is None:
+        return {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+        }
+    pack = continuity_pack.continuity_pack
+    return {
+        "assigned": True,
+        "title": pack.title,
+        "source_artifact_path": pack.source_artifact_path,
+    }
+
+
+def case_to_payload(
+    case: Case,
+    *,
+    continuity_pack: ContinuityPackOutcome | None = None,
+) -> dict[str, object]:
     """Serialize a case for JSON API responses."""
 
     payload = {
@@ -768,6 +791,7 @@ def case_to_payload(case: Case) -> dict[str, object]:
         "description": case.description,
         "document_ids": list(case.document_ids),
         "claim_ids": list(case.claim_ids),
+        "continuity_pack": continuity_pack_summary_to_payload(continuity_pack),
     }
     return payload
 

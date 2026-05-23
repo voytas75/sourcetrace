@@ -129,6 +129,11 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
     assert case_status == "201 Created"
     case_payload = json.loads(case_body)
     assert case_payload["case"]["case_id"] == "case-1"
+    assert case_payload["case"]["continuity_pack"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+    }
     assert case_payload["status"] == "ready"
     assert case_payload["resource"] == "case"
     assert case_payload["resource_id"] == "case-1"
@@ -153,8 +158,18 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
     assert verify_status == "200 OK"
     assert cases_status == "200 OK"
     assert json.loads(cases_body)["cases"][0]["case_id"] == "case-1"
+    assert json.loads(cases_body)["cases"][0]["continuity_pack"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+    }
     assert get_case_status == "200 OK"
     assert json.loads(get_case_body)["case"]["document_ids"] == ["doc-1"]
+    assert json.loads(get_case_body)["case"]["continuity_pack"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+    }
     assert docs_status == "200 OK"
     assert json.loads(docs_body)["documents"][0]["document_id"] == "doc-1"
     assert get_doc_status == "200 OK"
@@ -403,6 +418,51 @@ def test_wsgi_persists_and_reads_credibility_assessment() -> None:
     assert json.loads(get_body)["credibility_assessment"]["notes"] == (
         "Credibility draft reached persistence."
     )
+
+
+def test_case_payload_includes_current_continuity_pack_summary() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    created_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"case_id": "case-summary", "title": "Continuity summary case"},
+    )
+    assert created_status == "201 Created"
+
+    assign_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-summary/continuity-pack",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        },
+    )
+    assert assign_status == "200 OK"
+
+    cases_status, _, cases_body = _call_wsgi(app, method="GET", path="/api/cases")
+    case_status, _, case_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/cases/case-summary",
+    )
+
+    assert cases_status == "200 OK"
+    cases_payload = json.loads(cases_body)
+    assert cases_payload["cases"][0]["continuity_pack"] == {
+        "assigned": True,
+        "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
+        "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+    }
+
+    assert case_status == "200 OK"
+    case_payload = json.loads(case_body)
+    assert case_payload["case"]["continuity_pack"] == {
+        "assigned": True,
+        "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
+        "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+    }
 
 
 def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
