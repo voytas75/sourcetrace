@@ -1000,6 +1000,8 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
             '<tr><td colspan="7">No documents attached yet. Create a document, then '
             "run prepare/extract/credibility.</td></tr>"
         )
+    continuity_pack = delivery.get_case_continuity_pack(case_id)
+    continuity_pack_section = _case_continuity_pack_section_html(continuity_pack)
     case_title = _escape_html(case.title)
     case_description = _escape_html(case.description or "No case description provided yet.")
     return (
@@ -1010,6 +1012,7 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
         f"<p><strong>Case ID:</strong> {_escape_html(case_id)}</p>"
         f"<p>{case_description}</p>"
         f"<p><strong>Documents:</strong> {len(documents)} &middot; <strong>Claims:</strong> {len(claims)}</p>"
+        f"{continuity_pack_section}"
         "<h2>Document status</h2>"
         "<table>"
         "<thead><tr><th>Document</th><th>Source type</th><th>Chunks</th><th>Claims</th><th>Credibility</th><th>Status</th><th>Next action</th></tr></thead>"
@@ -1423,6 +1426,32 @@ def _continuity_pack_list_html(items: tuple[str, ...]) -> str:
     if not items:
         return "<ul><li>None.</li></ul>"
     return "<ul>" + "".join(f"<li>{_escape_html(item)}</li>" for item in items) + "</ul>"
+
+
+def _case_continuity_pack_section_html(
+    continuity_pack: ContinuityPackOutcome | None,
+) -> str:
+    if continuity_pack is None:
+        return (
+            "<h2>Continuity pack</h2>"
+            "<p>No active continuity pack for this case yet.</p>"
+        )
+    pack = continuity_pack.continuity_pack
+    return (
+        "<h2>Continuity pack</h2>"
+        f"<p><strong>Title:</strong> {_escape_html(pack.title)}</p>"
+        f"<p><strong>Source artifact:</strong> {_escape_html(pack.source_artifact_path)}</p>"
+        f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[0])}</h3>"
+        f"{_continuity_pack_list_html(pack.confirmed)}"
+        f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[1])}</h3>"
+        f"{_continuity_pack_list_html(pack.assumptions)}"
+        f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[2])}</h3>"
+        f"{_continuity_pack_list_html(pack.to_verify)}"
+        f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[3])}</h3>"
+        f"{_continuity_pack_list_html(pack.recommended_next_test)}"
+        "<h3>Decision snapshot</h3>"
+        f"{_continuity_pack_list_html(pack.decision_snapshot)}"
+    )
 
 
 def _display_verdict(

@@ -4,12 +4,20 @@ from io import BytesIO
 from typing import cast
 from wsgiref.util import setup_testing_defaults
 
-from sourcetrace.application import ClaimExtractionRuntime, ContinuityPackRequest
+from sourcetrace.application import (
+    CaseCreationRequest,
+    ClaimExtractionRuntime,
+    ContinuityPackRequest,
+)
 from sourcetrace.application.extraction import ClaimExtractionOutcome, ClaimExtractionRequest
 from sourcetrace.domain import Case, Claim, ClaimEvidenceLink, Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
 from sourcetrace.llm.models import LlmGenerationResult
-from sourcetrace.web import SourceTraceWSGIApp, create_default_delivery
+from sourcetrace.web import (
+    SourceTraceWSGIApp,
+    create_default_delivery,
+    render_case_review_html,
+)
 
 
 def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
@@ -436,6 +444,31 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "Not assessed yet." in body
     assert "POST /api/documents/doc-bridge-note/credibility" in body
     assert "POST /api/documents/doc-bridge-note/extract-claims" in body
+    assert "No active continuity pack for this case yet." in body
+
+
+def test_case_review_html_renders_active_continuity_pack() -> None:
+    delivery = create_default_delivery()
+    delivery.create_case(
+        CaseCreationRequest(
+            case_id="case-cp",
+            title="Continuity handoff case",
+            description="Track continuity handoff.",
+        )
+    )
+    assigned = delivery.assign_case_continuity_pack(
+        "case-cp",
+        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+    )
+    assert assigned is not None
+
+    html = render_case_review_html(delivery, "case-cp")
+
+    assert "<h2>Continuity pack</h2>" in html
+    assert "Reuters A1" in html
+    assert "Source artifact:" in html
+    assert "<h3>Potwierdzone</h3>" in html
+    assert "<h3>Decision snapshot</h3>" in html
 
 
 
