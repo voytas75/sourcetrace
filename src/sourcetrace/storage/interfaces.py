@@ -38,6 +38,9 @@ class CaseRepository(Protocol):
     def get_continuity_pack(self, case_id: str) -> ContinuityPackOutcome | None:
         ...
 
+    def clear_continuity_pack(self, case_id: str) -> None:
+        ...
+
 
 class DocumentRepository(Protocol):
     """Persistence seam for documents and prepared chunks."""

@@ -1,6 +1,7 @@
 """Filesystem-backed persistence adapters for lightweight local durability."""
 
 import json
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -117,6 +118,11 @@ class FileBackedCaseRepository(InMemoryCaseRepository):
             backend=self.__class__.__name__,
             root_dir=str(self._root_dir),
         )
+
+    def clear_continuity_pack(self, case_id: str) -> None:
+        super().clear_continuity_pack(case_id)
+        with suppress(FileNotFoundError):
+            self._continuity_pack_path(case_id).unlink()
 
 
 __all__ = ["ContinuityPackPersistenceStatus", "FileBackedCaseRepository"]

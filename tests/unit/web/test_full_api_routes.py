@@ -482,6 +482,8 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
     assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
     assert "Render markdown" in html
     assert "/api/continuity-packs/render-markdown?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
+    assert "Clear active continuity pack" in html
+    assert "/cases/clear-continuity-pack?case_id=case-cp" in html
     assert "<h3>Potwierdzone</h3>" in html
     assert "<h3>Decision snapshot</h3>" in html
 
@@ -1031,6 +1033,87 @@ def test_wsgi_assign_case_continuity_pack_from_query_missing_case_returns_html_4
     assert ("Content-Type", "text/html; charset=utf-8") in headers
     assert "Case not found" in body
     assert "Cannot assign continuity pack to missing case: missing-case" in body
+
+
+def test_wsgi_can_clear_case_continuity_pack_via_api() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    created_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"case_id": "case-clear", "title": "Clear continuity case"},
+    )
+    assert created_status == "201 Created"
+
+    assign_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-clear/continuity-pack",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        },
+    )
+    assert assign_status == "200 OK"
+
+    clear_status, _, clear_body = _call_wsgi(
+        app,
+        method="DELETE",
+        path="/api/cases/case-clear/continuity-pack",
+    )
+    assert clear_status == "200 OK"
+    clear_payload = json.loads(clear_body)
+    assert clear_payload["summary"] == "Active continuity pack cleared."
+
+    get_status, _, get_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/cases/case-clear/continuity-pack",
+    )
+    assert get_status == "404 Not Found"
+    get_payload = json.loads(get_body)
+    assert get_payload["error"] == "continuity_pack_not_found"
+
+
+def test_wsgi_can_clear_case_continuity_pack_from_query_and_redirect() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    created_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"case_id": "case-clear-html", "title": "Clear continuity case"},
+    )
+    assert created_status == "201 Created"
+
+    assign_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-clear-html/continuity-pack",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        },
+    )
+    assert assign_status == "200 OK"
+
+    clear_status, headers, body = _call_wsgi(
+        app,
+        method="GET",
+        path="/cases/clear-continuity-pack",
+        query_string="case_id=case-clear-html",
+    )
+    assert clear_status == "303 See Other"
+    assert ("Location", "/cases/case-clear-html") in headers
+    assert body == ""
+
+    get_status, _, get_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/cases/case-clear-html/continuity-pack",
+    )
+    assert get_status == "404 Not Found"
+    get_payload = json.loads(get_body)
+    assert get_payload["error"] == "continuity_pack_not_found"
 
 
 def test_wsgi_case_continuity_pack_missing_for_existing_case() -> None:

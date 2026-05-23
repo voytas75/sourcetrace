@@ -45,6 +45,9 @@ class InMemoryCaseRepository:
     def get_continuity_pack(self, case_id: str) -> ContinuityPackOutcome | None:
         return self._continuity_packs.get(case_id)
 
+    def clear_continuity_pack(self, case_id: str) -> None:
+        self._continuity_packs.pop(case_id, None)
+
 
 class InMemoryDocumentRepository:
     """Document and chunk repository backed by process-local dictionaries."""

@@ -429,6 +429,14 @@ class SourceTraceDelivery:
             return None
         return self.persistence.cases.get_continuity_pack(case_id)
 
+    def clear_case_continuity_pack(self, case_id: str) -> bool:
+        """Remove the active continuity pack from one case."""
+
+        if self.persistence.cases.get_case(case_id) is None:
+            return False
+        self.persistence.cases.clear_continuity_pack(case_id)
+        return True
+
     def continuity_pack_persistence_status(self) -> ContinuityPackPersistenceStatus:
         """Return runtime diagnostics for continuity-pack persistence."""
 
@@ -1518,6 +1526,7 @@ def _case_continuity_pack_section_html(
             f"{suggested_artifacts_html}"
         )
     pack = continuity_pack.continuity_pack
+    clear_href = f"/cases/clear-continuity-pack?case_id={{case_id}}"
     view_href = f"/continuity-packs/view?artifact_path={url_quote(pack.source_artifact_path)}"
     render_href = "/api/continuity-packs/render-markdown?artifact_path="
     render_href += url_quote(pack.source_artifact_path)
@@ -1527,7 +1536,9 @@ def _case_continuity_pack_section_html(
         f"<p><strong>Source artifact:</strong> <code>{_escape_html(pack.source_artifact_path)}</code></p>"
         f"<p><a href=\"{_escape_html(view_href)}\">Open dedicated continuity-pack view</a>"
         " &middot; "
-        f"<a href=\"{_escape_html(render_href)}\">Render markdown</a></p>"
+        f"<a href=\"{_escape_html(render_href)}\">Render markdown</a>"
+        " &middot; "
+        f"<a href=\"{_escape_html(clear_href)}\">Clear active continuity pack</a></p>"
         f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[0])}</h3>"
         f"{_continuity_pack_list_html(pack.confirmed)}"
         f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[1])}</h3>"

@@ -166,6 +166,8 @@ class SourceTraceWSGIApp:
                         environ,
                         start_response,
                     )
+                if method == "DELETE":
+                    return self._clear_case_continuity_pack(case_id, start_response)
         if len(parts) == 3 and parts[:2] == ("api", "documents"):
             if method == "GET":
                 return self._get_document(parts[2], start_response)
@@ -222,6 +224,8 @@ class SourceTraceWSGIApp:
             return self._render_continuity_pack_view(environ, start_response)
         if method == "GET" and path == "/cases/assign-continuity-pack":
             return self._assign_case_continuity_pack_from_query(environ, start_response)
+        if method == "GET" and path == "/cases/clear-continuity-pack":
+            return self._clear_case_continuity_pack_from_query(environ, start_response)
         if method == "GET" and path.startswith("/cases/"):
             case_id = path.removeprefix("/cases/").strip("/")
             case = self.delivery.get_case(case_id)
@@ -569,6 +573,47 @@ class SourceTraceWSGIApp:
             "200 OK",
             continuity_pack_outcome_to_payload(outcome),
         )
+
+    def _clear_case_continuity_pack(
+        self,
+        case_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        case = self.delivery.get_case(case_id)
+        if case is None:
+            return _missing_response(start_response, "case", case_id)
+        self.delivery.clear_case_continuity_pack(case_id)
+        return _json_response(
+            start_response,
+            "200 OK",
+            {
+                "status": "ready",
+                "resource": "continuity_pack",
+                "resource_id": case_id,
+                "case_id": case_id,
+                "summary": "Active continuity pack cleared.",
+                "next_step": f"GET /cases/{case_id}",
+            },
+        )
+
+    def _clear_case_continuity_pack_from_query(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        case_id = _required_query_param(environ, "case_id")
+        case = self.delivery.get_case(case_id)
+        if case is None:
+            return _html_response(
+                start_response,
+                "404 Not Found",
+                _render_error_html(
+                    title="Case not found",
+                    message=f"Cannot clear continuity pack for missing case: {case_id}",
+                ),
+            )
+        self.delivery.clear_case_continuity_pack(case_id)
+        return _redirect_response(start_response, f"/cases/{case_id}")
 
     def _get_claim(
         self,
