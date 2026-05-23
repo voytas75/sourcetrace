@@ -65,7 +65,11 @@ from sourcetrace.pipeline import (
     LexicalChunkRetriever,
     RetrievalExecution,
 )
-from sourcetrace.storage import FileBackedCaseRepository, create_in_memory_persistence
+from sourcetrace.storage import (
+    ContinuityPackPersistenceStatus,
+    FileBackedCaseRepository,
+    create_in_memory_persistence,
+)
 from sourcetrace.storage.interfaces import CorePersistence
 
 if TYPE_CHECKING:
@@ -424,6 +428,18 @@ class SourceTraceDelivery:
             return None
         return self.persistence.cases.get_continuity_pack(case_id)
 
+    def continuity_pack_persistence_status(self) -> ContinuityPackPersistenceStatus:
+        """Return runtime diagnostics for continuity-pack persistence."""
+
+        case_repository = self.persistence.cases
+        if isinstance(case_repository, FileBackedCaseRepository):
+            return case_repository.continuity_pack_persistence_status()
+        return ContinuityPackPersistenceStatus(
+            enabled=False,
+            backend=case_repository.__class__.__name__,
+            root_dir=None,
+        )
+
     def render_continuity_pack_markdown(
 
         self,
@@ -489,6 +505,7 @@ class SourceTraceDelivery:
     def readiness_payload(self) -> dict[str, object]:
         """Return minimal operational readiness metadata."""
 
+        continuity_pack_persistence = self.continuity_pack_persistence_status()
         return {
             "status": "ready",
             "checks": {
@@ -497,13 +514,22 @@ class SourceTraceDelivery:
                 "verification_runtime": True,
                 "claim_extraction": self.claim_extraction_runtime is not None,
                 "continuity_pack": self.continuity_pack_execution is not None,
+                "continuity_pack_persistence": continuity_pack_persistence.enabled,
                 "credibility_assessment": self.credibility_assessment is not None,
+            },
+            "diagnostics": {
+                "continuity_pack_persistence": {
+                    "enabled": continuity_pack_persistence.enabled,
+                    "backend": continuity_pack_persistence.backend,
+                    "root_dir": continuity_pack_persistence.root_dir,
+                }
             },
         }
 
     def runtime_payload(self) -> dict[str, object]:
         """Return delivery/runtime composition metadata."""
 
+        continuity_pack_persistence = self.continuity_pack_persistence_status()
         return {
             "runtime": {
                 "entrypoint": "wsgi",
@@ -511,6 +537,11 @@ class SourceTraceDelivery:
                 "verification_runtime": "enabled",
                 "claim_extraction": _enabled(self.claim_extraction_runtime),
                 "continuity_pack": _enabled(self.continuity_pack_execution),
+                "continuity_pack_persistence": {
+                    "enabled": continuity_pack_persistence.enabled,
+                    "backend": continuity_pack_persistence.backend,
+                    "root_dir": continuity_pack_persistence.root_dir,
+                },
                 "credibility_assessment": _enabled(self.credibility_assessment),
                 "reporting": "enabled",
                 "dev_routes": "enabled",

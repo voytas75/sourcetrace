@@ -1,11 +1,21 @@
 """Filesystem-backed persistence adapters for lightweight local durability."""
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from sourcetrace.application.continuity import ContinuityPack, ContinuityPackOutcome, ContinuityPackRequest
 from sourcetrace.domain.cases import Case
 from sourcetrace.storage.memory import InMemoryCaseRepository
+
+
+@dataclass(frozen=True)
+class ContinuityPackPersistenceStatus:
+    """Operational diagnostics for continuity-pack persistence."""
+
+    enabled: bool
+    backend: str
+    root_dir: str | None
 
 
 class FileBackedCaseRepository(InMemoryCaseRepository):
@@ -99,5 +109,14 @@ class FileBackedCaseRepository(InMemoryCaseRepository):
                 ),
             )
 
+    def continuity_pack_persistence_status(self) -> ContinuityPackPersistenceStatus:
+        """Return operational diagnostics for continuity-pack persistence."""
 
-__all__ = ["FileBackedCaseRepository"]
+        return ContinuityPackPersistenceStatus(
+            enabled=True,
+            backend=self.__class__.__name__,
+            root_dir=str(self._root_dir),
+        )
+
+
+__all__ = ["ContinuityPackPersistenceStatus", "FileBackedCaseRepository"]

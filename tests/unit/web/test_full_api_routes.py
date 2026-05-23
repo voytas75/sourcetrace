@@ -675,10 +675,21 @@ def test_wsgi_operational_endpoints_describe_runtime_and_capabilities() -> None:
     ready_payload = json.loads(ready_body)
     assert ready_payload["checks"]["delivery"] is True
     assert ready_payload["checks"]["continuity_pack"] is True
+    assert ready_payload["checks"]["continuity_pack_persistence"] is False
+    assert ready_payload["diagnostics"]["continuity_pack_persistence"] == {
+        "enabled": False,
+        "backend": "InMemoryCaseRepository",
+        "root_dir": None,
+    }
     assert runtime_status == "200 OK"
     runtime_payload = json.loads(runtime_body)
     assert runtime_payload["runtime"]["entrypoint"] == "wsgi"
     assert runtime_payload["runtime"]["continuity_pack"] == "enabled"
+    assert runtime_payload["runtime"]["continuity_pack_persistence"] == {
+        "enabled": False,
+        "backend": "InMemoryCaseRepository",
+        "root_dir": None,
+    }
     assert capabilities_status == "200 OK"
     capabilities_payload = json.loads(capabilities_body)
     assert "/api/cases/{case_id}/documents" in capabilities_payload["routes"]["product"]
@@ -688,6 +699,33 @@ def test_wsgi_operational_endpoints_describe_runtime_and_capabilities() -> None:
         "assemble_from_artifact",
         "render_markdown",
     ]
+
+
+def test_wsgi_operational_endpoints_report_file_backed_continuity_pack_persistence(
+    tmp_path,
+) -> None:
+    delivery = create_default_delivery(continuity_pack_root_dir=tmp_path)
+    app = SourceTraceWSGIApp(delivery=delivery)
+
+    ready_status, _, ready_body = _call_wsgi(app, method="GET", path="/api/ready")
+    runtime_status, _, runtime_body = _call_wsgi(app, method="GET", path="/api/runtime")
+
+    assert ready_status == "200 OK"
+    ready_payload = json.loads(ready_body)
+    assert ready_payload["checks"]["continuity_pack_persistence"] is True
+    assert ready_payload["diagnostics"]["continuity_pack_persistence"] == {
+        "enabled": True,
+        "backend": "FileBackedCaseRepository",
+        "root_dir": str(tmp_path),
+    }
+
+    assert runtime_status == "200 OK"
+    runtime_payload = json.loads(runtime_body)
+    assert runtime_payload["runtime"]["continuity_pack_persistence"] == {
+        "enabled": True,
+        "backend": "FileBackedCaseRepository",
+        "root_dir": str(tmp_path),
+    }
 
 
 def test_delivery_can_assemble_continuity_pack_preview() -> None:
