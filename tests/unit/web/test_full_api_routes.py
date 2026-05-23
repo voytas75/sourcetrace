@@ -631,21 +631,35 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
         artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
     )
     assert assigned is not None
+    replaced = delivery.assign_case_continuity_pack(
+        "case-cp",
+        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md",
+    )
+    assert replaced is not None
 
     html = render_case_review_html(delivery, "case-cp")
 
     assert "<h2>Continuity pack</h2>" in html
-    assert "Reuters A1" in html
+    assert "oskarbrzycki/llm-cerebroscope" in html
     assert "Source artifact:" in html
-    assert "<code>docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md</code>" in html
+    assert "<code>docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md</code>" in html
     assert "Open dedicated continuity-pack view" in html
-    assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
+    assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
     assert "Render markdown" in html
-    assert "/api/continuity-packs/render-markdown?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
+    assert "/api/continuity-packs/render-markdown?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
     assert "Clear active continuity pack" in html
     assert "/cases/clear-continuity-pack?case_id=case-cp" in html
     assert "Replace warning:" in html
     assert "assigning another continuity pack will replace the current active pack for this case." in html
+    assert "Latest previous continuity pack" in html
+    assert "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks" in html
+    assert "Open previous continuity-pack view" in html
+    assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
+    assert "Reassign previous continuity pack" in html
+    assert (
+        "/cases/assign-continuity-pack?case_id=case-cp&amp;artifact_path="
+        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    ) in html
     assert "Suggested replacement continuity-pack artifacts:" in html
     assert "Replace with 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
     assert "Replace with 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html

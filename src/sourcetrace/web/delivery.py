@@ -1099,8 +1099,10 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
             "run prepare/extract/credibility.</td></tr>"
         )
     continuity_pack = delivery.get_case_continuity_pack(case_id)
+    latest_previous_continuity_pack = delivery.get_latest_previous_case_continuity_pack(case_id)
     continuity_pack_section = _case_continuity_pack_section_html(
         continuity_pack,
+        latest_previous_continuity_pack=latest_previous_continuity_pack,
     ).replace("{case_id}", _escape_html(case_id))
     case_title = _escape_html(case.title)
     case_description = _escape_html(case.description or "No case description provided yet.")
@@ -1569,6 +1571,8 @@ def _discover_continuity_pack_artifact_paths() -> tuple[str, ...]:
 
 def _case_continuity_pack_section_html(
     continuity_pack: ContinuityPackOutcome | None,
+    *,
+    latest_previous_continuity_pack: ContinuityPackOutcome | None = None,
 ) -> str:
     if continuity_pack is None:
         suggested_artifacts_html = _suggested_continuity_pack_artifacts_html(replace=False)
@@ -1581,11 +1585,33 @@ def _case_continuity_pack_section_html(
             f"{suggested_artifacts_html}"
         )
     pack = continuity_pack.continuity_pack
+    previous_pack = (
+        latest_previous_continuity_pack.continuity_pack
+        if latest_previous_continuity_pack is not None
+        else None
+    )
     suggested_replacements_html = _suggested_continuity_pack_artifacts_html(replace=True)
     clear_href = f"/cases/clear-continuity-pack?case_id={{case_id}}"
     view_href = f"/continuity-packs/view?artifact_path={url_quote(pack.source_artifact_path)}"
     render_href = "/api/continuity-packs/render-markdown?artifact_path="
     render_href += url_quote(pack.source_artifact_path)
+    latest_previous_html = ""
+    if previous_pack is not None:
+        previous_view_href = (
+            f"/continuity-packs/view?artifact_path={url_quote(previous_pack.source_artifact_path)}"
+        )
+        previous_assign_href = (
+            "/cases/assign-continuity-pack?case_id={case_id}&artifact_path="
+            f"{url_quote(previous_pack.source_artifact_path)}"
+        )
+        latest_previous_html = (
+            "<h3>Latest previous continuity pack</h3>"
+            f"<p><strong>Title:</strong> {_escape_html(previous_pack.title)}</p>"
+            f"<p><strong>Source artifact:</strong> <code>{_escape_html(previous_pack.source_artifact_path)}</code></p>"
+            f"<p><a href=\"{_escape_html(previous_view_href)}\">Open previous continuity-pack view</a>"
+            " &middot; "
+            f"<a href=\"{_escape_html(previous_assign_href)}\">Reassign previous continuity pack</a></p>"
+        )
     return (
         "<h2>Continuity pack</h2>"
         f"<p><strong>Title:</strong> {_escape_html(pack.title)}</p>"
@@ -1596,6 +1622,7 @@ def _case_continuity_pack_section_html(
         f"<a href=\"{_escape_html(render_href)}\">Render markdown</a>"
         " &middot; "
         f"<a href=\"{_escape_html(clear_href)}\">Clear active continuity pack</a></p>"
+        f"{latest_previous_html}"
         f"{suggested_replacements_html}"
         f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[0])}</h3>"
         f"{_continuity_pack_list_html(pack.confirmed)}"
