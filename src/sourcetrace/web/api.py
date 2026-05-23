@@ -220,6 +220,8 @@ class SourceTraceWSGIApp:
             return self._render_report(path, start_response)
         if method == "GET" and path == "/continuity-packs/view":
             return self._render_continuity_pack_view(environ, start_response)
+        if method == "GET" and path == "/cases/assign-continuity-pack":
+            return self._assign_case_continuity_pack_from_query(environ, start_response)
         if method == "GET" and path.startswith("/cases/"):
             case_id = path.removeprefix("/cases/").strip("/")
             case = self.delivery.get_case(case_id)
@@ -518,6 +520,33 @@ class SourceTraceWSGIApp:
             start_response,
             "200 OK",
             continuity_pack_outcome_to_payload(outcome),
+        )
+
+    def _assign_case_continuity_pack_from_query(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        case_id = _required_query_param(environ, "case_id")
+        artifact_path = _required_query_param(environ, "artifact_path")
+        title = _optional_query_param(environ, "title")
+        outcome = self.delivery.assign_case_continuity_pack(
+            case_id,
+            artifact_path=artifact_path,
+            title=title,
+        )
+        if outcome is None:
+            return _html_response(
+                start_response,
+                "404 Not Found",
+                _render_error_html(
+                    title="Case not found",
+                    message=f"Cannot assign continuity pack to missing case: {case_id}",
+                ),
+            )
+        return _redirect_response(
+            start_response,
+            f"/cases/{case_id}",
         )
 
     def _get_case_continuity_pack(
@@ -1063,6 +1092,21 @@ def _text_response(
         status,
         [
             ("Content-Type", content_type),
+            ("Content-Length", str(len(body))),
+        ],
+    )
+    return [body]
+
+
+def _redirect_response(
+    start_response: StartResponse,
+    location: str,
+) -> Iterable[bytes]:
+    body = b""
+    start_response(
+        "303 See Other",
+        [
+            ("Location", location),
             ("Content-Length", str(len(body))),
         ],
     )

@@ -446,8 +446,13 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "POST /api/documents/doc-bridge-note/credibility" in body
     assert "POST /api/documents/doc-bridge-note/extract-claims" in body
     assert "No active continuity pack for this case yet." in body
-    assert "POST /api/cases/{case_id}/continuity-pack" in body
+    assert "POST /api/cases/case-1/continuity-pack" in body
     assert "docs/plans/...continuity-pack..." in body
+    assert "Assign Reuters A1 example to this case" in body
+    assert (
+        "/cases/assign-continuity-pack?case_id=case-1&amp;artifact_path="
+        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    ) in body
 
 
 def test_case_review_html_renders_active_continuity_pack() -> None:
@@ -972,40 +977,58 @@ def test_wsgi_rejects_continuity_pack_html_view_without_artifact_path() -> None:
     assert payload["error"] == "artifact_path query parameter is required."
 
 
-def test_wsgi_can_assign_and_get_case_continuity_pack() -> None:
+def test_wsgi_can_assign_case_continuity_pack_from_query_and_redirect() -> None:
     app = SourceTraceWSGIApp(delivery=create_default_delivery())
 
     created_status, _, _ = _call_wsgi(
         app,
         method="POST",
         path="/api/cases",
-        payload={"case_id": "case-1", "title": "Continuity case"},
+        payload={"case_id": "case-assign", "title": "Assign continuity case"},
     )
     assert created_status == "201 Created"
 
-    assign_status, _, assign_body = _call_wsgi(
+    status, headers, body = _call_wsgi(
         app,
-        method="POST",
-        path="/api/cases/case-1/continuity-pack",
-        payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
-        },
+        method="GET",
+        path="/cases/assign-continuity-pack",
+        query_string=(
+            "case_id=case-assign&artifact_path="
+            "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        ),
     )
-    assert assign_status == "200 OK"
-    assigned_payload = json.loads(assign_body)
-    assert assigned_payload["resource"] == "continuity_pack"
-    assert assigned_payload["continuity_pack"]["source_artifact_path"].endswith(
-        "reuters-a1.md"
-    )
+
+    assert status == "303 See Other"
+    assert ("Location", "/cases/case-assign") in headers
+    assert body == ""
 
     get_status, _, get_body = _call_wsgi(
         app,
         method="GET",
-        path="/api/cases/case-1/continuity-pack",
+        path="/api/cases/case-assign/continuity-pack",
     )
     assert get_status == "200 OK"
-    retrieved_payload = json.loads(get_body)
-    assert retrieved_payload["continuity_pack"] == assigned_payload["continuity_pack"]
+    payload = json.loads(get_body)
+    assert payload["continuity_pack"]["source_artifact_path"].endswith("reuters-a1.md")
+
+
+def test_wsgi_assign_case_continuity_pack_from_query_missing_case_returns_html_404() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, headers, body = _call_wsgi(
+        app,
+        method="GET",
+        path="/cases/assign-continuity-pack",
+        query_string=(
+            "case_id=missing-case&artifact_path="
+            "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        ),
+    )
+
+    assert status == "404 Not Found"
+    assert ("Content-Type", "text/html; charset=utf-8") in headers
+    assert "Case not found" in body
+    assert "Cannot assign continuity pack to missing case: missing-case" in body
 
 
 def test_wsgi_case_continuity_pack_missing_for_existing_case() -> None:

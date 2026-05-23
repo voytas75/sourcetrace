@@ -1042,7 +1042,9 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
             "run prepare/extract/credibility.</td></tr>"
         )
     continuity_pack = delivery.get_case_continuity_pack(case_id)
-    continuity_pack_section = _case_continuity_pack_section_html(continuity_pack)
+    continuity_pack_section = _case_continuity_pack_section_html(
+        continuity_pack,
+    ).replace("{case_id}", _escape_html(case_id))
     case_title = _escape_html(case.title)
     case_description = _escape_html(case.description or "No case description provided yet.")
     return (
@@ -1472,6 +1474,10 @@ def _continuity_pack_list_html(items: tuple[str, ...]) -> str:
 def _case_continuity_pack_section_html(
     continuity_pack: ContinuityPackOutcome | None,
 ) -> str:
+    assign_example_href = (
+        "/cases/assign-continuity-pack?case_id={case_id}&artifact_path="
+        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    )
     if continuity_pack is None:
         return (
             "<h2>Continuity pack</h2>"
@@ -1479,6 +1485,8 @@ def _case_continuity_pack_section_html(
             "<p><strong>Next step:</strong> "
             "POST /api/cases/{case_id}/continuity-pack with an artifact_path from "
             "<code>docs/plans/...continuity-pack...</code>.</p>"
+            f"<p><a href=\"{_escape_html(assign_example_href)}\">"
+            "Assign Reuters A1 example to this case</a></p>"
         )
     pack = continuity_pack.continuity_pack
     view_href = f"/continuity-packs/view?artifact_path={url_quote(pack.source_artifact_path)}"
