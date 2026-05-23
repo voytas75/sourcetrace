@@ -446,6 +446,8 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "POST /api/documents/doc-bridge-note/credibility" in body
     assert "POST /api/documents/doc-bridge-note/extract-claims" in body
     assert "No active continuity pack for this case yet." in body
+    assert "POST /api/cases/{case_id}/continuity-pack" in body
+    assert "docs/plans/...continuity-pack..." in body
 
 
 def test_case_review_html_renders_active_continuity_pack() -> None:
@@ -468,6 +470,11 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
     assert "<h2>Continuity pack</h2>" in html
     assert "Reuters A1" in html
     assert "Source artifact:" in html
+    assert "<code>docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md</code>" in html
+    assert "Open dedicated continuity-pack view" in html
+    assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
+    assert "Render markdown" in html
+    assert "/api/continuity-packs/render-markdown?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
     assert "<h3>Potwierdzone</h3>" in html
     assert "<h3>Decision snapshot</h3>" in html
 

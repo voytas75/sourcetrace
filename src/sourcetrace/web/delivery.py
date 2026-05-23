@@ -9,6 +9,7 @@ from pathlib import Path
 from unicodedata import combining, normalize as unicode_normalize
 from hashlib import sha256
 from typing import TYPE_CHECKING
+from urllib.parse import quote as url_quote
 from uuid import uuid4
 
 from sourcetrace.application import (
@@ -1475,12 +1476,21 @@ def _case_continuity_pack_section_html(
         return (
             "<h2>Continuity pack</h2>"
             "<p>No active continuity pack for this case yet.</p>"
+            "<p><strong>Next step:</strong> "
+            "POST /api/cases/{case_id}/continuity-pack with an artifact_path from "
+            "<code>docs/plans/...continuity-pack...</code>.</p>"
         )
     pack = continuity_pack.continuity_pack
+    view_href = f"/continuity-packs/view?artifact_path={url_quote(pack.source_artifact_path)}"
+    render_href = "/api/continuity-packs/render-markdown?artifact_path="
+    render_href += url_quote(pack.source_artifact_path)
     return (
         "<h2>Continuity pack</h2>"
         f"<p><strong>Title:</strong> {_escape_html(pack.title)}</p>"
-        f"<p><strong>Source artifact:</strong> {_escape_html(pack.source_artifact_path)}</p>"
+        f"<p><strong>Source artifact:</strong> <code>{_escape_html(pack.source_artifact_path)}</code></p>"
+        f"<p><a href=\"{_escape_html(view_href)}\">Open dedicated continuity-pack view</a>"
+        " &middot; "
+        f"<a href=\"{_escape_html(render_href)}\">Render markdown</a></p>"
         f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[0])}</h3>"
         f"{_continuity_pack_list_html(pack.confirmed)}"
         f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[1])}</h3>"
