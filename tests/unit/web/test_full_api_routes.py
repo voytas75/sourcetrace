@@ -448,7 +448,9 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "No active continuity pack for this case yet." in body
     assert "POST /api/cases/case-1/continuity-pack" in body
     assert "docs/plans/...continuity-pack..." in body
-    assert "Assign Reuters A1 example to this case" in body
+    assert "Suggested continuity-pack artifacts:" in body
+    assert "Assign 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in body
+    assert "Assign 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in body
     assert (
         "/cases/assign-continuity-pack?case_id=case-1&amp;artifact_path="
         "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"

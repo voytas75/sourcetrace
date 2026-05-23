@@ -1471,13 +1471,43 @@ def _continuity_pack_list_html(items: tuple[str, ...]) -> str:
     return "<ul>" + "".join(f"<li>{_escape_html(item)}</li>" for item in items) + "</ul>"
 
 
+def _suggested_continuity_pack_artifacts_html() -> str:
+    suggestions = _discover_continuity_pack_artifact_paths()
+    if not suggestions:
+        return ""
+    items = []
+    for artifact_path in suggestions:
+        href = (
+            "/cases/assign-continuity-pack?case_id={case_id}&artifact_path="
+            f"{url_quote(artifact_path)}"
+        )
+        label = _escape_html(Path(artifact_path).name)
+        items.append(
+            f'<li><a href="{_escape_html(href)}">Assign {label}</a></li>'
+        )
+    return (
+        "<p><strong>Suggested continuity-pack artifacts:</strong></p>"
+        f"<ul>{''.join(items)}</ul>"
+    )
+
+
+def _discover_continuity_pack_artifact_paths() -> tuple[str, ...]:
+    docs_plans_dir = Path(__file__).resolve().parents[3] / "docs" / "plans"
+    if not docs_plans_dir.exists():
+        return ()
+    suggestions: list[str] = []
+    for path in sorted(docs_plans_dir.glob("*continuity-pack*.md")):
+        relative_path = path.relative_to(Path(__file__).resolve().parents[3]).as_posix()
+        if "usage-note" in path.name or "broken-" in path.name:
+            continue
+        suggestions.append(relative_path)
+    return tuple(suggestions)
+
+
 def _case_continuity_pack_section_html(
     continuity_pack: ContinuityPackOutcome | None,
 ) -> str:
-    assign_example_href = (
-        "/cases/assign-continuity-pack?case_id={case_id}&artifact_path="
-        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
-    )
+    suggested_artifacts_html = _suggested_continuity_pack_artifacts_html()
     if continuity_pack is None:
         return (
             "<h2>Continuity pack</h2>"
@@ -1485,8 +1515,7 @@ def _case_continuity_pack_section_html(
             "<p><strong>Next step:</strong> "
             "POST /api/cases/{case_id}/continuity-pack with an artifact_path from "
             "<code>docs/plans/...continuity-pack...</code>.</p>"
-            f"<p><a href=\"{_escape_html(assign_example_href)}\">"
-            "Assign Reuters A1 example to this case</a></p>"
+            f"{suggested_artifacts_html}"
         )
     pack = continuity_pack.continuity_pack
     view_href = f"/continuity-packs/view?artifact_path={url_quote(pack.source_artifact_path)}"
