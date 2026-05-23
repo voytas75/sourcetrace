@@ -32,6 +32,7 @@ from sourcetrace.web.delivery import (
     document_preparation_outcome_to_payload,
     document_to_payload,
     render_case_review_html,
+    render_continuity_pack_html,
     render_report_markdown,
     report_outcome_to_payload,
     review_decision_from_payload,
@@ -40,6 +41,7 @@ from sourcetrace.web.delivery import (
     claim_to_payload,
     verification_inspection_to_payload,
     verification_outcome_to_payload,
+    _escape_html,
 )
 from sourcetrace.application import DocumentPreparationRequest, SourceIngestionRequest
 
@@ -207,6 +209,8 @@ class SourceTraceWSGIApp:
             return self._render_continuity_pack_markdown_preview(environ, start_response)
         if method == "GET" and path.startswith("/api/reports/"):
             return self._render_report(path, start_response)
+        if method == "GET" and path == "/continuity-packs/view":
+            return self._render_continuity_pack_view(environ, start_response)
         if method == "GET" and path.startswith("/cases/"):
             case_id = path.removeprefix("/cases/").strip("/")
             case = self.delivery.get_case(case_id)
@@ -681,6 +685,30 @@ class SourceTraceWSGIApp:
             markdown,
         )
 
+    def _render_continuity_pack_view(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        artifact_path = _required_query_param(environ, "artifact_path")
+        title = _optional_query_param(environ, "title")
+        try:
+            html = render_continuity_pack_html(
+                self.delivery,
+                artifact_path=artifact_path,
+                title=title,
+            )
+        except ValueError as exc:
+            return _html_response(
+                start_response,
+                "400 Bad Request",
+                _render_error_html(
+                    title="Continuity pack unavailable",
+                    message=str(exc),
+                ),
+            )
+        return _html_response(start_response, "200 OK", html)
+
     def _seed_document(
         self,
         environ: WsgiEnviron,
@@ -888,6 +916,40 @@ def _string_tuple(value: object, *, field_name: str) -> tuple[str, ...]:
         if stripped:
             items.append(stripped)
     return tuple(items)
+
+
+def _required_query_param(environ: WsgiEnviron, name: str) -> str:
+    with suppress(Exception):
+        from urllib.parse import parse_qs
+
+        query = parse_qs(str(environ.get("QUERY_STRING", "")), keep_blank_values=True)
+        value = (query.get(name) or [""])[0].strip()
+        if value:
+            return value
+    raise ValueError(f"{name} query parameter is required.")
+
+
+def _optional_query_param(environ: WsgiEnviron, name: str) -> str | None:
+    with suppress(Exception):
+        from urllib.parse import parse_qs
+
+        query = parse_qs(str(environ.get("QUERY_STRING", "")), keep_blank_values=True)
+        value = (query.get(name) or [""])[0].strip()
+        return value or None
+    return None
+
+
+def _render_error_html(*, title: str, message: str) -> str:
+    safe_title = _escape_html(title)
+    safe_message = _escape_html(message)
+    return (
+        "<!doctype html>"
+        f"<html><head><title>{safe_title}</title></head>"
+        "<body>"
+        f"<h1>{safe_title}</h1>"
+        f"<p>{safe_message}</p>"
+        "</body></html>"
+    )
 
 
 def _path_parts(path: str) -> tuple[str, ...]:

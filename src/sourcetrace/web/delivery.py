@@ -1028,6 +1028,38 @@ def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def render_continuity_pack_html(
+    delivery: SourceTraceDelivery,
+    *,
+    artifact_path: str,
+    title: str | None = None,
+) -> str:
+    """Render a small HTML continuity-pack view from an existing artifact."""
+
+    outcome = delivery.build_continuity_pack_from_artifact(artifact_path, title=title)
+    if outcome is None:
+        raise ValueError("continuity pack capability is not available.")
+    pack = outcome.continuity_pack
+    return (
+        "<!doctype html>"
+        "<html><head><title>SourceTrace Continuity Pack</title></head>"
+        "<body>"
+        f"<h1>{_escape_html(pack.title)}</h1>"
+        f"<p><strong>Source artifact:</strong> {_escape_html(pack.source_artifact_path)}</p>"
+        f"<h2>{_escape_html(CONTINUITY_PACK_SECTIONS[0])}</h2>"
+        f"{_continuity_pack_list_html(pack.confirmed)}"
+        f"<h2>{_escape_html(CONTINUITY_PACK_SECTIONS[1])}</h2>"
+        f"{_continuity_pack_list_html(pack.assumptions)}"
+        f"<h2>{_escape_html(CONTINUITY_PACK_SECTIONS[2])}</h2>"
+        f"{_continuity_pack_list_html(pack.to_verify)}"
+        f"<h2>{_escape_html(CONTINUITY_PACK_SECTIONS[3])}</h2>"
+        f"{_continuity_pack_list_html(pack.recommended_next_test)}"
+        "<h2>Decision snapshot</h2>"
+        f"{_continuity_pack_list_html(pack.decision_snapshot)}"
+        "</body></html>"
+    )
+
+
 def case_creation_request_from_payload(
     payload: dict[str, object],
 ) -> CaseCreationRequest:
@@ -1364,6 +1396,12 @@ def _claim_row_html(delivery: SourceTraceDelivery, claim: Claim) -> str:
     )
 
 
+def _continuity_pack_list_html(items: tuple[str, ...]) -> str:
+    if not items:
+        return "<ul><li>None.</li></ul>"
+    return "<ul>" + "".join(f"<li>{_escape_html(item)}</li>" for item in items) + "</ul>"
+
+
 def _display_verdict(
     claim: Claim,
     verification: ClaimVerification | None,
@@ -1647,6 +1685,7 @@ __all__ = [
     "document_to_payload",
     "evidence_link_to_payload",
     "render_case_review_html",
+    "render_continuity_pack_html",
     "render_report_markdown",
     "report_entry_to_payload",
     "report_outcome_to_payload",

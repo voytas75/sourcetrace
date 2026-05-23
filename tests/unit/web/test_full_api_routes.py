@@ -805,6 +805,43 @@ def test_wsgi_can_render_continuity_pack_markdown_from_artifact() -> None:
     assert "## Recommended next test" in body
 
 
+def test_wsgi_can_render_continuity_pack_html_view() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, headers, body = _call_wsgi(
+        app,
+        method="GET",
+        path="/continuity-packs/view",
+        query_string=(
+            "artifact_path="
+            "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        ),
+    )
+
+    assert status == "200 OK"
+    assert ("Content-Type", "text/html; charset=utf-8") in headers
+    assert "<h1>" in body
+    assert "Source artifact:" in body
+    assert "<h2>Potwierdzone</h2>" in body
+    assert "<h2>Recommended next test</h2>" in body
+
+
+def test_wsgi_rejects_continuity_pack_html_view_without_artifact_path() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, headers, body = _call_wsgi(
+        app,
+        method="GET",
+        path="/continuity-packs/view",
+    )
+
+    assert status == "400 Bad Request"
+    assert ("Content-Type", "application/json; charset=utf-8") in headers
+    payload = json.loads(body)
+    assert payload["status"] == "invalid_request"
+    assert payload["error"] == "artifact_path query parameter is required."
+
+
 
 def _document() -> Document:
     return Document(
@@ -828,11 +865,13 @@ def _call_wsgi(
     method: str,
     path: str,
     payload: dict[str, object] | None = None,
+    query_string: str = "",
 ) -> tuple[str, list[tuple[str, str]], str]:
     body = json.dumps(payload).encode("utf-8") if payload is not None else b""
     environ = {
         "REQUEST_METHOD": method,
         "PATH_INFO": path,
+        "QUERY_STRING": query_string,
         "CONTENT_LENGTH": str(len(body)),
         "wsgi.input": BytesIO(body),
     }
