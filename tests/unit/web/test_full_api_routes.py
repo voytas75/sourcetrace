@@ -484,6 +484,11 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
     assert "/api/continuity-packs/render-markdown?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
     assert "Clear active continuity pack" in html
     assert "/cases/clear-continuity-pack?case_id=case-cp" in html
+    assert "Replace warning:" in html
+    assert "assigning another continuity pack will replace the current active pack for this case." in html
+    assert "Suggested replacement continuity-pack artifacts:" in html
+    assert "Replace with 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
+    assert "Replace with 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
     assert "<h3>Potwierdzone</h3>" in html
     assert "<h3>Decision snapshot</h3>" in html
 

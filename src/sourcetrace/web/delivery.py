@@ -1479,10 +1479,19 @@ def _continuity_pack_list_html(items: tuple[str, ...]) -> str:
     return "<ul>" + "".join(f"<li>{_escape_html(item)}</li>" for item in items) + "</ul>"
 
 
-def _suggested_continuity_pack_artifacts_html() -> str:
+def _suggested_continuity_pack_artifacts_html(
+    *,
+    replace: bool,
+) -> str:
     suggestions = _discover_continuity_pack_artifact_paths()
     if not suggestions:
         return ""
+    action_label = "Replace with" if replace else "Assign"
+    intro = (
+        "<p><strong>Suggested replacement continuity-pack artifacts:</strong></p>"
+        if replace
+        else "<p><strong>Suggested continuity-pack artifacts:</strong></p>"
+    )
     items = []
     for artifact_path in suggestions:
         href = (
@@ -1491,12 +1500,9 @@ def _suggested_continuity_pack_artifacts_html() -> str:
         )
         label = _escape_html(Path(artifact_path).name)
         items.append(
-            f'<li><a href="{_escape_html(href)}">Assign {label}</a></li>'
+            f'<li><a href="{_escape_html(href)}">{action_label} {label}</a></li>'
         )
-    return (
-        "<p><strong>Suggested continuity-pack artifacts:</strong></p>"
-        f"<ul>{''.join(items)}</ul>"
-    )
+    return intro + f"<ul>{''.join(items)}</ul>"
 
 
 def _discover_continuity_pack_artifact_paths() -> tuple[str, ...]:
@@ -1515,8 +1521,8 @@ def _discover_continuity_pack_artifact_paths() -> tuple[str, ...]:
 def _case_continuity_pack_section_html(
     continuity_pack: ContinuityPackOutcome | None,
 ) -> str:
-    suggested_artifacts_html = _suggested_continuity_pack_artifacts_html()
     if continuity_pack is None:
+        suggested_artifacts_html = _suggested_continuity_pack_artifacts_html(replace=False)
         return (
             "<h2>Continuity pack</h2>"
             "<p>No active continuity pack for this case yet.</p>"
@@ -1526,6 +1532,7 @@ def _case_continuity_pack_section_html(
             f"{suggested_artifacts_html}"
         )
     pack = continuity_pack.continuity_pack
+    suggested_replacements_html = _suggested_continuity_pack_artifacts_html(replace=True)
     clear_href = f"/cases/clear-continuity-pack?case_id={{case_id}}"
     view_href = f"/continuity-packs/view?artifact_path={url_quote(pack.source_artifact_path)}"
     render_href = "/api/continuity-packs/render-markdown?artifact_path="
@@ -1534,11 +1541,13 @@ def _case_continuity_pack_section_html(
         "<h2>Continuity pack</h2>"
         f"<p><strong>Title:</strong> {_escape_html(pack.title)}</p>"
         f"<p><strong>Source artifact:</strong> <code>{_escape_html(pack.source_artifact_path)}</code></p>"
+        "<p><strong>Replace warning:</strong> assigning another continuity pack will replace the current active pack for this case.</p>"
         f"<p><a href=\"{_escape_html(view_href)}\">Open dedicated continuity-pack view</a>"
         " &middot; "
         f"<a href=\"{_escape_html(render_href)}\">Render markdown</a>"
         " &middot; "
         f"<a href=\"{_escape_html(clear_href)}\">Clear active continuity pack</a></p>"
+        f"{suggested_replacements_html}"
         f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[0])}</h3>"
         f"{_continuity_pack_list_html(pack.confirmed)}"
         f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[1])}</h3>"
