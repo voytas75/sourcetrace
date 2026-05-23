@@ -80,8 +80,9 @@ This phase should answer:
    for each tested document class.
 
 ## Controlled test-use rules
-1. Use the repo-owned launcher for real-data passes:
-   - `python -m sourcetrace.local_launcher`
+1. Use the repo-owned launcher wrapper for real-data passes:
+   - `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher`
+   - wait/readiness: `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15`
    - not the thin `sourcetrace.web` path when real LLM-backed behavior is the subject.
 2. Keep the phase bounded and evidence-first.
 3. Record every notable problem with a concrete example.
@@ -180,7 +181,8 @@ Objective: collect one structured observation note per document.
 
 Steps for each document:
 1. Start the launcher:
-   - `python -m sourcetrace.local_launcher`
+   - `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher`
+   - wait until ready: `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15`
 2. Seed/create the document in the same running process.
 3. Run:
    - prepare
@@ -195,6 +197,8 @@ Steps for each document:
    - HTML/resource surfaces when useful.
 5. Save the observation using:
    - `docs/plans/test-use-observation-template.md`
+6. Stop the launcher when the session slice is complete:
+   - `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher`
 
 Done when:
 - every tested document has one observation note with evidence.

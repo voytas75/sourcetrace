@@ -259,6 +259,7 @@ class SourceTraceDelivery:
             evidence_links=evidence_links,
             dropped_claim_items=outcome.dropped_claim_items,
             dropped_evidence_items=outcome.dropped_evidence_items,
+            review_cautions=outcome.review_cautions,
         )
 
     def list_claims_for_case(self, case_id: str) -> tuple[Claim, ...] | None:
@@ -1828,6 +1829,7 @@ def _claim_extraction_diagnostics(outcome: ClaimExtractionOutcome) -> dict[str, 
         "chunk_count": chunk_count,
         "dropped_claim_items": outcome.dropped_claim_items,
         "dropped_evidence_items": outcome.dropped_evidence_items,
+        "review_cautions": list(outcome.review_cautions),
         "status": "ready" if claim_count else "empty",
         "summary": summary,
         "next_step": next_step,

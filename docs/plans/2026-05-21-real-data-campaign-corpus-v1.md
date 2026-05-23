@@ -177,4 +177,4 @@ Rationale:
 - end with weak/noisy inputs once normal behavior is already known.
 
 ## Next step
-Use this file as the frozen corpus ledger and begin observation-note execution document by document through `python -m sourcetrace.local_launcher`.
+Use this file as the frozen corpus ledger and begin observation-note execution document by document through `PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher`.

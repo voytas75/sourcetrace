@@ -28,6 +28,7 @@ class ClaimExtractionOutcome:
     evidence_links: tuple[ClaimEvidenceLink, ...]
     dropped_claim_items: int = 0
     dropped_evidence_items: int = 0
+    review_cautions: tuple[str, ...] = ()
 
 
 __all__ = [

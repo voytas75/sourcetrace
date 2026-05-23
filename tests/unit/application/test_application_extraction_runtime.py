@@ -6,7 +6,10 @@ from sourcetrace.application.extraction_runtime import (
     _deduplicate_claim_items,
     build_llm_claim_extractor,
 )
-from sourcetrace.application.extraction import ClaimExtractionRequest
+from sourcetrace.application.extraction import (
+    ClaimExtractionOutcome,
+    ClaimExtractionRequest,
+)
 from sourcetrace.domain import Document, DocumentChunk
 from sourcetrace.domain.types import VerificationVerdict
 from sourcetrace.llm import LlmGenerationResult, LlmStructuredGenerationResult
@@ -257,6 +260,419 @@ def test_build_llm_claim_extractor_uses_claim_normalization_gateway_when_availab
 
     assert captured_normalization_inputs == ["Raw claim text with noise."]
     assert outcome.claims[0].exact_text == "Normalized claim text."
+
+
+def test_build_llm_claim_extractor_falls_back_when_normalization_drops_institutional_attribution() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The IMF said growth risks remain elevated.",
+                        "source_span_reference": "p4",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    def normalize_claim(claim_text: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text="Growth risks remain elevated.",
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The IMF said growth risks remain elevated.",
+            start_char=0,
+            end_char=43,
+            chunk_index=0,
+            position_reference="p4",
+        ),
+    )
+    extractor = build_llm_claim_extractor(
+        extract_claims=extract_claims,
+        normalize_claim=normalize_claim,
+    )
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert outcome.claims[0].exact_text == "The IMF said growth risks remain elevated."
+
+
+def test_build_llm_claim_extractor_uses_chunk_position_reference_when_only_chunk_id_is_present() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "Economists expect inflation to rise again.",
+                        "source_span_reference": "chunk-span:unknown",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/report",
+        publisher=None,
+        author=None,
+        title=None,
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language=None,
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Economists expect inflation to rise again.",
+            start_char=0,
+            end_char=43,
+            chunk_index=0,
+            position_reference="p7",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert outcome.claims[0].source_span_reference == "p7"
+
+
+def test_claim_extraction_outcome_exposes_review_cautions_field() -> None:
+    request = ClaimExtractionRequest(case_id="case-1", document_id="doc-1", chunk_ids=("chunk-1",))
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/weak-source",
+        publisher="Example",
+        author=None,
+        title="Weak source",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+    chunk = DocumentChunk(
+        chunk_id="chunk-1",
+        case_id="case-1",
+        document_id="doc-1",
+        raw_text="Paid press release text.",
+        start_char=0,
+        end_char=24,
+        chunk_index=0,
+        position_reference="p1",
+    )
+
+    outcome = ClaimExtractionOutcome(
+        request=request,
+        document=document,
+        chunks=(chunk,),
+        claims=(),
+        evidence_links=(),
+        review_cautions=("weak_source_posture",),
+    )
+
+    assert outcome.review_cautions == ("weak_source_posture",)
+
+
+def test_build_llm_claim_extractor_marks_weak_source_posture_for_paid_press_release_text() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "Wars often trigger temporary market selloffs followed by rebounds.",
+                        "source_span_reference": "p1",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/press-release",
+        publisher="AP News / EIN Presswire",
+        author=None,
+        title="Paid release",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "This is a paid press release distributed by EIN Presswire. "
+                "AP newsroom was not involved in its creation. "
+                "The release argues that wars often trigger temporary market selloffs followed by rebounds."
+            ),
+            start_char=0,
+            end_char=181,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(case_id="case-1", document_id="doc-1", chunk_ids=("chunk-1",)),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert "weak_source_posture" in outcome.review_cautions
+
+
+def test_build_llm_claim_extractor_marks_low_yield_repeated_captions_for_gallery_like_input() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "Participants posed for photos during the hat walk.",
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-2",
+                        "chunk_id": "chunk-2",
+                        "exact_text": "Participants posed for photos during the hat walk.",
+                        "source_span_reference": "p2",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/gallery",
+        publisher="AP",
+        author=None,
+        title="Photo gallery",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="A participant poses during World Hat Walk in Romania.",
+            start_char=0,
+            end_char=54,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Another participant poses during World Hat Walk in Romania.",
+            start_char=55,
+            end_char=117,
+            chunk_index=1,
+            position_reference="p2",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(case_id="case-1", document_id="doc-1", chunk_ids=("chunk-1", "chunk-2")),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert "low_yield_repeated_captions" in outcome.review_cautions
+
+
+def test_build_llm_claim_extractor_marks_low_yield_gallery_input_without_exact_duplicate_claims() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "A participant poses during the World Hat Walk in Romania, showcasing an elaborate and stylish hat as part of the festive celebration.",
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-2",
+                        "chunk_id": "chunk-2",
+                        "exact_text": "A participant strikes a pose during the World Hat Walk in Romania.",
+                        "source_span_reference": "p2",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/gallery-variant",
+        publisher="AP",
+        author=None,
+        title="Photo gallery",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:def456",
+        language="en",
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="A participant poses during World Hat Walk in Romania.",
+            start_char=0,
+            end_char=54,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Another participant poses during World Hat Walk in Romania.",
+            start_char=55,
+            end_char=117,
+            chunk_index=1,
+            position_reference="p2",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(case_id="case-1", document_id="doc-1", chunk_ids=("chunk-1", "chunk-2")),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert "low_yield_repeated_captions" in outcome.review_cautions
+
+
+def test_build_llm_claim_extractor_marks_low_yield_for_exact_live_d2_claim_strings() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "A participant poses during the World Hat Walk in Romania, showcasing a stylish and eye-catching hat as part of the festive event.",
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-2",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "A participant strikes a pose during the World Hat Walk in Romania.",
+                        "source_span_reference": "p1",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-live-d2",
+        case_id="case-live-d2",
+        source_type="url",
+        source_url="https://example.test/live-d2",
+        publisher="AP",
+        author=None,
+        title="Photo gallery",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:live-d2",
+        language="en",
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-live-d2",
+            document_id="doc-live-d2",
+            raw_text="A participant poses during World Hat Walk in Romania. Another participant poses during World Hat Walk in Romania.",
+            start_char=0,
+            end_char=113,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-live-d2",
+            document_id="doc-live-d2",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert "low_yield_repeated_captions" in outcome.review_cautions
 
 
 def test_build_llm_claim_extractor_accepts_string_claim_items_from_live_payload_variants() -> None:

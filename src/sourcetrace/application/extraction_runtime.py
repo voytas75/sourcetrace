@@ -233,6 +233,12 @@ class _LlmClaimExtractor:
         _debug_claim_pipeline_stage(stage="raw_payload", payload=result.payload)
         claim_items, dropped_claim_items = _claim_items_for(result.payload)
         _debug_claim_pipeline_stage(stage="claim_items_for", payload=claim_items)
+        pre_dedup_review_cautions = _review_cautions_for(
+            document=document,
+            chunks=chunks,
+            claim_items=claim_items,
+            claims=(),
+        )
         claim_items = _deduplicate_claim_items(claim_items)
         _debug_claim_pipeline_stage(stage="deduplicated_claim_items", payload=claim_items)
         materialized_claims: list[Claim] = []
@@ -278,6 +284,17 @@ class _LlmClaimExtractor:
             items=claim_items,
         )
         dropped_evidence_items = _count_dropped_evidence_items(claim_items)
+        review_cautions = tuple(
+            dict.fromkeys(
+                pre_dedup_review_cautions
+                + _review_cautions_for(
+                    document=document,
+                    chunks=chunks,
+                    claim_items=claim_items,
+                    claims=claims,
+                )
+            )
+        )
         if self._claim_repository is not None:
             evidence_links = self._claim_repository.save_evidence_links(evidence_links)
         return ClaimExtractionOutcome(
@@ -288,6 +305,7 @@ class _LlmClaimExtractor:
             evidence_links=evidence_links,
             dropped_claim_items=dropped_claim_items,
             dropped_evidence_items=dropped_evidence_items,
+            review_cautions=review_cautions,
         )
 
 
@@ -319,6 +337,125 @@ def _normalized_string(value: object) -> str | None:
     if not normalized:
         return None
     return normalized
+
+
+def _review_cautions_for(
+    *,
+    document: Document,
+    chunks: tuple[DocumentChunk, ...],
+    claim_items: tuple[dict[str, object], ...],
+    claims: tuple[Claim, ...],
+) -> tuple[str, ...]:
+    cautions: list[str] = []
+    combined_text = " ".join(chunk.raw_text for chunk in chunks).lower()
+    publisher = (document.publisher or "").lower()
+    title = (document.title or "").lower()
+
+    if _looks_like_weak_source_text(combined_text=combined_text, publisher=publisher):
+        cautions.append("weak_source_posture")
+    if _looks_like_low_yield_repeated_captions(
+        title=title,
+        chunks=chunks,
+        claim_items=claim_items,
+        claims=claims,
+    ):
+        cautions.append("low_yield_repeated_captions")
+    return tuple(cautions)
+
+
+def _looks_like_weak_source_text(*, combined_text: str, publisher: str) -> bool:
+    weak_source_markers = (
+        "paid press release",
+        "ein presswire",
+        "ap newsroom was not involved",
+        "promotional",
+        "sponsored",
+    )
+    return any(marker in combined_text for marker in weak_source_markers) or any(
+        marker in publisher for marker in ("ein presswire", "press release")
+    )
+
+
+def _looks_like_low_yield_repeated_captions(
+    *,
+    title: str,
+    chunks: tuple[DocumentChunk, ...],
+    claim_items: tuple[dict[str, object], ...],
+    claims: tuple[Claim, ...],
+) -> bool:
+    gallery_markers = ("photo gallery", "poses", "selfie", "participant")
+    chunk_text = " ".join(chunk.raw_text.lower() for chunk in chunks)
+    if not any(marker in chunk_text for marker in gallery_markers) and "photo gallery" not in title:
+        return False
+    item_texts = [
+        re.sub(r"\s+", " ", text.strip().lower())
+        for text in (
+            _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS)
+            for item in claim_items
+        )
+        if text is not None
+    ]
+    if len(item_texts) >= 2 and len(set(item_texts)) < len(item_texts):
+        return True
+    claim_texts = [re.sub(r"\s+", " ", claim.exact_text.strip().lower()) for claim in claims]
+    if len(claim_texts) < 2:
+        return False
+    if len(set(claim_texts)) < len(claim_texts):
+        return True
+    if _looks_like_low_information_gallery_claims(claim_texts):
+        return True
+    return False
+
+
+def _looks_like_low_information_gallery_claims(claim_texts: list[str]) -> bool:
+    if len(claim_texts) < 2:
+        return False
+    caption_markers = {
+        "participant",
+        "pose",
+        "poses",
+        "hat",
+        "walk",
+        "romania",
+        "celebration",
+        "showcasing",
+        "stylish",
+        "elaborate",
+        "festive",
+    }
+    proposition_markers = {
+        "said",
+        "according",
+        "announced",
+        "reported",
+        "warned",
+        "expects",
+        "expected",
+        "will",
+        "would",
+        "could",
+        "should",
+        "policy",
+        "government",
+        "minister",
+        "bank",
+        "imf",
+        "growth",
+        "inflation",
+        "tariff",
+        "investment",
+        "market",
+        "economy",
+    }
+    for text in claim_texts:
+        tokens = set(re.findall(r"[a-z]+", text))
+        if not tokens.intersection(caption_markers):
+            return False
+        if tokens.intersection(proposition_markers):
+            return False
+        if re.search(r"\b\d+\b", text):
+            return False
+    return True
 
 
 def _claim_text_for(
@@ -1113,7 +1250,7 @@ def _span_reference_for(
     chunk_by_id: dict[str, DocumentChunk],
 ) -> str:
     span_reference = _first_normalized_item_string(item, *_SPAN_REFERENCE_KEYS)
-    if span_reference is not None:
+    if span_reference is not None and span_reference != "chunk-span:unknown":
         return span_reference
     chunk_id = _first_normalized_item_string(item, *_CLAIM_CHUNK_KEYS)
     if chunk_id is not None:

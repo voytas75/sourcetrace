@@ -250,6 +250,7 @@ def test_wsgi_extract_claims_route_uses_configured_runtime() -> None:
             chunks=chunks,
             claims=(claim,),
             evidence_links=(evidence,),
+            review_cautions=("weak_source_posture",),
         )
 
     delivery = create_default_delivery(
@@ -283,6 +284,7 @@ def test_wsgi_extract_claims_route_uses_configured_runtime() -> None:
     )
     assert payload["evidence_links"][0]["rationale"] == "Initial extraction link."
     assert payload["diagnostics"]["claim_count"] == 1
+    assert payload["diagnostics"]["review_cautions"] == ["weak_source_posture"]
     assert payload["diagnostics"]["status"] == "ready"
     assert claim_status == "200 OK"
     assert json.loads(claim_body)["claim"]["exact_text"] == (
