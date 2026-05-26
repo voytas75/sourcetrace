@@ -66,6 +66,7 @@ from sourcetrace.pipeline import (
     LexicalChunkRetriever,
     RetrievalExecution,
 )
+from sourcetrace.pipeline.verification import _verification_controls
 from sourcetrace.storage import (
     ContinuityPackPersistenceStatus,
     FileBackedCaseRepository,
@@ -98,6 +99,7 @@ class VerificationInspection:
 
     claim: Claim
     verification: ClaimVerification
+    review_decision: ClaimReviewDecision | None
     evidence_links: tuple[ClaimEvidenceLink, ...]
     evidence_count: int
     supporting_evidence_count: int
@@ -324,6 +326,7 @@ class SourceTraceDelivery:
         return VerificationInspection(
             claim=claim,
             verification=verification,
+            review_decision=review_decision,
             evidence_links=evidence_links,
             evidence_count=len(evidence_links),
             supporting_evidence_count=_count_evidence_links(
@@ -346,9 +349,12 @@ class SourceTraceDelivery:
     def record_review(
         self,
         review_decision: ClaimReviewDecision,
-    ) -> ClaimReviewDecision:
+    ) -> ClaimReviewDecision | None:
         """Persist a human review decision for report assembly."""
 
+        claim = self.persistence.claims.get_claim(review_decision.claim_id)
+        if claim is None or claim.case_id != review_decision.case_id:
+            return None
         return self.persistence.claims.save_review_decision(review_decision)
 
     def assemble_case_report(self, case_id: str) -> ReportAssemblyOutcome:
@@ -913,7 +919,10 @@ def verification_inspection_to_payload(
 
     return {
         "claim": claim_to_payload(inspection.claim),
-        "verification": verification_to_payload(inspection.verification),
+        "verification": verification_to_payload(
+            inspection.verification,
+            inspection.review_decision,
+        ),
         "evidence_links": [
             evidence_link_to_payload(link) for link in inspection.evidence_links
         ],
@@ -1017,6 +1026,7 @@ def continuity_pack_inspection_to_payload(
 
 def verification_outcome_to_payload(
     outcome: ClaimVerificationRuntimeOutcome,
+    review_decision: ClaimReviewDecision | None = None,
 ) -> dict[str, object]:
     """Serialize a verification runtime outcome for JSON responses."""
 
@@ -1049,7 +1059,8 @@ def verification_outcome_to_payload(
             ],
         },
         "verification": verification_to_payload(
-            outcome.verification_outcome.verification
+            outcome.verification_outcome.verification,
+            review_decision,
         ),
         "evidence_links": [
             evidence_link_to_payload(link) for link in outcome.evidence_links
@@ -1065,6 +1076,10 @@ def report_outcome_to_payload(outcome: ReportAssemblyOutcome) -> dict[str, objec
             "case_id": outcome.case_report.case_id,
             "generated_claim_ids": list(outcome.case_report.generated_claim_ids),
             "report_summary": outcome.case_report.report_summary,
+            "publication_summary": _report_publication_summary(
+                outcome.entries,
+                outcome.request.review_decisions,
+            ),
             "entries": [report_entry_to_payload(entry) for entry in outcome.entries],
         }
     }
@@ -1176,13 +1191,27 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
 def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
     """Render a minimal Markdown report artifact."""
 
+    publication_summary = _report_publication_summary(
+        outcome.entries,
+        outcome.request.review_decisions,
+    )
     lines = [
         f"# SourceTrace Report: {outcome.case_report.case_id}",
         "",
         outcome.case_report.report_summary or "No report entries.",
         "",
+        "## Publication summary",
+        "",
+        f"- Allowed claims: {publication_summary['allowed_claim_count']}",
+        f"- Review-required claims: {publication_summary['review_required_claim_count']}",
+        f"- Blocked claims: {publication_summary['blocked_claim_count']}",
+        "",
     ]
     for entry in outcome.entries:
+        evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
+            entry.final_verdict,
+            entry.human_review_status,
+        )
         lines.extend(
             [
                 f"## {entry.claim_id}",
@@ -1190,6 +1219,9 @@ def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
                 f"- Final verdict: {entry.final_verdict.value}",
                 f"- Human review: {entry.human_review_status.value}",
                 f"- Summary: {entry.summary_text}",
+                f"- Evidence sufficiency: {evidence_sufficiency}",
+                f"- Publication gate: {publication_gate}",
+                f"- Gate reason: {gate_reason or 'none'}",
                 f"- Supporting chunks: {_format_chunk_ids(entry.supporting_chunk_ids)}",
                 "- Contradicting chunks: "
                 f"{_format_chunk_ids(entry.contradicting_chunk_ids)}",
@@ -1334,9 +1366,16 @@ def claim_to_payload(claim: Claim) -> dict[str, object]:
 
 def verification_to_payload(
     verification: ClaimVerification,
+    review_decision: ClaimReviewDecision | None = None,
 ) -> dict[str, object]:
     """Serialize a claim verification for API responses."""
 
+    evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
+        verification.verdict,
+        review_status=(
+            review_decision.human_review_status if review_decision is not None else None
+        ),
+    )
     return {
         "claim_id": verification.claim_id,
         "case_id": verification.case_id,
@@ -1344,6 +1383,9 @@ def verification_to_payload(
         "supporting_chunk_ids": list(verification.supporting_chunk_ids),
         "contradicting_chunk_ids": list(verification.contradicting_chunk_ids),
         "analyst_notes": verification.analyst_notes,
+        "evidence_sufficiency": evidence_sufficiency,
+        "publication_gate": publication_gate,
+        "gate_reason": gate_reason,
     }
 
 
@@ -1365,6 +1407,9 @@ def evidence_link_to_payload(link: ClaimEvidenceLink) -> dict[str, object]:
 def report_entry_to_payload(entry: ClaimReportEntry) -> dict[str, object]:
     """Serialize a report entry for API responses."""
 
+    evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
+        entry.final_verdict
+    )
     return {
         "claim_id": entry.claim_id,
         "case_id": entry.case_id,
@@ -1373,6 +1418,9 @@ def report_entry_to_payload(entry: ClaimReportEntry) -> dict[str, object]:
         "summary_text": entry.summary_text,
         "supporting_chunk_ids": list(entry.supporting_chunk_ids),
         "contradicting_chunk_ids": list(entry.contradicting_chunk_ids),
+        "evidence_sufficiency": evidence_sufficiency,
+        "publication_gate": publication_gate,
+        "gate_reason": gate_reason,
     }
 
 
@@ -1542,11 +1590,50 @@ def _report_summary(entries: tuple[ClaimReportEntry, ...]) -> str:
     return f"{len(entries)} claims included in this report."
 
 
+def _report_publication_summary(
+    entries: tuple[ClaimReportEntry, ...],
+    review_decisions: tuple[ClaimReviewDecision, ...] = (),
+) -> dict[str, int]:
+    allowed_claim_count = 0
+    review_required_claim_count = 0
+    blocked_claim_count = 0
+    excluded_claim_ids = {
+        decision.claim_id
+        for decision in review_decisions
+        if _is_excluded_from_report(decision)
+    }
+    blocked_claim_count += len(excluded_claim_ids)
+    for entry in entries:
+        if entry.claim_id in excluded_claim_ids:
+            continue
+        _, publication_gate, _ = _verification_controls(
+            entry.final_verdict,
+            entry.human_review_status,
+        )
+        if publication_gate == "allowed":
+            allowed_claim_count += 1
+        elif publication_gate == "blocked":
+            blocked_claim_count += 1
+        else:
+            review_required_claim_count += 1
+    return {
+        "allowed_claim_count": allowed_claim_count,
+        "review_required_claim_count": review_required_claim_count,
+        "blocked_claim_count": blocked_claim_count,
+    }
+
+
 def _claim_row_html(delivery: SourceTraceDelivery, claim: Claim) -> str:
     verification = _get_verification(delivery.persistence, claim.claim_id)
     review = _get_review_decision(delivery.persistence, claim.claim_id)
     links = _list_evidence_links(delivery.persistence, claim.claim_id)
     verdict = _display_verdict(claim, verification)
+    verdict_enum = (
+        verification.verdict if verification is not None else claim.system_verdict
+    )
+    evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
+        verdict_enum
+    )
     review_status = (
         review.human_review_status.value if review is not None else "unreviewed"
     )
@@ -1557,9 +1644,15 @@ def _claim_row_html(delivery: SourceTraceDelivery, claim: Claim) -> str:
     ]
     verification_link = f'/api/claims/{claim.claim_id}/verification'
     claim_links.append(f'<a href="{verification_link}">verification</a>')
+    claim_detail_lines = [
+        _escape_html(claim.exact_text),
+        f"Evidence sufficiency: {_escape_html(evidence_sufficiency)}",
+        f"Publication gate: {_escape_html(publication_gate)}",
+        f"Gate reason: {_escape_html(gate_reason or 'none')}",
+    ]
     return (
         "<tr>"
-        f"<td>{_escape_html(claim.exact_text)}<br><small>{' · '.join(claim_links)}</small></td>"
+        f"<td>{'<br>'.join(claim_detail_lines)}<br><small>{' · '.join(claim_links)}</small></td>"
         f"<td>{_escape_html(verdict)}</td>"
         f"<td>{_escape_html(review_status)}</td>"
         f"<td>{evidence_count}</td>"

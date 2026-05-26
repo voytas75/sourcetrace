@@ -732,6 +732,12 @@ class SourceTraceWSGIApp:
         review_decision = self.delivery.record_review(
             review_decision_from_payload(payload)
         )
+        if review_decision is None:
+            return _json_response(
+                start_response,
+                "404 Not Found",
+                {"error": "claim_not_found", "status": "missing"},
+            )
         return _json_response(
             start_response,
             "200 OK",
@@ -901,12 +907,24 @@ class SourceTraceWSGIApp:
                 {"error": "not_found"},
             )
         payload = _read_json(environ)
-        if self.delivery.get_document(document_id) is None:
+        document = self.delivery.get_document(document_id)
+        if document is None:
             return _json_response(
                 start_response,
                 "404 Not Found",
                 {"error": "document_not_found", "status": "missing"},
             )
+        if not self.delivery.list_chunks_for_document(document_id):
+            inline_content = document.inline_content or ""
+            if inline_content.strip():
+                self.delivery.prepare_document(
+                    DocumentPreparationRequest(
+                        case_id=document.case_id,
+                        document_id=document.document_id,
+                        chunking_method=None,
+                    ),
+                    inline_content,
+                )
         outcome = self.delivery.assess_document_credibility(
             document_id,
             assessment_method=_optional_str(payload.get("assessment_method")),
@@ -950,7 +968,7 @@ class SourceTraceWSGIApp:
         if report_ref and (not report_ref.endswith(".md")):
             case_id = report_ref.removesuffix(".json")
             outcome = self.delivery.assemble_case_report(case_id)
-            if not outcome.entries:
+            if not outcome.entries and not outcome.request.review_decisions:
                 return _json_response(
                     start_response,
                     "404 Not Found",
@@ -964,7 +982,7 @@ class SourceTraceWSGIApp:
         if report_ref.endswith(".md"):
             case_id = report_ref.removesuffix(".md")
             outcome = self.delivery.assemble_case_report(case_id)
-            if not outcome.entries:
+            if not outcome.entries and not outcome.request.review_decisions:
                 return _json_response(
                     start_response,
                     "404 Not Found",

@@ -16,6 +16,7 @@ from sourcetrace.llm.models import LlmGenerationResult
 from sourcetrace.web import (
     SourceTraceWSGIApp,
     create_default_delivery,
+    create_wsgi_app,
     render_case_review_html,
 )
 from sourcetrace.storage import FileBackedCaseRepository, create_in_memory_persistence
@@ -198,9 +199,147 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
     assert evidence_status == "200 OK"
     assert json.loads(evidence_body)["evidence_links"][0]["chunk_id"] == "doc-1:chunk-1"
     assert verification_status == "200 OK"
-    assert json.loads(verification_body)["verification"]["verdict"] == "support"
+    verification_payload = json.loads(verification_body)
+    assert verification_payload["verification"]["verdict"] == "support"
+    assert verification_payload["verification"]["evidence_sufficiency"] == "supported"
+    assert verification_payload["verification"]["publication_gate"] == "allowed"
+    assert verification_payload["verification"]["gate_reason"] is None
     assert report_status == "200 OK"
-    assert json.loads(report_body)["case_report"]["case_id"] == "case-1"
+    report_payload = json.loads(report_body)
+    assert report_payload["case_report"]["case_id"] == "case-1"
+    assert report_payload["case_report"]["entries"][0]["evidence_sufficiency"] == "supported"
+    assert report_payload["case_report"]["entries"][0]["publication_gate"] == "allowed"
+    assert report_payload["case_report"]["entries"][0]["gate_reason"] is None
+    assert report_payload["case_report"]["publication_summary"] == {
+        "allowed_claim_count": 1,
+        "review_required_claim_count": 0,
+        "blocked_claim_count": 0,
+    }
+
+
+def test_wsgi_app_report_route_counts_excluded_review_as_blocked() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+    claim_payload = {
+        "claim_id": "claim-1",
+        "case_id": "case-1",
+        "document_id": "doc-1",
+        "chunk_id": "doc-1:chunk-1",
+        "exact_text": "The bridge reopened after inspection.",
+        "source_span_reference": "p1",
+        "system_verdict": "insufficient_evidence",
+        "rationale": None,
+    }
+
+    _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={
+            "case_id": "case-1",
+            "title": "Bridge reopening",
+            "description": "Track public claims.",
+        },
+    )
+    _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-1/documents",
+        payload={
+            "document_id": "doc-1",
+            "source_type": "url",
+            "source_url": "https://example.test/bridge",
+            "publisher": "Example News",
+            "author": "Analyst",
+            "title": "Bridge update",
+            "published_at": "2026-05-18T00:00:00+00:00",
+            "retrieved_at": "2026-05-18T00:05:00+00:00",
+            "content_hash": "sha256:abc123",
+            "language": "en",
+        },
+    )
+    _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/doc-1/prepare",
+        payload={
+            "raw_text": "The bridge reopened after inspection.",
+            "chunking_method": "paragraph-v1",
+        },
+    )
+    _call_wsgi(
+        app,
+        method="POST",
+        path="/api/verify",
+        payload={"claim": claim_payload, "requested_k": 2},
+    )
+    _call_wsgi(
+        app,
+        method="POST",
+        path="/api/reviews",
+        payload={
+            "claim_id": "claim-1",
+            "case_id": "case-1",
+            "human_review_status": "excluded",
+            "analyst_disposition": "exclude_from_report",
+            "final_verdict": "support",
+            "review_notes": "Excluded from publication.",
+        },
+    )
+
+    report_status, _, report_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/reports/case-1.json",
+    )
+    report_payload = json.loads(report_body)
+    report_md_status, report_md_headers, report_md_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/reports/case-1.md",
+    )
+    review_status, _, review_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/claims/claim-1/review",
+    )
+    review_payload = json.loads(review_body)
+
+    assert review_status == "200 OK"
+    assert review_payload["review_decision"]["human_review_status"] == "excluded"
+    assert report_status == "200 OK"
+    assert report_payload["case_report"]["entries"] == []
+    assert report_payload["case_report"]["publication_summary"] == {
+        "allowed_claim_count": 0,
+        "review_required_claim_count": 0,
+        "blocked_claim_count": 1,
+    }
+    assert report_md_status == "200 OK"
+    assert ("Content-Type", "text/markdown; charset=utf-8") in report_md_headers
+    assert "# SourceTrace Report: case-1" in report_md_body
+    assert "0 claims included in this report." in report_md_body
+    assert "- Publication gate: blocked" not in report_md_body
+
+
+def test_wsgi_review_route_rejects_unknown_claim_id() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, _, body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/reviews",
+        payload={
+            "claim_id": "claim-1",
+            "case_id": "case-1",
+            "human_review_status": "excluded",
+            "analyst_disposition": "exclude_from_report",
+            "final_verdict": "support",
+            "review_notes": "Excluded from publication.",
+        },
+    )
+    payload = json.loads(body)
+
+    assert status == "404 Not Found"
+    assert payload == {"error": "claim_not_found", "status": "missing"}
 
 
 def test_wsgi_extract_claims_route_uses_configured_runtime() -> None:
@@ -408,7 +547,16 @@ def test_wsgi_persists_and_reads_credibility_assessment() -> None:
         return type(
             "_Result",
             (),
-            {"text": "Credibility draft reached persistence.", "model": "test-model"},
+            {
+                "text": (
+                    "Summary: BBC is a mainstream publisher and the article cites named institutions, "
+                    "but several damage and revenue figures remain attribution-led rather than independently verified.\n"
+                    "Strengths: Identified publisher (BBC); cites named institutions such as the International Energy Agency and the World Bank.\n"
+                    "Concerns: Several quantitative claims are attribution-led; the excerpt does not include primary-source documentation for all damage and revenue figures.\n"
+                    "Verification checks: Verify the Ras Laffan strike and LNG disruption with primary reporting and confirm the quoted institutional estimates in their original releases."
+                ),
+                "model": "test-model",
+            },
         )()
 
     delivery = create_default_delivery(
@@ -418,7 +566,85 @@ def test_wsgi_persists_and_reads_credibility_assessment() -> None:
     delivery.persistence.documents.save_document(_document())
     app = SourceTraceWSGIApp(delivery=delivery)
 
-    post_status, _, _ = _call_wsgi(
+    post_status, _, post_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/doc-1/credibility",
+        payload={"assessment_method": "llm_draft_v1"},
+    )
+    get_status, _, get_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/documents/doc-1/credibility",
+    )
+
+    expected_notes = (
+        "Summary: BBC is a mainstream publisher and the article cites named institutions, "
+        "but several damage and revenue figures remain attribution-led rather than independently verified.\n"
+        "Strengths: Identified publisher (BBC); cites named institutions such as the International Energy Agency and the World Bank.\n"
+        "Concerns: Several quantitative claims are attribution-led; the excerpt does not include primary-source documentation for all damage and revenue figures.\n"
+        "Verification checks: Verify the Ras Laffan strike and LNG disruption with primary reporting and confirm the quoted institutional estimates in their original releases."
+    )
+
+    assert post_status == "200 OK"
+    post_payload = json.loads(post_body)
+    assert post_payload["credibility_assessment"]["notes"] == expected_notes
+    assert post_payload["credibility_assessment"]["summary"] == (
+        "BBC is a mainstream publisher and the article cites named institutions, but several damage and revenue figures remain attribution-led rather than independently verified."
+    )
+    assert post_payload["credibility_assessment"]["source_reliability"] == "medium"
+    assert post_payload["credibility_assessment"]["information_credibility"] == "medium"
+    assert post_payload["credibility_assessment"]["provenance_distance"] == "unknown"
+    assert post_payload["credibility_assessment"]["source_reliability_factors"] == [
+        "Identified publisher (BBC)",
+        "cites named institutions such as the International Energy Agency and the World Bank.",
+    ]
+    assert post_payload["credibility_assessment"]["information_credibility_factors"] == [
+        "Several quantitative claims are attribution-led",
+        "the excerpt does not include primary-source documentation for all damage and revenue figures.",
+    ]
+    assert get_status == "200 OK"
+    get_payload = json.loads(get_body)
+    assert get_payload["credibility_assessment"]["notes"] == expected_notes
+    assert get_payload["credibility_assessment"]["summary"] == (
+        "BBC is a mainstream publisher and the article cites named institutions, but several damage and revenue figures remain attribution-led rather than independently verified."
+    )
+    assert get_payload["credibility_assessment"]["source_reliability"] == "medium"
+    assert get_payload["credibility_assessment"]["information_credibility"] == "medium"
+    assert get_payload["credibility_assessment"]["provenance_distance"] == "unknown"
+    assert get_payload["credibility_assessment"]["source_reliability_factors"] == [
+        "Identified publisher (BBC)",
+        "cites named institutions such as the International Energy Agency and the World Bank.",
+    ]
+    assert get_payload["credibility_assessment"]["information_credibility_factors"] == [
+        "Several quantitative claims are attribution-led",
+        "the excerpt does not include primary-source documentation for all damage and revenue figures.",
+    ]
+
+
+def test_wsgi_b3_style_plaintext_credibility_notes_preserve_typed_assessment_fields() -> None:
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        assert evidence_summary
+        return LlmGenerationResult(
+            text=(
+                "Summary: BBC is a mainstream publisher and the article cites named institutions, "
+                "but several damage and revenue figures remain attribution-led rather than independently verified.\n"
+                "Strengths: Identified publisher (BBC); cites named institutions such as the International Energy Agency and the World Bank.\n"
+                "Concerns: Several quantitative claims are attribution-led; the excerpt does not include primary-source documentation for all damage and revenue figures.\n"
+                "Verification checks: Verify the Ras Laffan strike and LNG disruption with primary reporting and confirm the quoted institutional estimates in their original releases."
+            ),
+            model="test-model",
+            finish_reason="stop",
+        )
+
+    delivery = create_default_delivery(
+        credibility_draft=draft_credibility,
+        credibility_assessed_at=lambda: datetime(2026, 5, 19, 11, 0, tzinfo=UTC),
+    )
+    delivery.persistence.documents.save_document(_document())
+    app = SourceTraceWSGIApp(delivery=delivery)
+
+    post_status, _, post_body = _call_wsgi(
         app,
         method="POST",
         path="/api/documents/doc-1/credibility",
@@ -432,9 +658,100 @@ def test_wsgi_persists_and_reads_credibility_assessment() -> None:
 
     assert post_status == "200 OK"
     assert get_status == "200 OK"
-    assert json.loads(get_body)["credibility_assessment"]["notes"] == (
-        "Credibility draft reached persistence."
+    post_payload = json.loads(post_body)
+    get_payload = json.loads(get_body)
+    assert post_payload["credibility_assessment"]["source_reliability"] == "medium"
+    assert post_payload["credibility_assessment"]["information_credibility"] == "medium"
+    assert get_payload["credibility_assessment"]["source_reliability"] == "medium"
+    assert get_payload["credibility_assessment"]["information_credibility"] == "medium"
+
+
+def test_wsgi_dev_seeded_inline_document_credibility_auto_prepare_matches_explicit_prepare() -> None:
+    seen_prompts: list[str] = []
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        seen_prompts.append(evidence_summary)
+        return LlmGenerationResult(
+            text=(
+                "Summary: World Bank-hosted report/press material appears to convey institutional analysis.\n"
+                "Strengths: Publisher is a major multilateral institution; Source URL is on worldbank.org.\n"
+                "Concerns: Published date is unknown; Excerpt is short.\n"
+                "Verification checks: Confirm the URL resolves to an authentic World Bank page."
+            ),
+            model="test-model",
+            finish_reason="stop",
+        )
+
+    delivery = create_default_delivery(
+        credibility_draft=draft_credibility,
+        credibility_assessed_at=lambda: datetime(2026, 5, 24, 11, 0, tzinfo=UTC),
     )
+    app = SourceTraceWSGIApp(delivery=delivery)
+
+    payload = {
+        "case_id": "inst-case-1",
+        "source_type": "report",
+        "source_url": "https://www.worldbank.org/en/news/press-release/example",
+        "publisher": "World Bank",
+        "author": "World Bank",
+        "title": "World Bank manual credibility test",
+        "language": "en",
+        "content_hash": "sha256:inst-manual-1",
+        "text": (
+            "The World Bank said that lower-income countries remain vulnerable to external shocks "
+            "and higher borrowing costs. The statement said debt-service burdens had increased "
+            "across several regions, while warning that fiscal space remained constrained."
+        ),
+    }
+
+    seed_auto_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/dev/documents",
+        payload={"document_id": "inst-doc-auto", **payload},
+    )
+    seed_manual_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/dev/documents",
+        payload={"document_id": "inst-doc-manual", **payload},
+    )
+    assert seed_auto_status == "201 Created"
+    assert seed_manual_status == "201 Created"
+
+    auto_status, _, auto_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/inst-doc-auto/credibility",
+        payload={"assessment_method": "llm_draft_v1"},
+    )
+    prepare_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/inst-doc-manual/prepare",
+        payload={},
+    )
+    manual_status, _, manual_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/documents/inst-doc-manual/credibility",
+        payload={"assessment_method": "llm_draft_v1"},
+    )
+
+    assert auto_status == "200 OK"
+    assert prepare_status == "200 OK"
+    assert manual_status == "200 OK"
+    assert len(seen_prompts) == 2
+    assert "The World Bank said that lower-income countries remain vulnerable to external shocks" in seen_prompts[0]
+    assert "The World Bank said that lower-income countries remain vulnerable to external shocks" in seen_prompts[1]
+    assert "No prepared source text was provided." not in seen_prompts[0]
+    assert "No prepared source text was provided." not in seen_prompts[1]
+
+    auto_payload = json.loads(auto_body)
+    manual_payload = json.loads(manual_body)
+    assert auto_payload["credibility_assessment"]["summary"] == manual_payload["credibility_assessment"]["summary"]
+    assert auto_payload["credibility_assessment"]["source_reliability"] == manual_payload["credibility_assessment"]["source_reliability"]
+    assert auto_payload["credibility_assessment"]["information_credibility"] == manual_payload["credibility_assessment"]["information_credibility"]
 
 
 def test_case_payload_includes_current_continuity_pack_summary() -> None:

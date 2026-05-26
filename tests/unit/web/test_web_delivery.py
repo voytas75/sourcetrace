@@ -23,6 +23,7 @@ from sourcetrace.web import (
     create_wsgi_app,
     create_wsgi_server,
     run_local_server,
+    verification_to_payload,
     render_report_markdown,
     report_outcome_to_payload,
 )
@@ -176,8 +177,73 @@ def test_delivery_service_assembles_json_and_markdown_report_output() -> None:
     assert payload["case_report"]["case_id"] == "case-1"
     assert payload["case_report"]["generated_claim_ids"] == ["claim-1"]
     assert payload["case_report"]["entries"][0]["supporting_chunk_ids"] == ["chunk-1"]
+    assert payload["case_report"]["entries"][0]["evidence_sufficiency"] == "supported"
+    assert payload["case_report"]["entries"][0]["publication_gate"] == "allowed"
+    assert payload["case_report"]["entries"][0]["gate_reason"] is None
+    assert payload["case_report"]["publication_summary"] == {
+        "allowed_claim_count": 1,
+        "review_required_claim_count": 0,
+        "blocked_claim_count": 0,
+    }
     assert "Analyst confirmed the bridge reopened." in markdown
     assert "- Final verdict: support" in markdown
+    assert "- Evidence sufficiency: supported" in markdown
+    assert "- Publication gate: allowed" in markdown
+
+
+def test_report_payload_counts_excluded_review_as_blocked() -> None:
+    delivery = _seeded_delivery()
+    delivery.verify_claim(VerificationDeliveryRequest(claim=_claim(), requested_k=2))
+    delivery.record_review(
+        ClaimReviewDecision(
+            claim_id="claim-1",
+            case_id="case-1",
+            human_review_status=HumanReviewStatus.EXCLUDED,
+            analyst_disposition=AnalystDisposition.EXCLUDE_FROM_REPORT,
+            final_verdict=VerificationVerdict.SUPPORT,
+            review_notes="Excluded from publication.",
+        )
+    )
+
+    outcome = delivery.assemble_case_report("case-1")
+    payload = report_outcome_to_payload(outcome)
+    markdown = render_report_markdown(outcome)
+
+    assert payload["case_report"]["entries"] == []
+    assert payload["case_report"]["publication_summary"] == {
+        "allowed_claim_count": 0,
+        "review_required_claim_count": 0,
+        "blocked_claim_count": 1,
+    }
+    assert "## Publication summary" in markdown
+    assert "- Allowed claims: 0" in markdown
+    assert "- Review-required claims: 0" in markdown
+    assert "- Blocked claims: 1" in markdown
+
+
+def test_verification_payload_marks_excluded_review_as_blocked() -> None:
+    delivery = _seeded_delivery()
+    delivery.verify_claim(VerificationDeliveryRequest(claim=_claim(), requested_k=2))
+    delivery.record_review(
+        ClaimReviewDecision(
+            claim_id="claim-1",
+            case_id="case-1",
+            human_review_status=HumanReviewStatus.EXCLUDED,
+            analyst_disposition=AnalystDisposition.EXCLUDE_FROM_REPORT,
+            final_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            review_notes="Excluded from publication.",
+        )
+    )
+
+    verification = delivery.persistence.claims.get_verification("claim-1")
+    assert verification is not None
+    outcome = delivery.inspect_verification("claim-1")
+    assert outcome is not None
+    verification_payload = verification_to_payload(verification, outcome.review_decision)
+
+    assert verification_payload["publication_gate"] == "blocked"
+    assert verification_payload["gate_reason"] == "human_review_excluded"
+    assert outcome.verification.verdict is VerificationVerdict.SUPPORT
 
 
 def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
@@ -230,9 +296,16 @@ def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
     )
 
     assert verify_status == "200 OK"
-    assert json.loads(verify_body)["verification"]["verdict"] == "support"
+    verify_payload = json.loads(verify_body)
+    assert verify_payload["verification"]["verdict"] == "support"
+    assert verify_payload["verification"]["evidence_sufficiency"] == "supported"
+    assert verify_payload["verification"]["publication_gate"] == "allowed"
+    assert verify_payload["verification"]["gate_reason"] is None
     assert inspect_status == "200 OK"
     inspection_payload = json.loads(inspect_body)
+    assert inspection_payload["verification"]["evidence_sufficiency"] == "supported"
+    assert inspection_payload["verification"]["publication_gate"] == "allowed"
+    assert inspection_payload["verification"]["gate_reason"] is None
     assert inspection_payload["evidence_links"][0]["chunk_id"] == "chunk-1"
     assert inspection_payload["evidence_summary"] == {
         "evidence_count": 1,
@@ -249,6 +322,9 @@ def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
     assert case_status == "200 OK"
     assert ("Content-Type", "text/html; charset=utf-8") in case_headers
     assert "The bridge reopened after inspection." in case_body
+    assert "Evidence sufficiency: supported" in case_body
+    assert "Publication gate: allowed" in case_body
+    assert "Gate reason: none" in case_body
 
 
 def test_wsgi_root_route_returns_html_home_page() -> None:

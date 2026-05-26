@@ -9,20 +9,20 @@ Confirmed baseline now:
 - evidence-first, claim-centric product direction is still the active center
 - local stdlib WSGI/API + HTML flow exists under `src/sourcetrace/web/`
 - the repo-owned launcher `python -m sourcetrace.local_launcher` wires runtime config + LLM-backed credibility path into that local web surface
-- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `293 passed`
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `334 passed`
 - create/write workflow responses now include a common top-level workflow envelope: `status`, `summary`, `next_step`, `resource`, and `resource_id`
 - create responses still expose compatibility aliases at top level (`case_id`, `document_id`) for thin clients
 - document IDs are now ASCII-safe for non-English titles, and fallback claim IDs stay case-scoped
-- `GET /cases/{case_id}` is truthful for missing/partial states: missing cases return real `404`, persisted verification verdicts are preferred, and direct claim/evidence/verification links are exposed
+- `GET /cases/{case_id}` is truthful for missing/partial states: missing cases return real `404`, persisted verification verdicts are preferred, direct claim/evidence/verification links are exposed, and claim rows now also render `Evidence sufficiency`, `Publication gate`, and `Gate reason`
 - claim normalization resists basic cross-language drift for Polish source text instead of persisting obvious English rewrite drift
 - credibility assessment now ships both backward-compatible `notes` and structured credibility output (`summary`, `strengths`, `concerns`, `verification_checks`)
 - credibility runtime also maps semantic assessment fields (`source_reliability`, `information_credibility`, `provenance_distance`, factor arrays) with conservative `unknown` fallback when the draft is weak
 - weak-source credibility handling is explicitly hardened for unattributed notes, anonymous reposts, weak scraped snippets, and secondary summaries
 - the HTML case view renders structured credibility output directly in each document row, shows a short snippet preview sourced from inline text or the first prepared chunk, and now labels missing credibility explicitly as `Status: Not assessed yet.` with the next credibility endpoint
-- inline document continuity is verified end-to-end: `POST /api/cases/{case_id}/documents` accepts `content` or `text`, `prepare` can reuse stored inline text, `extract-claims` now auto-prepares stored inline content when chunks are missing, and document payloads expose `has_inline_content`
+- inline document continuity is verified end-to-end: `POST /api/cases/{case_id}/documents` accepts `content` or `text`, `prepare` can reuse stored inline text, `extract-claims` auto-prepares stored inline content when chunks are missing, `credibility` also auto-prepares stored inline content when chunks are missing, and document payloads expose `has_inline_content`
 - a reusable smoke command now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, supports `--pretty` and `--expect-claims-min N`, and exits non-zero on failed expectations
+- a smaller contract-focused credibility smoke also exists as `python -m sourcetrace.credibility_smoke` / `sourcetrace-credibility-smoke` for verifying the POST-vs-GET credibility API envelope and typed-field continuity
 - GitHub Actions also includes a lightweight `CI Smoke` workflow for the same local launcher + smoke path, although this repo is currently used without a configured remote
-
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
 - `docs/research/research-ledger.md` — rolling research notes and architecture implications
@@ -154,6 +154,8 @@ Do weryfikacji:
    - stricter minimum claim expectation: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --expect-claims-min 2`
    - Expected: JSON report with `prepare_chunk_count`, `extract_claim_count`, `credibility_has_summary`, `html_has_snippet`, and `html_has_summary`
    - Operational contract: the command exits `0` on pass and `1` on failed expectations; on failure it still prints the report JSON to stdout plus a failure summary JSON to stderr
+   - credibility contract smoke: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.credibility_smoke --pretty`
+   - Expected: JSON report confirming `credibility_assessment` exists on both POST and GET, typed fields are populated, and `post_get_match` is `true`
 4. Check operational routes first:
    - `curl http://127.0.0.1:8000/api/health`
    - Expected: `200 OK` with `{ "status": "ok" }`
@@ -201,7 +203,9 @@ Do weryfikacji:
         "language": "en"
       }'`
    - Expected: `201 Created` with JSON containing `document.document_id`
-   - Current verified continuity: the same route also accepts inline `text` (alias for `content`), and the returned document payload exposes `has_inline_content: true` when inline text was stored for later prepare reuse
+   - Current verified workflow contract: verification payloads now also expose `evidence_sufficiency`, `publication_gate`, and `gate_reason` for user-visible publication decisions.
+- Current verified workflow contract: report payloads now also expose per-entry `evidence_sufficiency`, `publication_gate`, `gate_reason`, and case-level `publication_summary` including `blocked_claim_count`.
+- Current verified continuity: the same route also accepts inline `text` (alias for `content`), and the returned document payload exposes `has_inline_content: true` when inline text was stored for later prepare reuse
 7. Prepare chunks for the document:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/prepare \
       -H 'Content-Type: application/json' \
@@ -213,6 +217,7 @@ Do weryfikacji:
    - Current verified diagnostics: the response also includes `diagnostics.chunk_count`, `diagnostics.status`, `diagnostics.summary`, and `diagnostics.next_step` so the caller can tell whether prepare produced usable chunks and what to do next.
    - Current verified continuity: if the document was created earlier with inline `content` or `text`, `POST /api/documents/{document_id}/prepare` can now be called with an empty JSON body and it will reuse the previously stored inline text instead of returning `empty`.
    - Current verified continuity: `POST /api/documents/{document_id}/extract-claims` now also auto-prepares stored inline content when chunks are still missing, so inline note flows do not silently fall into empty extraction just because prepare was skipped.
+   - Current verified continuity: `POST /api/documents/{document_id}/credibility` now also auto-prepares stored inline content when chunks are still missing, so dev-seeded inline documents do not degrade into missing-source-text credibility drafts by default.
 8. Run claim extraction:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/extract-claims \
       -H 'Content-Type: application/json' \
@@ -237,7 +242,7 @@ Do weryfikacji:
        },
        "requested_k": 2
      }'`
-   - Expected: `200 OK` with JSON containing `verification.verdict`
+   - Expected: `200 OK` with JSON containing `verification.verdict`, `verification.evidence_sufficiency`, `verification.publication_gate`, and `verification.gate_reason`
 10. Inspect the resource reads:
    - `curl http://127.0.0.1:8000/api/cases`
    - `curl http://127.0.0.1:8000/api/cases/case-1`
@@ -251,6 +256,7 @@ Do weryfikacji:
    - `curl http://127.0.0.1:8000/cases/case-1`
    - Expected: each returns `200 OK` after the relevant upstream step is completed
    - Current verified UI nuance: `/cases/{case_id}` now renders a `Document status` table with chunk count, claim count, credibility state, a concrete next-action endpoint, and a short `Snippet:` preview sourced from inline text (or the first prepared chunk when inline text is unavailable).
+   - Current verified UI nuance: `/cases/{case_id}` now also renders `Evidence sufficiency`, `Publication gate`, and `Gate reason` per claim row.
    - Current verified UI nuance: the same HTML view shows summary/strengths/concerns/verification checks directly in each document row and returns a real `404` for missing cases instead of rendering `Case None`.
 11. Record a minimal analyst review so the case report surface has reviewed content:
    - `curl -X POST http://127.0.0.1:8000/api/reviews \
@@ -268,9 +274,11 @@ Do weryfikacji:
    - Expected: `200 OK` with JSON containing the persisted review artifact
 12. Export the report:
    - `curl http://127.0.0.1:8000/api/reports/case-1`
-   - Expected: `200 OK` with canonical report JSON
+   - Expected: `200 OK` with canonical report JSON including per-entry publication fields and `publication_summary`
+   - Expected: excluded-only report cases now also return `200 OK` with empty `entries` and `publication_summary.blocked_claim_count > 0` instead of `report_not_found`
    - `curl http://127.0.0.1:8000/api/reports/case-1.md`
    - Expected: `200 OK` with `Content-Type: text/markdown; charset=utf-8`
+   - Expected: excluded-only markdown reports also include a `## Publication summary` section with `Blocked claims: 1` when the case was excluded from publication by human review
 13. Draft advisory document credibility notes:
    - `curl -X POST http://127.0.0.1:8000/api/documents/doc-1/credibility \
       -H 'Content-Type: application/json' \
@@ -279,9 +287,15 @@ Do weryfikacji:
    - `curl http://127.0.0.1:8000/api/documents/doc-1/credibility`
    - Expected: `200 OK` with the latest persisted `credibility_assessment`
    - The current `llm_draft_v1` output should be treated as an advisory draft.
-   - It currently relies mostly on document metadata, source identity, and topic context, not yet on full article-text analysis or claim-by-claim verification.
+   - It currently remains advisory rather than claim-by-claim verification, but when inline content is available the route now auto-prepares excerpt text so credibility can use more than metadata alone.
    - Current verified semantics/UI behavior: the same payload now also includes structured fields (`summary`, `strengths`, `concerns`, `verification_checks`), maps semantic assessment fields when the draft provides them, and is hardened toward semantic JSON output with stabilisation scenarios in test coverage.
-   - Current verified weak-source nuance: unattributed notes, anonymous reposts, and weak scraped snippets now settle more conservatively, while secondary news summaries stay secondary unless they clearly embed the primary material.
+   - Current verified weak-source nuance: unattributed notes, anonymous reposts, weak scraped snippets, and anonymous rumor-style blog posts settle more conservatively, while secondary news summaries stay secondary unless they clearly embed the primary material.
+
+## Publication gate semantics v1
+- `allowed` — the claim currently has sufficient support for publication in the v1 contract.
+- `review_required` — the claim is not publication-ready and needs analyst review before publication.
+- `blocked` — used when human review explicitly excludes a claim from publication; current runtime surfaces it for `HumanReviewStatus.EXCLUDED`.
+- `gate_reason` is `grounding_insufficient` when the current verdict is `insufficient_evidence`, `human_review_excluded` when a reviewed claim is excluded from publication, and otherwise `null` / `none` in current surfaces.
 
 ## Test-use checklist for collecting findings
 - Current execution SSOT for the first real-data campaign:
@@ -326,6 +340,9 @@ Do weryfikacji:
 - Use a continuity pack selectively when an existing observation or research artifact already contains enough evidence for a real next-step decision, but still needs a decision-ready wrapper.
 - Current known limitation from live smoke: some long assistant-style rewrites can still slip through normalization fallback on real articles; the fallback is improved, and leading `Yes/No` answer-style openings are now filtered, but the cleanup is still not fully semantic.
 - Current verified contrast note continuity: inline note-style contrast inputs no longer fall into `empty` just because `extract-claims` ran before an explicit `prepare`, but exact claim shape can still vary between the stronger restriction clause and an additional reopening clause.
+- Current verified credibility continuity: dev-seeded inline documents no longer need an explicit `POST /prepare` to get excerpt-aware credibility output; strong-source reruns reached `high / medium`, and a weak-source anonymous rumor-style blog rerun reached `low / low` with stored chunks visible after direct `POST /credibility`.
+- Current verified credibility nuance: after continuity closure, strong-source `source_reliability` is still metadata-sensitive for dev-seeded excerpts; this was reproduced cross-publisher on Reuters- and BBC-style texts, where the same excerpt stayed `medium / medium` as a note with missing URL/publication metadata, but returned to `high / medium` once `source_url` and `published_at` were present.
+- Current verified metadata-sensitive credibility contrast: on the same BBC-style analytical excerpt, a metadata-rich `url` document returned `high / medium`, while a metadata-light `note` version returned `low / medium`; typed fields stayed present on both paths, so the active nuance is provenance-sensitive scoring rather than typed-field disappearance.
 
 ## Example: run credibility on your own document payload
 1. Start the repo-owned launcher so the in-memory document repository and LLM-backed credibility path live in the same process:
@@ -386,5 +403,7 @@ Generate a user unit from the repo wrapper:
   - Expected: `404 Not Found` with `{"error": "verification_not_found", "status": "missing"}`
 - `GET /api/reports/missing-case.json`
   - Expected: `404 Not Found` with `{"error": "report_not_found", "status": "missing"}`
+- `POST /api/reviews` with an unknown or case-mismatched `claim_id`
+  - Expected: `404 Not Found` with `{"error": "claim_not_found", "status": "missing"}`
 - `POST /api/reviews` with an incomplete payload
   - Expected: `400 Bad Request` with `status: invalid_request`
