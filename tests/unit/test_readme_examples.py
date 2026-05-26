@@ -57,7 +57,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "- `allowed` — the claim currently has sufficient support for publication in the v1 contract." in readme
     assert "- `review_required` — the claim is not publication-ready and needs analyst review before publication." in readme
     assert "- `blocked` — used when human review explicitly excludes a claim from publication; current runtime surfaces it for `HumanReviewStatus.EXCLUDED`." in readme
-    assert "- `gate_reason` is `grounding_insufficient` when the current verdict is `insufficient_evidence`, `human_review_excluded` when a reviewed claim is excluded from publication, and otherwise `null` / `none` in current surfaces." in readme
+    assert "- `gate_reason` is `grounding_insufficient` when the current verdict is `insufficient_evidence`, `conflicting_evidence` when the current verdict is `contradict`, `human_review_excluded` when a reviewed claim is excluded from publication, and otherwise `null` / `none` in current surfaces." in readme
     assert "`POST /api/documents/{document_id}/extract-claims` now also auto-prepares stored inline content when chunks are still missing" in readme
     assert "`POST /api/documents/{document_id}/credibility` now also auto-prepares stored inline content when chunks are still missing" in readme
     assert "SOURCETRACE_CONTINUITY_PACK_ROOT_DIR" in readme

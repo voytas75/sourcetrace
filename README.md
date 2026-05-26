@@ -305,7 +305,7 @@ Do weryfikacji:
 - `allowed` — the claim currently has sufficient support for publication in the v1 contract.
 - `review_required` — the claim is not publication-ready and needs analyst review before publication.
 - `blocked` — used when human review explicitly excludes a claim from publication; current runtime surfaces it for `HumanReviewStatus.EXCLUDED`.
-- `gate_reason` is `grounding_insufficient` when the current verdict is `insufficient_evidence`, `human_review_excluded` when a reviewed claim is excluded from publication, and otherwise `null` / `none` in current surfaces.
+- `gate_reason` is `grounding_insufficient` when the current verdict is `insufficient_evidence`, `conflicting_evidence` when the current verdict is `contradict`, `human_review_excluded` when a reviewed claim is excluded from publication, and otherwise `null` / `none` in current surfaces.
 
 ## Test-use checklist for collecting findings
 - Current execution SSOT for the first real-data campaign:
