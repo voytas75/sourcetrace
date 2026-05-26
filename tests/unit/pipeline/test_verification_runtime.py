@@ -210,3 +210,53 @@ def test_claim_verification_runtime_marks_excluded_review_verdict_as_blocked() -
     assert outcome.verification_outcome.evidence_sufficiency == "insufficient"
     assert outcome.verification_outcome.publication_gate == "blocked"
     assert outcome.verification_outcome.gate_reason == "human_review_excluded"
+
+
+def test_claim_verification_runtime_marks_contradicted_verdict_as_refuted() -> None:
+    persistence = create_in_memory_persistence()
+    claim = Claim(
+        claim_id="claim-1",
+        case_id="case-1",
+        document_id="doc-1",
+        chunk_id=None,
+        exact_text="The bridge reopened after inspection.",
+        source_span_reference="p1",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+
+    def contradicting_verifier(request):
+        verification = request.claim
+        _ = verification
+        from sourcetrace.application import ClaimVerificationOutcome, ClaimVerificationRequest
+        from sourcetrace.domain import ClaimVerification
+
+        assert isinstance(request, ClaimVerificationRequest)
+        return ClaimVerificationOutcome(
+            request=request,
+            verification=ClaimVerification(
+                claim_id=request.claim.claim_id,
+                case_id=request.claim.case_id,
+                verdict=VerificationVerdict.CONTRADICT,
+                supporting_chunk_ids=(),
+                contradicting_chunk_ids=("chunk-2",),
+                analyst_notes="contradicted by retrieved evidence",
+            ),
+            evidence_sufficiency="supported",
+            publication_gate="allowed",
+        )
+
+    runtime = ClaimVerificationRuntime(
+        persistence=persistence,
+        retrieval=RetrievalExecution(
+            retrieve_chunks=LexicalChunkRetriever(documents=persistence.documents)
+        ),
+        verification=ClaimVerificationExecution(verify_claim=contradicting_verifier),
+    )
+
+    outcome = runtime(ClaimVerificationRuntimeRequest(claim=claim, requested_k=3))
+
+    assert outcome.verification_outcome.verification.verdict is VerificationVerdict.CONTRADICT
+    assert outcome.verification_outcome.evidence_sufficiency == "refuted"
+    assert outcome.verification_outcome.publication_gate == "allowed"
+    assert outcome.verification_outcome.gate_reason is None

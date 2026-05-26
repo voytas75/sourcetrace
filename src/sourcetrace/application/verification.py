@@ -6,7 +6,7 @@ from typing import Literal
 from sourcetrace.domain.claims import Claim, ClaimVerification
 from sourcetrace.domain.retrieval import RetrievalQuery, RetrievalResultSet
 
-EvidenceSufficiency = Literal["supported", "insufficient"]
+EvidenceSufficiency = Literal["supported", "refuted", "insufficient"]
 PublicationGate = Literal["allowed", "review_required", "blocked"]
 
 

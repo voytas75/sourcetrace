@@ -197,6 +197,51 @@ def test_claim_verification_outcome_allows_blocked_publication_gate_contract() -
     assert outcome.gate_reason == "human_review_excluded"
 
 
+def test_claim_verification_outcome_allows_refuted_evidence_sufficiency_contract() -> None:
+    request = ClaimVerificationRequest(
+        claim=Claim(
+            claim_id="claim-1",
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_id="chunk-1",
+            exact_text="The network expanded in 2025.",
+            source_span_reference="p1",
+            system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            rationale=None,
+        ),
+        retrieval_query=RetrievalQuery(
+            query_id="query-1",
+            case_id="case-1",
+            query_text="claim evidence query",
+            requested_k=3,
+        ),
+        retrieved_evidence=RetrievalResultSet(
+            query_id="query-1",
+            case_id="case-1",
+            hits=(),
+        ),
+    )
+    verification = ClaimVerification(
+        claim_id="claim-1",
+        case_id="case-1",
+        verdict=VerificationVerdict.CONTRADICT,
+        supporting_chunk_ids=(),
+        contradicting_chunk_ids=("chunk-2",),
+        analyst_notes="contradicted by retrieved evidence",
+    )
+
+    outcome = ClaimVerificationOutcome(
+        request=request,
+        verification=verification,
+        evidence_sufficiency="refuted",
+        publication_gate="allowed",
+    )
+
+    assert outcome.evidence_sufficiency == "refuted"
+    assert outcome.publication_gate == "allowed"
+    assert outcome.gate_reason is None
+
+
 def test_application_verification_contracts_are_immutable() -> None:
     request = ClaimVerificationRequest(
         claim=Claim(

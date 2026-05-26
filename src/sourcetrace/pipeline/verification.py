@@ -170,6 +170,8 @@ def _verification_controls(
 ) -> tuple[EvidenceSufficiency, PublicationGate, str | None]:
     if review_status is HumanReviewStatus.EXCLUDED:
         return ("insufficient", "blocked", "human_review_excluded")
+    if verdict is VerificationVerdict.CONTRADICT:
+        return ("refuted", "allowed", None)
     if verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE:
         return ("insufficient", "review_required", "grounding_insufficient")
     return ("supported", "allowed", None)
