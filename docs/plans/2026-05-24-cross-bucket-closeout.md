@@ -6,6 +6,10 @@ Related checkpoints:
 - `docs/plans/2026-05-23-bucket-a-checkpoint.md`
 - `docs/plans/2026-05-23-bucket-b-checkpoint.md`
 - `docs/plans/2026-05-23-bucket-c-checkpoint.md`
+Related closeouts:
+- `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md`
+- `docs/plans/2026-05-24-credibility-policy-closeout.md`
+- `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md`
 
 ## Executive decision
 The current SourceTrace test-use state is **usable-with-caveats across Buckets A, B, and C**.

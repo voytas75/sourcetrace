@@ -4,6 +4,11 @@ Status: staged backlog ready
 Scope: convert recent external research signals into a bounded, repo-facing execution backlog for SourceTrace
 Purpose: prioritize the smallest high-leverage product/architecture upgrades that improve verification truthfulness, auditability, and analyst utility without reopening broad architecture work
 
+Related stable docs:
+- `docs/plans/2026-05-24-cross-bucket-closeout.md`
+- `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md`
+- `docs/plans/2026-05-24-credibility-policy-closeout.md`
+
 ## Goal
 Translate validated external research patterns into a staged SourceTrace backlog that can be executed slice-by-slice on top of the current evidence-first, claim-centric baseline.
 

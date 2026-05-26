@@ -7,6 +7,10 @@ Related evidence:
 - `docs/plans/2026-05-24-live-credibility-rerun-b3.md`
 - `docs/plans/2026-05-24-credibility-debug-pipeline-capture.md`
 - `docs/plans/2026-05-24-credibility-inline-continuity-checkpoint.md`
+Related stable docs:
+- `docs/plans/2026-05-24-cross-bucket-closeout.md`
+- `docs/plans/2026-05-24-credibility-policy-closeout.md`
+- `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md`
 
 ## Why this slice now
 Manual live verification stopped pointing first to bad source scoring.

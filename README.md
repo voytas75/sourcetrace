@@ -27,11 +27,21 @@ Confirmed baseline now:
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
 - `docs/research/research-ledger.md` — rolling research notes and architecture implications
 - `docs/plans/execution-blueprint-v0.md` — provisional plan between research and implementation
+- `docs/plans/2026-05-24-cross-bucket-closeout.md` — decision-ready real-data campaign closeout across Buckets A/B/C
+- `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md` — closed continuity seam for inline-content credibility reuse
+- `docs/plans/2026-05-24-credibility-policy-closeout.md` — current credibility metadata-sensitivity policy and reopen conditions
+- `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md` — staged repo-facing backlog for the next bounded product slices
 - `docs/plans/2026-05-23-continuity-pack-usage-note.md` — when to create a decision-ready continuity-pack wrapper over an existing artifact
 - `notes/` — working notes
 - `src/sourcetrace/` — application package
 - `tests/` — unit/integration/doc assertions
 - `data/` — local working data directories kept mostly out of git
+
+## Active bounded docs anchors
+- continuity seam closeout: `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md`
+- cross-bucket quality verdict: `docs/plans/2026-05-24-cross-bucket-closeout.md`
+- credibility policy default: `docs/plans/2026-05-24-credibility-policy-closeout.md`
+- next staged execution backlog: `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md`
 
 ## Working model
 The intended workflow is now:

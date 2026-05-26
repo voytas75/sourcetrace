@@ -7,6 +7,9 @@ Related checkpoints:
 - `docs/plans/2026-05-24-credibility-typed-fields-checkpoint.md`
 - `docs/plans/2026-05-24-credibility-metadata-sensitive-contract-checkpoint.md`
 - `docs/plans/2026-05-24-cross-bucket-closeout.md`
+Related stable docs:
+- `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md`
+- `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md`
 
 ## Decision
 Treat the current metadata-sensitive credibility behavior as the **working product default** for controlled test-use.
