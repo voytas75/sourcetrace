@@ -1,9 +1,13 @@
 """Application-layer claim verification contracts."""
 
 from dataclasses import dataclass
+from typing import Literal
 
 from sourcetrace.domain.claims import Claim, ClaimVerification
 from sourcetrace.domain.retrieval import RetrievalQuery, RetrievalResultSet
+
+EvidenceSufficiency = Literal["supported", "insufficient"]
+PublicationGate = Literal["allowed", "review_required", "blocked"]
 
 
 @dataclass(frozen=True)
@@ -21,9 +25,14 @@ class ClaimVerificationOutcome:
 
     request: ClaimVerificationRequest
     verification: ClaimVerification
+    evidence_sufficiency: EvidenceSufficiency
+    publication_gate: PublicationGate
+    gate_reason: str | None = None
 
 
 __all__ = [
     "ClaimVerificationOutcome",
     "ClaimVerificationRequest",
+    "EvidenceSufficiency",
+    "PublicationGate",
 ]

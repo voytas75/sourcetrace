@@ -105,3 +105,21 @@ def test_claim_extraction_gateway_requires_contrastive_sentences_to_yield_at_lea
     assert "contrastive sentences still contain extractable claims" in prompt
     assert "although the bridge reopened to cars on tuesday" in prompt
     assert "heavy trucks remain barred until next week" in prompt
+
+
+def test_claim_extraction_gateway_instructs_grouping_of_linked_analytical_subclauses() -> None:
+    recorder = _Recorder()
+    gateway = build_claim_extraction_gateway(
+        execution=StructuredGenerationRuntime(generate_structured=recorder)
+    )
+
+    gateway(
+        "The strike reportedly knocked out 17% of global LNG supply and may cost QatarEnergy about $20bn in annual revenues, with repairs taking 3 to 5 years."
+    )
+
+    assert recorder.messages is not None
+    prompt = recorder.messages[0].content.lower()
+    assert "prefer one grouped claim" in prompt
+    assert "single analytical proposition" in prompt or "single analytical claim" in prompt
+    assert "do not split short dependent fragments" in prompt
+    assert "repairs taking 3 to 5 years" in prompt

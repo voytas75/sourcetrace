@@ -240,6 +240,7 @@ class _LlmClaimExtractor:
             claims=(),
         )
         claim_items = _deduplicate_claim_items(claim_items)
+        claim_items = _merge_clipped_analytical_claim_items(claim_items)
         _debug_claim_pipeline_stage(stage="deduplicated_claim_items", payload=claim_items)
         materialized_claims: list[Claim] = []
         source_language = _prepared_text_language(chunks)
@@ -456,6 +457,81 @@ def _looks_like_low_information_gallery_claims(claim_texts: list[str]) -> bool:
         if re.search(r"\b\d+\b", text):
             return False
     return True
+
+
+def _merge_clipped_analytical_claim_items(
+    claim_items: tuple[dict[str, object], ...],
+) -> tuple[dict[str, object], ...]:
+    if len(claim_items) < 2:
+        return claim_items
+
+    merged: list[dict[str, object]] = []
+    pending: dict[str, object] | None = None
+
+    for item in claim_items:
+        if pending is None:
+            pending = dict(item)
+            continue
+
+        pending_text = _first_normalized_item_string(pending, *_CLAIM_TEXT_KEYS)
+        item_text = _first_normalized_item_string(item, *_CLAIM_TEXT_KEYS)
+        pending_chunk = _first_normalized_item_string(pending, *_CLAIM_CHUNK_KEYS)
+        item_chunk = _first_normalized_item_string(item, *_CLAIM_CHUNK_KEYS)
+
+        if (
+            pending_text is not None
+            and item_text is not None
+            and pending_chunk is not None
+            and pending_chunk == item_chunk
+            and _looks_like_clipped_analytical_tail(item_text)
+            and _can_extend_analytical_claim(pending_text)
+        ):
+            lowered_tail = item_text[0].lower() + item_text[1:] if len(item_text) > 1 else item_text.lower()
+            pending["exact_text"] = _merge_analytical_tail_text(pending_text, lowered_tail)
+            continue
+
+        merged.append(pending)
+        pending = dict(item)
+
+    if pending is not None:
+        merged.append(pending)
+    return tuple(merged)
+
+
+def _looks_like_clipped_analytical_tail(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if lowered.startswith(("repairs taking ", "repairs estimated ", "with repairs ")):
+        return True
+    first_word = lowered.split(" ", 1)[0]
+    return normalized[:1].islower() and first_word.endswith("ing")
+
+
+def _can_extend_analytical_claim(text: str) -> bool:
+    lowered = text.strip().lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "reportedly",
+            "may cost",
+            "warned",
+            "forecast",
+            "estimated",
+            "according to",
+            " says ",
+            " said ",
+        )
+    )
+
+
+def _merge_analytical_tail_text(head: str, tail: str) -> str:
+    stripped_head = head.rstrip()
+    stripped_tail = tail.lstrip()
+    if stripped_tail.startswith(("warning ", "warned ", "saying ", "noting ", "adding ")):
+        return f"{stripped_head}, {stripped_tail}"
+    return f"{stripped_head}, with {stripped_tail}"
 
 
 def _claim_text_for(

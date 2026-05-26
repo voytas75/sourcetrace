@@ -383,6 +383,84 @@ def test_build_llm_claim_extractor_uses_chunk_position_reference_when_only_chunk
     assert outcome.claims[0].source_span_reference == "p7"
 
 
+def test_build_llm_claim_extractor_infers_later_chunk_position_for_b1_style_voter_claim() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "exact_text": "One voter said she cannot afford health insurance.",
+                        "source_span_reference": "chunk-span:unknown",
+                    }
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-1",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://example.test/analysis",
+        publisher="AP",
+        author=None,
+        title="Analytical article",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:abc123",
+        language="en",
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="The article says the election is framed as a contest between tax relief and affordability pressure.",
+            start_char=0,
+            end_char=95,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-2",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text=(
+                "One voter said she cannot afford health insurance and remains skeptical of both parties."
+            ),
+            start_char=96,
+            end_char=185,
+            chunk_index=1,
+            position_reference="p2",
+        ),
+        DocumentChunk(
+            chunk_id="chunk-3",
+            case_id="case-1",
+            document_id="doc-1",
+            raw_text="Michael Whatley is promoting Trump's tax overhaul as a working-families tax cut.",
+            start_char=186,
+            end_char=267,
+            chunk_index=2,
+            position_reference="p3",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-1",
+            document_id="doc-1",
+            chunk_ids=("chunk-1", "chunk-2", "chunk-3"),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    assert outcome.claims[0].chunk_id == "chunk-2"
+    assert outcome.claims[0].source_span_reference == "p2"
+
+
 def test_claim_extraction_outcome_exposes_review_cautions_field() -> None:
     request = ClaimExtractionRequest(case_id="case-1", document_id="doc-1", chunk_ids=("chunk-1",))
     document = Document(
@@ -543,6 +621,148 @@ def test_build_llm_claim_extractor_marks_low_yield_repeated_captions_for_gallery
     )
 
     assert "low_yield_repeated_captions" in outcome.review_cautions
+
+
+def test_build_llm_claim_extractor_merges_b3_style_tail_fragment_into_grouped_analytical_claim() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The strike reportedly knocked out 17% of global LNG supply",
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-2",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The strike may cost QatarEnergy about $20bn in annual revenues",
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-3",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "repairs taking 3 to 5 years.",
+                        "source_span_reference": "p1",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-b3",
+        case_id="case-b3",
+        source_type="url",
+        source_url="https://example.test/b3",
+        publisher="BBC",
+        author=None,
+        title="Gulf economies face long-term hit from Iran conflict",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 24, 0, 5, tzinfo=UTC),
+        content_hash="sha256:b3",
+        language="en",
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-b3",
+            document_id="doc-b3",
+            raw_text=(
+                "The strike reportedly knocked out 17% of global LNG supply and may cost "
+                "QatarEnergy about $20bn in annual revenues, with repairs taking 3 to 5 years."
+            ),
+            start_char=0,
+            end_char=144,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(case_id="case-b3", document_id="doc-b3", chunk_ids=("chunk-1",)),
+        document=document,
+        chunks=chunks,
+    )
+
+    texts = tuple(claim.exact_text for claim in outcome.claims)
+    assert "repairs taking 3 to 5 years." not in texts
+    assert any("repairs taking 3 to 5 years" in text for text in texts)
+    assert len(texts) < 3
+
+
+def test_build_llm_claim_extractor_merges_world_bank_warning_tail_into_attributed_claim() -> None:
+    def extract_claims(prepared_text: str) -> LlmStructuredGenerationResult:
+        return LlmStructuredGenerationResult(
+            payload={
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "The World Bank cut its regional growth forecast to 2.4% this year",
+                        "source_span_reference": "p1",
+                    },
+                    {
+                        "claim_id": "claim-2",
+                        "chunk_id": "chunk-1",
+                        "exact_text": "warning of long-term scarring from prolonged infrastructure disruption.",
+                        "source_span_reference": "p1",
+                    },
+                ]
+            },
+            model="gpt-4o-mini",
+        )
+
+    document = Document(
+        document_id="doc-world-bank",
+        case_id="case-world-bank",
+        source_type="url",
+        source_url="https://example.test/world-bank",
+        publisher="Reuters",
+        author=None,
+        title="World Bank warns on infrastructure shock",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 24, 0, 20, tzinfo=UTC),
+        content_hash="sha256:world-bank",
+        language="en",
+    )
+    chunks = (
+        DocumentChunk(
+            chunk_id="chunk-1",
+            case_id="case-world-bank",
+            document_id="doc-world-bank",
+            raw_text=(
+                "The World Bank cut its regional growth forecast to 2.4% this year, "
+                "warning of long-term scarring from prolonged infrastructure disruption."
+            ),
+            start_char=0,
+            end_char=129,
+            chunk_index=0,
+            position_reference="p1",
+        ),
+    )
+    extractor = build_llm_claim_extractor(extract_claims=extract_claims)
+
+    outcome = extractor(
+        ClaimExtractionRequest(
+            case_id="case-world-bank",
+            document_id="doc-world-bank",
+            chunk_ids=("chunk-1",),
+        ),
+        document=document,
+        chunks=chunks,
+    )
+
+    texts = tuple(claim.exact_text for claim in outcome.claims)
+    assert "warning of long-term scarring from prolonged infrastructure disruption." not in texts
+    assert texts == (
+        "The World Bank cut its regional growth forecast to 2.4% this year, warning of long-term scarring from prolonged infrastructure disruption.",
+    )
+    assert tuple(claim.exact_text for claim in outcome.claims[-1:]) == (
+        "The World Bank cut its regional growth forecast to 2.4% this year, warning of long-term scarring from prolonged infrastructure disruption.",
+    )
 
 
 def test_build_llm_claim_extractor_marks_low_yield_gallery_input_without_exact_duplicate_claims() -> None:

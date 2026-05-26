@@ -6,10 +6,12 @@ from sourcetrace.application.interfaces import ClaimVerificationExecution
 from sourcetrace.application.verification import (
     ClaimVerificationOutcome,
     ClaimVerificationRequest,
+    EvidenceSufficiency,
+    PublicationGate,
 )
 from sourcetrace.domain.claims import Claim, ClaimEvidenceLink, ClaimVerification
 from sourcetrace.domain.retrieval import RetrievalQuery, RetrievalResultSet
-from sourcetrace.domain.types import VerificationVerdict
+from sourcetrace.domain.types import HumanReviewStatus, VerificationVerdict
 from sourcetrace.pipeline.interfaces import RetrievalExecution
 from sourcetrace.storage.interfaces import CorePersistence
 
@@ -56,9 +58,15 @@ class EvidencePresenceClaimVerifier:
             contradicting_chunk_ids=(),
             analyst_notes=_verification_note(len(supporting_chunk_ids)),
         )
+        evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
+            verdict
+        )
         return ClaimVerificationOutcome(
             request=request,
             verification=verification,
+            evidence_sufficiency=evidence_sufficiency,
+            publication_gate=publication_gate,
+            gate_reason=gate_reason,
         )
 
 
@@ -83,6 +91,20 @@ class ClaimVerificationRuntime:
             retrieved_evidence=retrieved_evidence,
         )
         verification_outcome = self.verification.verify_claim(verification_request)
+        review_decision = self.persistence.claims.get_review_decision(claim.claim_id)
+        evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
+            verification_outcome.verification.verdict,
+            review_status=(
+                review_decision.human_review_status if review_decision is not None else None
+            ),
+        )
+        verification_outcome = ClaimVerificationOutcome(
+            request=verification_outcome.request,
+            verification=verification_outcome.verification,
+            evidence_sufficiency=evidence_sufficiency,
+            publication_gate=publication_gate,
+            gate_reason=gate_reason,
+        )
         evidence_links = _build_evidence_links(
             claim,
             retrieved_evidence,
@@ -140,6 +162,17 @@ def _verification_note(supporting_count: int) -> str:
     if supporting_count == 1:
         return "1 retrieved evidence chunk."
     return f"{supporting_count} retrieved evidence chunks."
+
+
+def _verification_controls(
+    verdict: VerificationVerdict,
+    review_status: HumanReviewStatus | None = None,
+) -> tuple[EvidenceSufficiency, PublicationGate, str | None]:
+    if review_status is HumanReviewStatus.EXCLUDED:
+        return ("insufficient", "blocked", "human_review_excluded")
+    if verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE:
+        return ("insufficient", "review_required", "grounding_insufficient")
+    return ("supported", "allowed", None)
 
 
 __all__ = [

@@ -21,6 +21,9 @@ from sourcetrace.application.credibility import (
     CredibilityAssessmentRequest as ModuleCredibilityAssessmentRequest,
 )
 from sourcetrace.application.credibility_runtime import (
+    _structured_credibility_notes,
+)
+from sourcetrace.application.credibility_runtime import (
     build_llm_credibility_assessor as RuntimeBuildLlmCredibilityAssessor,
 )
 from sourcetrace.application.interfaces import (
@@ -245,6 +248,51 @@ def test_build_llm_credibility_assessor_normalizes_json_blob_into_human_readable
     assert outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
 
 
+def test_structured_credibility_notes_b3_plaintext_extracts_sections() -> None:
+    result = _structured_credibility_notes(
+        "Summary: BBC is a mainstream publisher and the article cites named institutions, "
+        "but several damage and revenue figures remain attribution-led rather than independently verified.\n"
+        "Strengths: Identified publisher (BBC); cites named institutions such as the International Energy Agency and the World Bank.\n"
+        "Concerns: Several quantitative claims are attribution-led; the excerpt does not include primary-source documentation for all damage and revenue figures.\n"
+        "Verification checks: Verify the Ras Laffan strike and LNG disruption with primary reporting and confirm the quoted institutional estimates in their original releases."
+    )
+
+    assert result["notes"] == (
+        "Summary: BBC is a mainstream publisher and the article cites named institutions, "
+        "but several damage and revenue figures remain attribution-led rather than independently verified.\n"
+        "Strengths: Identified publisher (BBC); cites named institutions such as the International Energy Agency and the World Bank.\n"
+        "Concerns: Several quantitative claims are attribution-led; the excerpt does not include primary-source documentation for all damage and revenue figures.\n"
+        "Verification checks: Verify the Ras Laffan strike and LNG disruption with primary reporting and confirm the quoted institutional estimates in their original releases."
+    )
+    assert result["summary"] == (
+        "BBC is a mainstream publisher and the article cites named institutions, but several damage and revenue figures remain attribution-led rather than independently verified."
+    )
+    assert result["strengths"] == (
+        "Identified publisher (BBC)",
+        "cites named institutions such as the International Energy Agency and the World Bank.",
+    )
+    assert result["concerns"] == (
+        "Several quantitative claims are attribution-led",
+        "the excerpt does not include primary-source documentation for all damage and revenue figures.",
+    )
+    assert result["verification_checks"] == (
+        "Verify the Ras Laffan strike and LNG disruption with primary reporting and confirm the quoted institutional estimates in their original releases.",
+    )
+
+
+def test_structured_credibility_notes_b3_plaintext_infers_medium_bands_from_sections() -> None:
+    result = _structured_credibility_notes(
+        "Summary: BBC is a mainstream publisher and the article cites named institutions, "
+        "but several damage and revenue figures remain attribution-led rather than independently verified.\n"
+        "Strengths: Identified publisher (BBC); cites named institutions such as the International Energy Agency and the World Bank.\n"
+        "Concerns: Several quantitative claims are attribution-led; the excerpt does not include primary-source documentation for all damage and revenue figures.\n"
+        "Verification checks: Verify the Ras Laffan strike and LNG disruption with primary reporting and confirm the quoted institutional estimates in their original releases."
+    )
+
+    assert result["source_reliability"] is CredibilityBand.MEDIUM
+    assert result["information_credibility"] is CredibilityBand.MEDIUM
+
+
 def test_build_llm_credibility_assessor_normalizes_live_nested_json_blob_into_human_readable_notes() -> None:
     document = Document(
         document_id="doc-1",
@@ -399,7 +447,10 @@ def test_build_llm_credibility_assessor_best_effort_parses_truncated_live_json_b
     assert outcome.assessment.source_reliability is CredibilityBand.UNKNOWN
     assert outcome.assessment.information_credibility is CredibilityBand.UNKNOWN
     assert outcome.assessment.source_reliability_factors == ()
-    assert outcome.assessment.information_credibility_factors == ()
+    assert outcome.assessment.information_credibility_factors == (
+        "Publisher is unknown.",
+        "Author is unknown.",
+    )
     assert outcome.assessment.provenance_distance is ProvenanceDistance.UNKNOWN
 
 
@@ -561,6 +612,112 @@ def test_build_llm_credibility_assessor_maps_secondary_summary_semantics() -> No
         "dataset_not_linked",
     )
     assert outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
+
+
+
+def test_build_llm_credibility_assessor_keeps_typed_fields_across_metadata_sensitive_contrast() -> None:
+    excerpt = (
+        "The BBC reports that Gulf economies are preparing for wider fallout from the Iran conflict. "
+        "The article cites the International Energy Agency and the World Bank, and says Qatar faces a major threat because the world depends on its liquefied natural gas exports."
+    )
+    rich_document = Document(
+        document_id="doc-rich",
+        case_id="case-1",
+        source_type="url",
+        source_url="https://www.bbc.com/news/articles/example",
+        publisher="BBC News",
+        author=None,
+        title="Gulf economies brace for Iran conflict spillover",
+        published_at=datetime(2026, 5, 24, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 5, 24, 1, 0, tzinfo=UTC),
+        content_hash="sha256:rich123",
+        language="en",
+        inline_content=excerpt,
+    )
+    light_document = Document(
+        document_id="doc-light",
+        case_id="case-1",
+        source_type="note",
+        source_url=None,
+        publisher=None,
+        author=None,
+        title="Gulf economies brace for Iran conflict spillover",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 24, 1, 5, tzinfo=UTC),
+        content_hash="sha256:light123",
+        language="en",
+        inline_content=excerpt,
+    )
+
+    responses = iter(
+        [
+            LlmGenerationResult(
+                text=json.dumps(
+                    {
+                        "summary": "Metadata-rich BBC-style secondary report.",
+                        "strengths": ["Named outlet", "Source URL present"],
+                        "concerns": ["Author missing", "Secondary reporting"],
+                        "verification_checks": ["Confirm linked institutional sources"],
+                        "source_reliability": "high",
+                        "information_credibility": "medium",
+                        "source_reliability_factors": ["named_outlet", "source_url_present"],
+                        "information_credibility_factors": ["institutional_sources_named"],
+                        "provenance_distance": "secondary",
+                    }
+                ),
+                model="gpt-5.4",
+                finish_reason="stop",
+            ),
+            LlmGenerationResult(
+                text=json.dumps(
+                    {
+                        "summary": "Metadata-light note summarizing a BBC-style report.",
+                        "strengths": ["Institutional sources mentioned"],
+                        "concerns": ["No source URL", "No publisher metadata", "No publication date"],
+                        "verification_checks": ["Find the original BBC article"],
+                        "source_reliability": "low",
+                        "information_credibility": "medium",
+                        "source_reliability_factors": ["metadata_light_note", "no_source_url", "no_publisher_metadata"],
+                        "information_credibility_factors": ["institutional_sources_named"],
+                        "provenance_distance": "secondary",
+                    }
+                ),
+                model="gpt-5.4",
+                finish_reason="stop",
+            ),
+        ]
+    )
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        return next(responses)
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 24, 1, 10, tzinfo=UTC),
+    )
+
+    rich_outcome = assessor(
+        CredibilityAssessmentRequest(document=rich_document, assessment_method="llm_draft_v1")
+    )
+    light_outcome = assessor(
+        CredibilityAssessmentRequest(document=light_document, assessment_method="llm_draft_v1")
+    )
+
+    assert rich_outcome.assessment.source_reliability is CredibilityBand.HIGH
+    assert rich_outcome.assessment.information_credibility is CredibilityBand.MEDIUM
+    assert light_outcome.assessment.source_reliability is CredibilityBand.LOW
+    assert light_outcome.assessment.information_credibility is CredibilityBand.MEDIUM
+    assert rich_outcome.assessment.source_reliability_factors == (
+        "named_outlet",
+        "source_url_present",
+    )
+    assert light_outcome.assessment.source_reliability_factors == (
+        "metadata_light_note",
+        "no_source_url",
+        "no_publisher_metadata",
+    )
+    assert rich_outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
+    assert light_outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY
 
 
 
@@ -837,3 +994,53 @@ def test_build_llm_runtime_credibility_draft_gateway_can_drive_application_asses
             environ.pop("SOURCETRACE_LLM_BASE_URL", None)
         else:
             environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
+
+
+def test_build_llm_credibility_assessor_reads_typed_fields_from_nested_assessment_object() -> None:
+    document = Document(
+        document_id="doc-typed",
+        case_id="case-1",
+        source_type="note",
+        source_url=None,
+        publisher="BBC",
+        author="Reporter",
+        title="Economic note",
+        published_at=None,
+        retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+        content_hash="sha256:typed123",
+        language="en",
+    )
+
+    def draft_credibility(evidence_summary: str) -> LlmGenerationResult:
+        return LlmGenerationResult(
+            text=json.dumps(
+                {
+                    "advisory_credibility_notes": {
+                        "summary": "Named publisher and attributed forecasts, but still secondary analysis.",
+                        "assessment": {
+                            "source_reliability": "high",
+                            "information_credibility": "medium",
+                            "provenance_distance": "secondary",
+                        },
+                        "strengths": ["Named publisher"],
+                        "concerns": ["Secondary analysis"],
+                        "verification_checks": ["Check original IMF release"],
+                    }
+                }
+            ),
+            model="gpt-5.4",
+            finish_reason="stop",
+        )
+
+    assessor = build_llm_credibility_assessor(
+        draft_credibility=draft_credibility,
+        assessed_at=lambda: datetime(2026, 5, 18, 0, 10, tzinfo=UTC),
+    )
+
+    outcome = assessor(
+        CredibilityAssessmentRequest(document=document, assessment_method="llm_draft_v1")
+    )
+
+    assert outcome.assessment.source_reliability is CredibilityBand.HIGH
+    assert outcome.assessment.information_credibility is CredibilityBand.MEDIUM
+    assert outcome.assessment.provenance_distance is ProvenanceDistance.SECONDARY

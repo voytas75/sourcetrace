@@ -1,6 +1,6 @@
 from sourcetrace.application import ClaimVerificationExecution
-from sourcetrace.domain import Claim, DocumentChunk
-from sourcetrace.domain.types import VerificationVerdict
+from sourcetrace.domain import Claim, ClaimReviewDecision, DocumentChunk
+from sourcetrace.domain.types import HumanReviewStatus, VerificationVerdict
 from sourcetrace.pipeline import (
     ClaimVerificationRuntime,
     ClaimVerificationRuntimeRequest,
@@ -74,6 +74,9 @@ def test_claim_verification_runtime_retrieves_verifies_and_persists_claim_path()
     assert outcome.retrieval_query.query_id == "query-1"
     assert outcome.retrieved_evidence.returned_k == 1
     assert tuple(hit.chunk_id for hit in outcome.retrieved_evidence.hits) == ("chunk-1",)
+    assert outcome.verification_outcome.evidence_sufficiency == "supported"
+    assert outcome.verification_outcome.publication_gate == "allowed"
+    assert outcome.verification_outcome.gate_reason is None
     assert verification.verdict is VerificationVerdict.SUPPORT
     assert verification.supporting_chunk_ids == ("chunk-1",)
     assert persistence.claims.get_claim("claim-1") is claim
@@ -162,6 +165,48 @@ def test_claim_verification_runtime_persists_insufficient_evidence_without_hits(
     verification = outcome.verification_outcome.verification
     assert outcome.retrieved_evidence.hits == ()
     assert outcome.evidence_links == ()
+    assert outcome.verification_outcome.evidence_sufficiency == "insufficient"
+    assert outcome.verification_outcome.publication_gate == "review_required"
+    assert outcome.verification_outcome.gate_reason == "grounding_insufficient"
     assert verification.verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE
     assert verification.supporting_chunk_ids == ()
     assert persistence.claims.get_verification("claim-1") is verification
+
+
+def test_claim_verification_runtime_marks_excluded_review_verdict_as_blocked() -> None:
+    persistence = create_in_memory_persistence()
+    claim = Claim(
+        claim_id="claim-1",
+        case_id="case-1",
+        document_id="doc-1",
+        chunk_id=None,
+        exact_text="The bridge reopened after inspection.",
+        source_span_reference="p1",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+    runtime = ClaimVerificationRuntime(
+        persistence=persistence,
+        retrieval=RetrievalExecution(
+            retrieve_chunks=LexicalChunkRetriever(documents=persistence.documents)
+        ),
+        verification=ClaimVerificationExecution(
+            verify_claim=EvidencePresenceClaimVerifier()
+        ),
+    )
+    persistence.claims.save_review_decision(
+        ClaimReviewDecision(
+            claim_id="claim-1",
+            case_id="case-1",
+            human_review_status=HumanReviewStatus.EXCLUDED,
+            final_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            analyst_disposition=None,
+            review_notes="Excluded from publication.",
+        )
+    )
+
+    outcome = runtime(ClaimVerificationRuntimeRequest(claim=claim, requested_k=3))
+
+    assert outcome.verification_outcome.evidence_sufficiency == "insufficient"
+    assert outcome.verification_outcome.publication_gate == "blocked"
+    assert outcome.verification_outcome.gate_reason == "human_review_excluded"

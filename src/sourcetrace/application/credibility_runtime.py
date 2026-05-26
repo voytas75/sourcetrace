@@ -254,15 +254,21 @@ def _best_effort_structured_credibility_notes(text: str) -> StructuredCredibilit
 
     summary = _extract_first_string_field(text, "summary")
     if summary is None:
+        summary = _extract_labeled_line(text, "Summary")
+    if summary is None:
         summary = _extract_markdown_bottom_line(text)
     if summary is not None:
         lines.append(f"Summary: {summary}")
 
     strengths = _extract_string_list(text, "strengths")
+    if not strengths:
+        strengths = _extract_labeled_items(text, "Strengths")
     if strengths:
         lines.append(f"Strengths: {'; '.join(strengths)}")
 
     concerns = _extract_string_list(text, "concerns") or _extract_string_list(text, "weaknesses")
+    if not concerns:
+        concerns = _extract_labeled_items(text, "Concerns")
     if not concerns:
         concerns = _extract_nested_string_list(text, "provenance_assessment", "notes")
     if not concerns:
@@ -302,6 +308,8 @@ def _best_effort_structured_credibility_notes(text: str) -> StructuredCredibilit
     verification_checks = _extract_string_list(text, "verification_checks")
     if not verification_checks:
         verification_checks = _extract_string_list(text, "verification_steps")
+    if not verification_checks:
+        verification_checks = _extract_labeled_items(text, "Verification checks")
     if verification_checks:
         lines.append(f"Verification checks: {'; '.join(verification_checks)}")
 
@@ -327,6 +335,8 @@ def _best_effort_structured_credibility_notes(text: str) -> StructuredCredibilit
             "source_reliability_assessment",
             "notes",
         )
+    if not source_reliability_factors:
+        source_reliability_factors = strengths
     information_credibility_factors = _extract_string_list(
         text,
         "information_credibility_factors",
@@ -337,6 +347,15 @@ def _best_effort_structured_credibility_notes(text: str) -> StructuredCredibilit
             "information_credibility_assessment",
             "notes",
         )
+    if not information_credibility_factors:
+        information_credibility_factors = concerns
+
+    source_reliability = _credibility_band_from_candidates(
+        [source_reliability.value, *source_reliability_factors]
+    )
+    information_credibility = _credibility_band_from_candidates(
+        [information_credibility.value, *information_credibility_factors]
+    )
 
     return {
         "notes": "\n".join(lines) if lines else None,
@@ -358,6 +377,22 @@ def _extract_first_string_field(text: str, field_name: str) -> str | None:
     if match is None:
         return None
     return _decode_json_string_fragment(match.group(1))
+
+
+def _extract_labeled_line(text: str, label: str) -> str | None:
+    pattern = re.compile(rf"^\s*{re.escape(label)}\s*:\s*(.+)$", re.MULTILINE)
+    match = pattern.search(text)
+    if match is None:
+        return None
+    normalized = re.sub(r"\s+", " ", match.group(1)).strip()
+    return normalized or None
+
+
+def _extract_labeled_items(text: str, label: str) -> tuple[str, ...]:
+    line = _extract_labeled_line(text, label)
+    if line is None:
+        return ()
+    return tuple(item.strip() for item in line.split(";") if item.strip())
 
 
 def _extract_string_list(text: str, field_name: str) -> tuple[str, ...]:
@@ -431,6 +466,18 @@ def _credibility_band_from_payload(
             nested_value = _string_or_none(nested_object.get(nested[1]))
             if nested_value is not None:
                 candidates.append(nested_value)
+    assessment_object = payload.get("assessment")
+    if isinstance(assessment_object, dict):
+        for field_name in field_names:
+            value = _string_or_none(assessment_object.get(field_name))
+            if value is not None:
+                candidates.append(value)
+        if nested is not None and nested[0] != "assessment":
+            nested_object = assessment_object.get(nested[0])
+            if isinstance(nested_object, dict):
+                nested_value = _string_or_none(nested_object.get(nested[1]))
+                if nested_value is not None:
+                    candidates.append(nested_value)
     return _credibility_band_from_candidates(candidates)
 
 
@@ -460,6 +507,16 @@ def _credibility_band_from_candidates(candidates: list[str]) -> CredibilityBand:
         return CredibilityBand.MEDIUM
     if any(item in {"low", "weak", "limited", "poor"} for item in normalized):
         return CredibilityBand.LOW
+    if any(
+        any(token in item for token in ("identified_publisher", "named_institutions", "identified_author"))
+        for item in normalized
+    ):
+        return CredibilityBand.MEDIUM
+    if any(
+        any(token in item for token in ("attribution_led", "partially_corroborated", "mixed_support"))
+        for item in normalized
+    ):
+        return CredibilityBand.MEDIUM
     return CredibilityBand.UNKNOWN
 
 
@@ -475,6 +532,18 @@ def _provenance_distance_from_payload(payload: dict[str, object]) -> ProvenanceD
             value = _string_or_none(nested_object.get(nested_name))
             if value is not None:
                 candidates.append(value)
+    assessment_object = payload.get("assessment")
+    if isinstance(assessment_object, dict):
+        for field_name in ("provenance_distance", "provenance"):
+            value = _string_or_none(assessment_object.get(field_name))
+            if value is not None:
+                candidates.append(value)
+        nested_object = assessment_object.get("provenance_assessment")
+        if isinstance(nested_object, dict):
+            for nested_name in ("distance", "provenance_distance", "rating"):
+                value = _string_or_none(nested_object.get(nested_name))
+                if value is not None:
+                    candidates.append(value)
     return _provenance_distance_from_candidates(candidates)
 
 
