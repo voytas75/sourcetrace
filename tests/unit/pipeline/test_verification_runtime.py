@@ -258,5 +258,5 @@ def test_claim_verification_runtime_marks_contradicted_verdict_as_refuted() -> N
 
     assert outcome.verification_outcome.verification.verdict is VerificationVerdict.CONTRADICT
     assert outcome.verification_outcome.evidence_sufficiency == "refuted"
-    assert outcome.verification_outcome.publication_gate == "allowed"
-    assert outcome.verification_outcome.gate_reason is None
+    assert outcome.verification_outcome.publication_gate == "review_required"
+    assert outcome.verification_outcome.gate_reason == "conflicting_evidence"
