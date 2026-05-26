@@ -97,6 +97,7 @@ class ClaimVerificationRuntime:
             review_status=(
                 review_decision.human_review_status if review_decision is not None else None
             ),
+            review_verdict=(review_decision.final_verdict if review_decision is not None else None),
         )
         verification_outcome = ClaimVerificationOutcome(
             request=verification_outcome.request,
@@ -167,11 +168,18 @@ def _verification_note(supporting_count: int) -> str:
 def _verification_controls(
     verdict: VerificationVerdict,
     review_status: HumanReviewStatus | None = None,
+    review_verdict: VerificationVerdict | None = None,
 ) -> tuple[EvidenceSufficiency, PublicationGate, str | None]:
     if review_status is HumanReviewStatus.EXCLUDED:
         return ("insufficient", "blocked", "human_review_excluded")
     if verdict is VerificationVerdict.CONTRADICT:
         return ("refuted", "review_required", "conflicting_evidence")
+    if (
+        verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE
+        and review_status is not None
+        and review_verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE
+    ):
+        return ("insufficient", "review_required", "no_verified_support")
     if verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE:
         return ("insufficient", "review_required", "grounding_insufficient")
     return ("supported", "allowed", None)

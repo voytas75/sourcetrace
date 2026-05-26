@@ -1211,6 +1211,7 @@ def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
         evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
             entry.final_verdict,
             entry.human_review_status,
+            entry.final_verdict,
         )
         lines.extend(
             [
@@ -1375,6 +1376,7 @@ def verification_to_payload(
         review_status=(
             review_decision.human_review_status if review_decision is not None else None
         ),
+        review_verdict=(review_decision.final_verdict if review_decision is not None else None),
     )
     return {
         "claim_id": verification.claim_id,
@@ -1408,7 +1410,9 @@ def report_entry_to_payload(entry: ClaimReportEntry) -> dict[str, object]:
     """Serialize a report entry for API responses."""
 
     evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
-        entry.final_verdict
+        entry.final_verdict,
+        entry.human_review_status,
+        entry.final_verdict,
     )
     return {
         "claim_id": entry.claim_id,
@@ -1609,6 +1613,7 @@ def _report_publication_summary(
         _, publication_gate, _ = _verification_controls(
             entry.final_verdict,
             entry.human_review_status,
+            entry.final_verdict,
         )
         if publication_gate == "allowed":
             allowed_claim_count += 1
@@ -1632,7 +1637,9 @@ def _claim_row_html(delivery: SourceTraceDelivery, claim: Claim) -> str:
         verification.verdict if verification is not None else claim.system_verdict
     )
     evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
-        verdict_enum
+        verdict_enum,
+        review.human_review_status if review is not None else None,
+        review.final_verdict if review is not None else None,
     )
     review_status = (
         review.human_review_status.value if review is not None else "unreviewed"

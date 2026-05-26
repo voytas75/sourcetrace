@@ -212,6 +212,45 @@ def test_claim_verification_runtime_marks_excluded_review_verdict_as_blocked() -
     assert outcome.verification_outcome.gate_reason == "human_review_excluded"
 
 
+def test_claim_verification_runtime_marks_reviewed_unverified_claim_as_no_verified_support() -> None:
+    persistence = create_in_memory_persistence()
+    claim = Claim(
+        claim_id="claim-1",
+        case_id="case-1",
+        document_id="doc-1",
+        chunk_id=None,
+        exact_text="The bridge reopened after inspection.",
+        source_span_reference="p1",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+    runtime = ClaimVerificationRuntime(
+        persistence=persistence,
+        retrieval=RetrievalExecution(
+            retrieve_chunks=LexicalChunkRetriever(documents=persistence.documents)
+        ),
+        verification=ClaimVerificationExecution(
+            verify_claim=EvidencePresenceClaimVerifier()
+        ),
+    )
+    persistence.claims.save_review_decision(
+        ClaimReviewDecision(
+            claim_id="claim-1",
+            case_id="case-1",
+            human_review_status=HumanReviewStatus.REVIEWED_ACCEPT,
+            final_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            analyst_disposition=None,
+            review_notes="No verified support found for publication.",
+        )
+    )
+
+    outcome = runtime(ClaimVerificationRuntimeRequest(claim=claim, requested_k=3))
+
+    assert outcome.verification_outcome.evidence_sufficiency == "insufficient"
+    assert outcome.verification_outcome.publication_gate == "review_required"
+    assert outcome.verification_outcome.gate_reason == "no_verified_support"
+
+
 def test_claim_verification_runtime_marks_contradicted_verdict_as_refuted() -> None:
     persistence = create_in_memory_persistence()
     claim = Claim(
