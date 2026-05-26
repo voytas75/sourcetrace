@@ -234,6 +234,7 @@ Do weryfikacji:
       -d '{"extraction_method":"llm_v1"}'`
    - Expected: `200 OK` with JSON containing `claims` and `diagnostics`
    - Current verified diagnostics: `diagnostics` now includes `claim_count`, `chunk_count`, `status`, `summary`, and `next_step`, so empty extraction results explain whether the next move is to inspect chunks or re-run prepare/extract with better source text.
+   - Current verified diagnostics: `diagnostics.review_cautions` now surfaces extraction-side caution codes such as `weak_source_posture` for promotional / low-trust source posture.
    - Current verified guardrail: if claim normalization returns a conversational/helpdesk-style rewrite, Sourcetrace keeps the original extracted claim text instead of persisting the rewritten assistant-style text.
    - Current verified guardrail: SourceTrace also resists basic cross-language drift for Polish source text during normalization.
 9. In another terminal, submit a minimal verification request:
