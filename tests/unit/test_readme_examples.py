@@ -18,6 +18,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher" in readme
     assert "## Current state" in readme
     assert "Confirmed baseline now:" in readme
+    assert "374 passed" in readme
     assert "workflow envelope" in readme
     assert "ASCII-safe" in readme
     assert "structured credibility output" in readme
@@ -64,6 +65,9 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "active continuity pack per case" in readme
     assert "latest_previous" in readme
     assert "GET /api/cases/{case_id}/continuity-pack" in readme
+    assert "continuity_pack.decision_support" in readme
+    assert "latest_previous` with its own `decision_support" in readme
+    assert "same `Decision support` framing used by the dedicated continuity-pack view" in readme
     assert "after clear it still returns `200 OK`" in readme
     assert "continuity_pack_persistence.enabled" in readme
     assert "continuity_pack_persistence" in readme
@@ -91,6 +95,8 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "docs/plans/test-use-observation-template.md" in readme
     assert "docs/plans/test-use-observation-example-bbc.md" in readme
     assert "docs/plans/2026-05-23-continuity-pack-usage-note.md" in readme
+    assert "continuity-pack operator surfaces are now aligned around a shared `Decision support` model" in readme
+    assert "continuity-pack case-page actions and microcopy are normalized" in readme
     assert "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in readme
     assert "docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in readme
     assert "Use a continuity pack selectively" in readme

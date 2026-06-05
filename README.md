@@ -9,7 +9,7 @@ Confirmed baseline now:
 - evidence-first, claim-centric product direction is still the active center
 - local stdlib WSGI/API + HTML flow exists under `src/sourcetrace/web/`
 - the repo-owned launcher `python -m sourcetrace.local_launcher` wires runtime config + LLM-backed credibility path into that local web surface
-- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `334 passed`
+- current local verification baseline is `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q` -> `374 passed`
 - create/write workflow responses now include a common top-level workflow envelope: `status`, `summary`, `next_step`, `resource`, and `resource_id`
 - create responses still expose compatibility aliases at top level (`case_id`, `document_id`) for thin clients
 - document IDs are now ASCII-safe for non-English titles, and fallback claim IDs stay case-scoped
@@ -20,6 +20,8 @@ Confirmed baseline now:
 - weak-source credibility handling is explicitly hardened for unattributed notes, anonymous reposts, weak scraped snippets, and secondary summaries
 - the HTML case view renders structured credibility output directly in each document row, shows a short snippet preview sourced from inline text or the first prepared chunk, and now labels missing credibility explicitly as `Status: Not assessed yet.` with the next credibility endpoint
 - inline document continuity is verified end-to-end: `POST /api/cases/{case_id}/documents` accepts `content` or `text`, `prepare` can reuse stored inline text, `extract-claims` auto-prepares stored inline content when chunks are missing, `credibility` also auto-prepares stored inline content when chunks are missing, and document payloads expose `has_inline_content`
+- continuity-pack operator surfaces are now aligned around a shared `Decision support` model: case payloads/read surfaces expose `decision_support` for active and `latest_previous` continuity packs, the case HTML view shows active/previous/cleared continuity context with the same decision-support framing, and the dedicated continuity-pack HTML view now uses the same wording model
+- continuity-pack case-page actions and microcopy are normalized across active, previous, and empty states (`view`, `render`, `assign`, `replace`, `clear`, `reassign`, explicit status/next-step copy), so this seam is now in optional-polish territory rather than a live product gap
 - a reusable smoke command now exists as `python -m sourcetrace.smoke_flow` / `sourcetrace-smoke-flow`, supports `--pretty` and `--expect-claims-min N`, and exits non-zero on failed expectations
 - a smaller contract-focused credibility smoke also exists as `python -m sourcetrace.credibility_smoke` / `sourcetrace-credibility-smoke` for verifying the POST-vs-GET credibility API envelope and typed-field continuity
 - GitHub Actions also includes a lightweight `CI Smoke` workflow for the same local launcher + smoke path, although this repo is currently used without a configured remote
@@ -193,10 +195,11 @@ Do weryfikacji:
         }'`
    - inspect the case continuity-pack read surface:
      - `curl http://127.0.0.1:8000/api/cases/case-1/continuity-pack`
-   - Expected: `200 OK` with `resource: case_continuity_pack`, `continuity_pack.assigned`, nested `latest_previous`, `artifacts.active`, `artifacts.latest_previous`, and convenience `actions`
+   - Expected: `200 OK` with `resource: case_continuity_pack`, `continuity_pack.assigned`, `continuity_pack.decision_support`, nested `latest_previous` with its own `decision_support`, `artifacts.active`, `artifacts.latest_previous`, and convenience `actions`
    - Semantics: for an existing case this route is now a read model, so after clear it still returns `200 OK` with an empty continuity-pack state instead of `404`
    - Replace semantics: assigning a new continuity pack moves the previous active one into `latest_previous`
    - Clear semantics: `DELETE /api/cases/case-1/continuity-pack` removes only the active assignment; `latest_previous` remains available when present
+   - Current verified operator parity: case HTML now shows active, latest-previous, and cleared/history continuity context with the same `Decision support` framing used by the dedicated continuity-pack view
 7. Attach a document to that case:
    - `curl -X POST http://127.0.0.1:8000/api/cases/case-1/documents \
       -H 'Content-Type: application/json' \

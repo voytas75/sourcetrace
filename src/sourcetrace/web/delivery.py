@@ -1,7 +1,9 @@
 """Thin analyst-facing delivery service over the runtime path."""
 
 import os
+import re
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -107,6 +109,8 @@ class VerificationInspection:
     insufficient_evidence_count: int
     has_review: bool
     has_report_entry: bool
+    support_rationale: str = "unsupported_or_not_applicable"
+    previously_fact_checked_matches: tuple[dict[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -117,6 +121,7 @@ class ContinuityPackInspection:
     source_artifact_path: str
     sections: dict[str, tuple[str, ...]]
     decision_snapshot: tuple[str, ...]
+    verification_diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -344,6 +349,11 @@ class SourceTraceDelivery:
             has_review=review_decision is not None,
             has_report_entry=review_decision is not None
             and not _is_excluded_from_report(review_decision),
+            support_rationale=_support_rationale(verification, evidence_links),
+            previously_fact_checked_matches=_previously_fact_checked_matches(
+                self.persistence,
+                claim,
+            ),
         )
 
     def record_review(
@@ -398,6 +408,7 @@ class SourceTraceDelivery:
                 CONTINUITY_PACK_SECTIONS[3]: continuity_pack.recommended_next_test,
             },
             decision_snapshot=continuity_pack.decision_snapshot,
+            verification_diagnostics=continuity_pack.verification_diagnostics,
         )
 
     def build_continuity_pack_from_artifact(
@@ -690,6 +701,9 @@ class ContinuityPackAssemblerRuntime:
             decision_snapshot=tuple(
                 item.strip() for item in request.decision_snapshot if item.strip()
             ),
+            verification_diagnostics=tuple(
+                item.strip() for item in request.verification_diagnostics if item.strip()
+            ),
         )
         return ContinuityPackOutcome(
             request=request,
@@ -790,6 +804,7 @@ def continuity_pack_summary_to_payload(
             "assigned": False,
             "title": None,
             "source_artifact_path": None,
+            "decision_support": None,
         }
     else:
         pack = continuity_pack.continuity_pack
@@ -797,6 +812,10 @@ def continuity_pack_summary_to_payload(
             "assigned": True,
             "title": pack.title,
             "source_artifact_path": pack.source_artifact_path,
+            "decision_support": _continuity_decision_support_payload(
+                verification_diagnostics=pack.verification_diagnostics,
+                decision_snapshot=pack.decision_snapshot,
+            ),
         }
     if include_latest_previous:
         summary["latest_previous"] = continuity_pack_summary_to_payload(
@@ -922,10 +941,21 @@ def verification_inspection_to_payload(
         "verification": verification_to_payload(
             inspection.verification,
             inspection.review_decision,
+            inspection.evidence_links,
         ),
         "evidence_links": [
             evidence_link_to_payload(link) for link in inspection.evidence_links
         ],
+        "best_evidence": [
+            evidence_link_to_payload(link)
+            for link in _best_evidence_links(inspection.evidence_links)
+        ],
+        "claim_trace_summary": _claim_trace_summary_payload(inspection),
+        "verification_trace_log": _verification_trace_log_payload(inspection),
+        "support_rationale": inspection.support_rationale,
+        "previously_fact_checked_matches": list(
+            inspection.previously_fact_checked_matches
+        ),
         "evidence_summary": {
             "evidence_count": inspection.evidence_count,
             "supporting_evidence_count": inspection.supporting_evidence_count,
@@ -942,6 +972,10 @@ def continuity_pack_to_payload(
 ) -> dict[str, object]:
     """Serialize a continuity-pack artifact for JSON API responses."""
 
+    decision_support = _continuity_decision_support_payload(
+        verification_diagnostics=continuity_pack.verification_diagnostics,
+        decision_snapshot=continuity_pack.decision_snapshot,
+    )
     return {
         "title": continuity_pack.title,
         "source_artifact_path": continuity_pack.source_artifact_path,
@@ -950,6 +984,8 @@ def continuity_pack_to_payload(
         "to_verify": list(continuity_pack.to_verify),
         "recommended_next_test": list(continuity_pack.recommended_next_test),
         "decision_snapshot": list(continuity_pack.decision_snapshot),
+        "verification_diagnostics": list(continuity_pack.verification_diagnostics),
+        "decision_support": decision_support,
     }
 
 
@@ -1004,10 +1040,29 @@ def continuity_pack_outcome_to_payload(
     return {
         "status": "ready",
         "summary": "Continuity pack assembled from the provided artifact sections.",
-        "next_step": "Review the continuity pack and decide whether to park, execute, or escalate.",
         "resource": "continuity_pack",
-        "resource_id": outcome.request.source_artifact_path,
+        "resource_id": outcome.continuity_pack.source_artifact_path,
         "continuity_pack": continuity_pack_payload,
+        "next_step": "GET /continuity-packs/view?artifact_path=<path>",
+    }
+
+
+def _continuity_decision_support_payload(
+    *,
+    verification_diagnostics: tuple[str, ...],
+    decision_snapshot: tuple[str, ...],
+) -> dict[str, object]:
+    diagnostics_empty = not verification_diagnostics
+    return {
+        "section_label": "Decision support",
+        "verification_diagnostics_label": "Verification diagnostics",
+        "decision_snapshot_label": "Decision snapshot",
+        "verification_diagnostics": list(verification_diagnostics),
+        "decision_snapshot": list(decision_snapshot),
+        "diagnostics_status": (
+            "no_verification_diagnostics" if diagnostics_empty else "ready"
+        ),
+        "diagnostics_empty": diagnostics_empty,
     }
 
 
@@ -1016,11 +1071,17 @@ def continuity_pack_inspection_to_payload(
 ) -> dict[str, object]:
     """Serialize an analyst-facing continuity-pack inspection view."""
 
+    decision_support = _continuity_decision_support_payload(
+        verification_diagnostics=inspection.verification_diagnostics,
+        decision_snapshot=inspection.decision_snapshot,
+    )
     return {
         "title": inspection.title,
         "source_artifact_path": inspection.source_artifact_path,
         "sections": {name: list(items) for name, items in inspection.sections.items()},
         "decision_snapshot": list(inspection.decision_snapshot),
+        "verification_diagnostics": list(inspection.verification_diagnostics),
+        "decision_support": decision_support,
     }
 
 
@@ -1071,15 +1132,27 @@ def verification_outcome_to_payload(
 def report_outcome_to_payload(outcome: ReportAssemblyOutcome) -> dict[str, object]:
     """Serialize a case report for JSON responses."""
 
+    verification_summary = _report_verification_summary(
+        outcome.entries,
+        outcome.request.review_decisions,
+    )
+    cost_of_failure_metrics = _report_cost_of_failure_metrics(
+        outcome.entries,
+        outcome.request.review_decisions,
+    )
+    review_queue_signals = _report_review_queue_signals(
+        outcome.entries,
+        outcome.request.review_decisions,
+    )
     return {
         "case_report": {
             "case_id": outcome.case_report.case_id,
             "generated_claim_ids": list(outcome.case_report.generated_claim_ids),
             "report_summary": outcome.case_report.report_summary,
-            "publication_summary": _report_publication_summary(
-                outcome.entries,
-                outcome.request.review_decisions,
-            ),
+            "publication_summary": verification_summary["publication_summary"],
+            "verification_summary": verification_summary,
+            "cost_of_failure_metrics": cost_of_failure_metrics,
+            "review_queue_signals": review_queue_signals,
             "entries": [report_entry_to_payload(entry) for entry in outcome.entries],
         }
     }
@@ -1145,6 +1218,7 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
 
     documents = delivery.persistence.documents.list_documents_for_case(case_id)
     claims = delivery.persistence.claims.list_claims_for_case(case_id)
+    review_decisions = _review_decisions_for_case(delivery.persistence, case_id)
     claim_rows = "\n".join(_claim_row_html(delivery, claim) for claim in claims)
     if not claim_rows:
         claim_rows = '<tr><td colspan="4">No claims available.</td></tr>'
@@ -1164,6 +1238,24 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
     ).replace("{case_id}", _escape_html(case_id))
     case_title = _escape_html(case.title)
     case_description = _escape_html(case.description or "No case description provided yet.")
+    verification_summary = _report_verification_summary(
+        tuple(
+            entry
+            for decision in review_decisions
+            if (entry := _report_entry_from_review(delivery.persistence, decision)) is not None
+        ),
+        review_decisions,
+    )
+    review_queue_signals = _report_review_queue_signals(
+        tuple(
+            entry
+            for decision in review_decisions
+            if (entry := _report_entry_from_review(delivery.persistence, decision)) is not None
+        ),
+        review_decisions,
+    )
+    verification_summary_section = _verification_summary_section_html(verification_summary)
+    review_queue_section = _review_queue_summary_html(review_queue_signals)
     return (
         "<!doctype html>"
         "<html><head><title>SourceTrace Case Review</title></head>"
@@ -1172,6 +1264,8 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
         f"<p><strong>Case ID:</strong> {_escape_html(case_id)}</p>"
         f"<p>{case_description}</p>"
         f"<p><strong>Documents:</strong> {len(documents)} &middot; <strong>Claims:</strong> {len(claims)}</p>"
+        f"{verification_summary_section}"
+        f"{review_queue_section}"
         f"{continuity_pack_section}"
         "<h2>Document status</h2>"
         "<table>"
@@ -1191,10 +1285,15 @@ def render_case_review_html(delivery: SourceTraceDelivery, case_id: str) -> str:
 def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
     """Render a minimal Markdown report artifact."""
 
-    publication_summary = _report_publication_summary(
+    verification_summary = _report_verification_summary(
         outcome.entries,
         outcome.request.review_decisions,
     )
+    review_queue_signals = _report_review_queue_signals(
+        outcome.entries,
+        outcome.request.review_decisions,
+    )
+    publication_summary = verification_summary["publication_summary"]
     lines = [
         f"# SourceTrace Report: {outcome.case_report.case_id}",
         "",
@@ -1205,6 +1304,18 @@ def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
         f"- Allowed claims: {publication_summary['allowed_claim_count']}",
         f"- Review-required claims: {publication_summary['review_required_claim_count']}",
         f"- Blocked claims: {publication_summary['blocked_claim_count']}",
+        "",
+        "## Verification summary",
+        "",
+        f"- Evidence sufficiency: {_format_count_map_markdown(verification_summary['evidence_sufficiency'])}",
+        f"- Gate counts: {_format_count_map_markdown(verification_summary['publication_gate'])}",
+        f"- Gate reason: {_format_count_map_markdown(verification_summary['gate_reason'])}",
+        "- Support rationale counts: "
+        f"{_format_support_rationale_summary_markdown(verification_summary['support_rationale_summary'])}",
+        "- Contradiction diagnostics: "
+        f"{_format_count_map_markdown(verification_summary['contradiction_diagnostics'])}",
+        "",
+        *_review_queue_summary_markdown_lines(review_queue_signals),
         "",
     ]
     for entry in outcome.entries:
@@ -1223,6 +1334,13 @@ def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
                 f"- Evidence sufficiency: {evidence_sufficiency}",
                 f"- Publication gate: {publication_gate}",
                 f"- Gate reason: {gate_reason or 'none'}",
+                f"- Support signals present: {'yes' if entry.supporting_chunk_ids else 'no'}",
+                f"- Conflict signals present: {'yes' if entry.contradicting_chunk_ids else 'no'}",
+                f"- Evidence count: {len(entry.supporting_chunk_ids) + len(entry.contradicting_chunk_ids)}",
+                f"- Sufficiency summary: {_verification_sufficiency_summary(entry.final_verdict, entry.supporting_chunk_ids, entry.contradicting_chunk_ids)}",
+                f"- Support rationale: {_humanize_support_rationale(_report_entry_support_rationale(entry))}",
+                f"- Contradiction snippet: {_report_entry_contradiction_summary(entry)['contradiction_snippet']}",
+                f"- Best evidence chunks: {_best_evidence_chunk_ids_markdown(entry.supporting_chunk_ids, entry.contradicting_chunk_ids)}",
                 f"- Supporting chunks: {_format_chunk_ids(entry.supporting_chunk_ids)}",
                 "- Contradicting chunks: "
                 f"{_format_chunk_ids(entry.contradicting_chunk_ids)}",
@@ -1258,8 +1376,7 @@ def render_continuity_pack_html(
         f"{_continuity_pack_list_html(pack.to_verify)}"
         f"<h2>{_escape_html(CONTINUITY_PACK_SECTIONS[3])}</h2>"
         f"{_continuity_pack_list_html(pack.recommended_next_test)}"
-        "<h2>Decision snapshot</h2>"
-        f"{_continuity_pack_list_html(pack.decision_snapshot)}"
+        f"{_continuity_pack_decision_support_section_html(pack)}"
         "</body></html>"
     )
 
@@ -1368,6 +1485,7 @@ def claim_to_payload(claim: Claim) -> dict[str, object]:
 def verification_to_payload(
     verification: ClaimVerification,
     review_decision: ClaimReviewDecision | None = None,
+    evidence_links: tuple[ClaimEvidenceLink, ...] = (),
 ) -> dict[str, object]:
     """Serialize a claim verification for API responses."""
 
@@ -1377,6 +1495,22 @@ def verification_to_payload(
             review_decision.human_review_status if review_decision is not None else None
         ),
         review_verdict=(review_decision.final_verdict if review_decision is not None else None),
+    )
+    support_signals_present = bool(verification.supporting_chunk_ids)
+    conflict_signals_present = bool(verification.contradicting_chunk_ids)
+    evidence_count = len(verification.supporting_chunk_ids) + len(
+        verification.contradicting_chunk_ids
+    )
+    sufficiency_summary = _verification_sufficiency_summary(
+        verification.verdict,
+        verification.supporting_chunk_ids,
+        verification.contradicting_chunk_ids,
+    )
+    citation_quality_flags = _citation_quality_flags(
+        verdict=verification.verdict,
+        supporting_chunk_ids=verification.supporting_chunk_ids,
+        contradicting_chunk_ids=verification.contradicting_chunk_ids,
+        evidence_links=evidence_links,
     )
     return {
         "claim_id": verification.claim_id,
@@ -1388,6 +1522,11 @@ def verification_to_payload(
         "evidence_sufficiency": evidence_sufficiency,
         "publication_gate": publication_gate,
         "gate_reason": gate_reason,
+        "support_signals_present": support_signals_present,
+        "conflict_signals_present": conflict_signals_present,
+        "evidence_count": evidence_count,
+        "sufficiency_summary": sufficiency_summary,
+        "citation_quality_flags": citation_quality_flags,
     }
 
 
@@ -1414,6 +1553,21 @@ def report_entry_to_payload(entry: ClaimReportEntry) -> dict[str, object]:
         entry.human_review_status,
         entry.final_verdict,
     )
+    support_signals_present = bool(entry.supporting_chunk_ids)
+    conflict_signals_present = bool(entry.contradicting_chunk_ids)
+    evidence_count = len(entry.supporting_chunk_ids) + len(entry.contradicting_chunk_ids)
+    sufficiency_summary = _verification_sufficiency_summary(
+        entry.final_verdict,
+        entry.supporting_chunk_ids,
+        entry.contradicting_chunk_ids,
+    )
+    citation_quality_flags = _citation_quality_flags(
+        verdict=entry.final_verdict,
+        supporting_chunk_ids=entry.supporting_chunk_ids,
+        contradicting_chunk_ids=entry.contradicting_chunk_ids,
+        evidence_links=(),
+    )
+    contradiction_summary = _report_entry_contradiction_summary(entry)
     return {
         "claim_id": entry.claim_id,
         "case_id": entry.case_id,
@@ -1425,6 +1579,13 @@ def report_entry_to_payload(entry: ClaimReportEntry) -> dict[str, object]:
         "evidence_sufficiency": evidence_sufficiency,
         "publication_gate": publication_gate,
         "gate_reason": gate_reason,
+        "support_signals_present": support_signals_present,
+        "conflict_signals_present": conflict_signals_present,
+        "evidence_count": evidence_count,
+        "sufficiency_summary": sufficiency_summary,
+        "support_rationale": _report_entry_support_rationale(entry),
+        "contradiction_summary": contradiction_summary,
+        "citation_quality_flags": citation_quality_flags,
     }
 
 
@@ -1449,6 +1610,200 @@ def _review_decisions_for_case(
             )
         decisions.append(decision)
     return tuple(decisions)
+
+
+def _verification_sufficiency_summary(
+    verdict: VerificationVerdict,
+    supporting_chunk_ids: tuple[str, ...],
+    contradicting_chunk_ids: tuple[str, ...],
+) -> str:
+    evidence_count = len(supporting_chunk_ids) + len(contradicting_chunk_ids)
+    if verdict is VerificationVerdict.CONTRADICT:
+        return (
+            f"Conflicting evidence detected across {evidence_count} retrieved chunk"
+            f"{'s' if evidence_count != 1 else ''}."
+        )
+    if verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE:
+        return "No retrieved evidence established support for the claim."
+    support_count = len(supporting_chunk_ids)
+    return (
+        f"Supporting evidence found in {support_count} retrieved chunk"
+        f"{'s' if support_count != 1 else ''}."
+    )
+
+
+def _citation_quality_flags(
+    *,
+    verdict: VerificationVerdict,
+    supporting_chunk_ids: tuple[str, ...],
+    contradicting_chunk_ids: tuple[str, ...],
+    evidence_links: tuple[ClaimEvidenceLink, ...],
+) -> list[str]:
+    flags: list[str] = []
+    evidence_chunk_ids = tuple(link.chunk_id for link in evidence_links)
+    unique_evidence_chunk_ids = {chunk_id for chunk_id in evidence_chunk_ids}
+    retrieval_chunk_ids = set(supporting_chunk_ids) | set(contradicting_chunk_ids)
+    if retrieval_chunk_ids and evidence_links == ():
+        if supporting_chunk_ids and contradicting_chunk_ids:
+            flags.append("mixed_support_and_contradiction")
+        elif (
+            verdict is VerificationVerdict.CONTRADICT
+            and contradicting_chunk_ids
+            and not supporting_chunk_ids
+        ):
+            flags.append("contradiction_without_support")
+        return flags
+    if retrieval_chunk_ids and not evidence_links:
+        flags.append("missing_best_evidence")
+    if evidence_links and not retrieval_chunk_ids:
+        flags.append("non_retrieval_attributable")
+    if evidence_links and len(unique_evidence_chunk_ids) < len(evidence_chunk_ids):
+        flags.append("redundant_citation")
+    if supporting_chunk_ids and contradicting_chunk_ids:
+        flags.append("mixed_support_and_contradiction")
+    if (
+        verdict is VerificationVerdict.CONTRADICT
+        and contradicting_chunk_ids
+        and not supporting_chunk_ids
+    ):
+        flags.append("contradiction_without_support")
+    if (
+        verdict is VerificationVerdict.CONTRADICT
+        and evidence_links
+        and not contradicting_chunk_ids
+    ):
+        flags.append("missing_best_evidence")
+    return flags
+
+
+def _best_evidence_links(
+    evidence_links: tuple[ClaimEvidenceLink, ...],
+    *,
+    limit: int = 2,
+) -> tuple[ClaimEvidenceLink, ...]:
+    ordered = sorted(
+        evidence_links,
+        key=lambda link: (link.evidence_rank, 1 if link.score is None else 0, -(link.score or 0.0)),
+    )
+    return tuple(ordered[:limit])
+
+
+def _best_evidence_chunk_ids_markdown(
+    supporting_chunk_ids: tuple[str, ...],
+    contradicting_chunk_ids: tuple[str, ...],
+    *,
+    limit: int = 2,
+) -> str:
+    chunk_ids = supporting_chunk_ids[:limit] or contradicting_chunk_ids[:limit]
+    if not chunk_ids:
+        return "none"
+    return ", ".join(chunk_ids)
+
+
+def _best_evidence_html_summary(evidence_links: tuple[ClaimEvidenceLink, ...]) -> str:
+    best_links = _best_evidence_links(evidence_links)
+    if not best_links:
+        return "none"
+    parts: list[str] = []
+    for link in best_links:
+        snippet = " ".join(link.snippet.split()).strip() if link.snippet else ""
+        if len(snippet) > 120:
+            snippet = snippet[:117].rstrip() + "..."
+        snippet_text = snippet or "no snippet"
+        parts.append(
+            f"#{link.evidence_rank} [{link.evidence_verdict.value}] {link.chunk_id}: {snippet_text}"
+        )
+    return " | ".join(parts)
+
+
+def _claim_trace_summary_payload(inspection: VerificationInspection) -> dict[str, object]:
+    verification_payload = verification_to_payload(
+        inspection.verification,
+        inspection.review_decision,
+        inspection.evidence_links,
+    )
+    return {
+        "final_verdict": verification_payload["verdict"],
+        "evidence_sufficiency": verification_payload["evidence_sufficiency"],
+        "publication_gate": verification_payload["publication_gate"],
+        "gate_reason": verification_payload["gate_reason"],
+        "sufficiency_summary": verification_payload["sufficiency_summary"],
+        "citation_quality_flags": verification_payload["citation_quality_flags"],
+        "best_evidence": [
+            evidence_link_to_payload(link)
+            for link in _best_evidence_links(inspection.evidence_links)
+        ],
+        "review_note": (
+            inspection.review_decision.review_notes
+            if inspection.review_decision is not None and inspection.review_decision.review_notes
+            else inspection.verification.analyst_notes
+        ),
+    }
+
+
+def _verification_trace_log_payload(inspection: VerificationInspection) -> dict[str, object]:
+    verification_payload = verification_to_payload(
+        inspection.verification,
+        inspection.review_decision,
+        inspection.evidence_links,
+    )
+    review_decision = inspection.review_decision
+    return {
+        "retrieval_trace": {
+            "query_text": inspection.claim.exact_text,
+            "considered_chunks": [
+                {
+                    "chunk_id": link.chunk_id,
+                    "document_id": link.document_id,
+                    "evidence_rank": link.evidence_rank,
+                    "evidence_verdict": link.evidence_verdict.value,
+                    "score": link.score,
+                }
+                for link in inspection.evidence_links
+            ],
+            "selected_supporting_chunks": list(inspection.verification.supporting_chunk_ids),
+            "selected_contradicting_chunks": list(
+                inspection.verification.contradicting_chunk_ids
+            ),
+        },
+        "decision_trace": {
+            "verdict": verification_payload["verdict"],
+            "evidence_sufficiency": verification_payload["evidence_sufficiency"],
+            "publication_gate": verification_payload["publication_gate"],
+            "gate_reason": verification_payload["gate_reason"],
+            "sufficiency_summary": verification_payload["sufficiency_summary"],
+            "contradiction_trace": {
+                "selected_contradicting_chunks": list(
+                    inspection.verification.contradicting_chunk_ids
+                ),
+                "contradicting_evidence_count": inspection.contradicting_evidence_count,
+                "best_contradicting_evidence": [
+                    evidence_link_to_payload(link)
+                    for link in _best_evidence_links(
+                        tuple(
+                            link
+                            for link in inspection.evidence_links
+                            if link.evidence_verdict is VerificationVerdict.CONTRADICT
+                        )
+                    )
+                ],
+            },
+        },
+        "review_trace": {
+            "has_review": review_decision is not None,
+            "review_status": (
+                review_decision.human_review_status.value
+                if review_decision is not None
+                else None
+            ),
+            "review_verdict": (
+                review_decision.final_verdict.value
+                if review_decision is not None and review_decision.final_verdict is not None
+                else None
+            ),
+            "review_notes": review_decision.review_notes if review_decision is not None else None,
+        },
+    }
 
 
 def _build_credibility_assessment_execution(
@@ -1569,6 +1924,132 @@ def _count_evidence_links(
     return sum(1 for link in evidence_links if link.evidence_verdict is verdict)
 
 
+def _support_rationale(
+    verification: ClaimVerification,
+    evidence_links: tuple[ClaimEvidenceLink, ...],
+) -> str:
+    if verification.verdict is VerificationVerdict.CONTRADICT:
+        return "conflicting_evidence"
+    if verification.verdict is not VerificationVerdict.SUPPORT:
+        return "unsupported_or_not_applicable"
+    supporting_links = tuple(
+        link for link in evidence_links if link.evidence_verdict is VerificationVerdict.SUPPORT
+    )
+    if any(link.score is not None and link.score >= 1.0 for link in supporting_links):
+        return "exact_lexical_match"
+    if len(
+        tuple(
+            link
+            for link in supporting_links
+            if link.score is not None and 0.6 <= link.score < 1.0
+        )
+    ) >= 2:
+        return "corroborated_partial_hits"
+    return "unsupported_or_not_applicable"
+
+
+def _report_entry_support_rationale(entry: ClaimReportEntry) -> str:
+    if entry.final_verdict is VerificationVerdict.CONTRADICT:
+        return "conflicting_evidence"
+    if entry.final_verdict is not VerificationVerdict.SUPPORT:
+        return "unsupported_or_not_applicable"
+    if len(entry.supporting_chunk_ids) >= 2:
+        return "corroborated_partial_hits"
+    if len(entry.supporting_chunk_ids) == 1:
+        return "exact_lexical_match"
+    return "unsupported_or_not_applicable"
+
+
+def _normalize_claim_match_text(text: str) -> str:
+    normalized = unicode_normalize("NFKD", text)
+    without_diacritics = "".join(
+        character for character in normalized if not combining(character)
+    )
+    collapsed = " ".join(without_diacritics.casefold().split())
+    return collapsed
+
+
+def _claim_match_risk_flags(source_text: str, candidate_text: str) -> tuple[str, ...]:
+    flags: list[str] = []
+    if source_text != candidate_text and source_text.casefold() == candidate_text.casefold():
+        flags.append("casefold_only_match")
+    if " ".join(source_text.split()) != source_text or " ".join(candidate_text.split()) != candidate_text:
+        if " ".join(source_text.casefold().split()) == " ".join(candidate_text.casefold().split()):
+            flags.append("whitespace_normalized_match")
+    source_without_diacritics = "".join(
+        character
+        for character in unicode_normalize("NFKD", source_text)
+        if not combining(character)
+    )
+    candidate_without_diacritics = "".join(
+        character
+        for character in unicode_normalize("NFKD", candidate_text)
+        if not combining(character)
+    )
+    if source_text != candidate_text and source_without_diacritics.casefold() == candidate_without_diacritics.casefold():
+        if source_text.casefold() != candidate_text.casefold():
+            flags.append("diacritic_stripped_match")
+    return tuple(flags)
+
+
+def _claim_type_signals(text: str) -> tuple[str, ...]:
+    signals: list[str] = []
+    normalized = text.casefold()
+    if re.search(r"\b\d+(?:[.,]\d+)?%?\b", normalized) or re.search(
+        r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b",
+        normalized,
+    ):
+        signals.append("numeric_claim")
+    if re.search(
+        r"\b(19\d{2}|20\d{2}|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|today|yesterday|tomorrow)\b",
+        normalized,
+    ) or re.search(r"\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b", normalized):
+        signals.append("temporal_claim")
+    return tuple(signals)
+
+
+def _previously_fact_checked_matches(
+    persistence: CorePersistence,
+    claim: Claim,
+) -> tuple[dict[str, object], ...]:
+    normalized_target = _normalize_claim_match_text(claim.exact_text)
+    if not normalized_target:
+        return ()
+    matches: list[dict[str, object]] = []
+    for candidate in persistence.claims.list_claims_for_case(claim.case_id):
+        if candidate.claim_id == claim.claim_id:
+            continue
+        if _normalize_claim_match_text(candidate.exact_text) != normalized_target:
+            continue
+        review_decision = persistence.claims.get_review_decision(candidate.claim_id)
+        verification = persistence.claims.get_verification(candidate.claim_id)
+        if review_decision is None and verification is None:
+            continue
+        final_verdict = None
+        if review_decision is not None and review_decision.final_verdict is not None:
+            final_verdict = review_decision.final_verdict.value
+        elif verification is not None:
+            final_verdict = verification.verdict.value
+        matches.append(
+            {
+                "claim_id": candidate.claim_id,
+                "case_id": candidate.case_id,
+                "exact_text": candidate.exact_text,
+                "human_review_status": (
+                    review_decision.human_review_status.value
+                    if review_decision is not None
+                    else None
+                ),
+                "final_verdict": final_verdict,
+                "normalization_risk_flags": list(
+                    _claim_match_risk_flags(claim.exact_text, candidate.exact_text)
+                ),
+                "claim_type_signals": list(_claim_type_signals(candidate.exact_text)),
+            }
+        )
+    return tuple(sorted(matches, key=lambda item: str(item["claim_id"])))
+
+
 def _is_excluded_from_report(decision: ClaimReviewDecision) -> bool:
     return (
         decision.human_review_status is HumanReviewStatus.EXCLUDED
@@ -1598,9 +2079,31 @@ def _report_publication_summary(
     entries: tuple[ClaimReportEntry, ...],
     review_decisions: tuple[ClaimReviewDecision, ...] = (),
 ) -> dict[str, int]:
+    summary = _report_verification_summary(entries, review_decisions)
+    publication_summary = summary["publication_summary"]
+    return {
+        "allowed_claim_count": int(publication_summary["allowed_claim_count"]),
+        "review_required_claim_count": int(
+            publication_summary["review_required_claim_count"]
+        ),
+        "blocked_claim_count": int(publication_summary["blocked_claim_count"]),
+    }
+
+
+def _report_verification_summary(
+    entries: tuple[ClaimReportEntry, ...],
+    review_decisions: tuple[ClaimReviewDecision, ...] = (),
+) -> dict[str, dict[str, int]]:
     allowed_claim_count = 0
     review_required_claim_count = 0
     blocked_claim_count = 0
+    evidence_sufficiency_counts: Counter[str] = Counter()
+    publication_gate_counts: Counter[str] = Counter()
+    gate_reason_counts: Counter[str] = Counter()
+    support_rationale_counts: Counter[str] = Counter()
+    contradicted_claim_count = 0
+    contradicting_chunk_count = 0
+    claims_with_mixed_support_and_contradiction_count = 0
     excluded_claim_ids = {
         decision.claim_id
         for decision in review_decisions
@@ -1610,22 +2113,316 @@ def _report_publication_summary(
     for entry in entries:
         if entry.claim_id in excluded_claim_ids:
             continue
-        _, publication_gate, _ = _verification_controls(
+        evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
             entry.final_verdict,
             entry.human_review_status,
             entry.final_verdict,
         )
+        evidence_sufficiency_counts[evidence_sufficiency] += 1
+        publication_gate_counts[publication_gate] += 1
+        gate_reason_counts[gate_reason or "none"] += 1
+        support_rationale_counts[_report_entry_support_rationale(entry)] += 1
+        contradicting_chunk_count += len(entry.contradicting_chunk_ids)
+        if entry.final_verdict is VerificationVerdict.CONTRADICT:
+            contradicted_claim_count += 1
+        if entry.supporting_chunk_ids and entry.contradicting_chunk_ids:
+            claims_with_mixed_support_and_contradiction_count += 1
         if publication_gate == "allowed":
             allowed_claim_count += 1
         elif publication_gate == "blocked":
             blocked_claim_count += 1
         else:
             review_required_claim_count += 1
+    if excluded_claim_ids:
+        publication_gate_counts["blocked"] += len(excluded_claim_ids)
+        gate_reason_counts["human_review_excluded"] += len(excluded_claim_ids)
     return {
-        "allowed_claim_count": allowed_claim_count,
-        "review_required_claim_count": review_required_claim_count,
-        "blocked_claim_count": blocked_claim_count,
+        "publication_summary": {
+            "allowed_claim_count": allowed_claim_count,
+            "review_required_claim_count": review_required_claim_count,
+            "blocked_claim_count": blocked_claim_count,
+        },
+        "support_rationale_summary": {
+            "exact_lexical_match_count": int(
+                support_rationale_counts["exact_lexical_match"]
+            ),
+            "corroborated_partial_hits_count": int(
+                support_rationale_counts["corroborated_partial_hits"]
+            ),
+            "conflicting_evidence_count": int(
+                support_rationale_counts["conflicting_evidence"]
+            ),
+            "unsupported_or_not_applicable_count": int(
+                support_rationale_counts["unsupported_or_not_applicable"]
+            ),
+        },
+        "contradiction_diagnostics": {
+            "contradicted_claim_count": contradicted_claim_count,
+            "contradicting_chunk_count": contradicting_chunk_count,
+            "claims_with_mixed_support_and_contradiction_count": (
+                claims_with_mixed_support_and_contradiction_count
+            ),
+        },
+        "evidence_sufficiency": dict(sorted(evidence_sufficiency_counts.items())),
+        "publication_gate": dict(sorted(publication_gate_counts.items())),
+        "gate_reason": dict(sorted(gate_reason_counts.items())),
     }
+
+
+def _report_cost_of_failure_metrics(
+    entries: tuple[ClaimReportEntry, ...],
+    review_decisions: tuple[ClaimReviewDecision, ...] = (),
+) -> dict[str, int | float]:
+    verification_summary = _report_verification_summary(entries, review_decisions)
+    publication_summary = verification_summary["publication_summary"]
+    claim_count = len(entries)
+    evidence_count = sum(len(entry.supporting_chunk_ids) + len(entry.contradicting_chunk_ids) for entry in entries)
+    claims_review_required = int(publication_summary["review_required_claim_count"])
+    claims_insufficient = int(
+        verification_summary["evidence_sufficiency"].get("insufficient", 0)
+    )
+    blocked_claim_count = int(publication_summary["blocked_claim_count"])
+    publication_block_rate = (
+        blocked_claim_count / claim_count if claim_count else 0.0
+    )
+    return {
+        "claim_count": claim_count,
+        "evidence_count": evidence_count,
+        "claims_review_required": claims_review_required,
+        "claims_insufficient": claims_insufficient,
+        "publication_block_rate": publication_block_rate,
+    }
+
+
+def _report_review_queue_signals(
+    entries: tuple[ClaimReportEntry, ...],
+    review_decisions: tuple[ClaimReviewDecision, ...] = (),
+) -> dict[str, object]:
+    excluded_claim_ids = {
+        decision.claim_id
+        for decision in review_decisions
+        if _is_excluded_from_report(decision)
+    }
+    reason_buckets: Counter[str] = Counter()
+    priority_buckets: Counter[str] = Counter()
+    rationale_class_summary: Counter[str] = Counter()
+    priority_rationale: list[dict[str, object]] = []
+    for entry in entries:
+        if entry.claim_id in excluded_claim_ids:
+            continue
+        _, publication_gate, gate_reason = _verification_controls(
+            entry.final_verdict,
+            entry.human_review_status,
+            entry.final_verdict,
+        )
+        if publication_gate != "review_required":
+            continue
+        reason_key = gate_reason or "unspecified"
+        reason_buckets[reason_key] += 1
+        citation_quality_flags = _citation_quality_flags(
+            verdict=entry.final_verdict,
+            supporting_chunk_ids=entry.supporting_chunk_ids,
+            contradicting_chunk_ids=entry.contradicting_chunk_ids,
+            evidence_links=(),
+        )
+        support_rationale = _report_entry_support_rationale(entry)
+        rationale_flags: list[str] = []
+        if reason_key == "conflicting_evidence":
+            rationale_flags.append("gate_reason_conflicting_evidence")
+        if "mixed_support_and_contradiction" in citation_quality_flags:
+            rationale_flags.append("mixed_support_and_contradiction")
+        priority = "high" if rationale_flags else "normal"
+        if reason_key == "conflicting_evidence":
+            rationale_class_summary["conflict_driven"] += 1
+        elif "mixed_support_and_contradiction" in citation_quality_flags:
+            rationale_class_summary["mixed_support_conflict"] += 1
+        elif reason_key == "no_verified_support":
+            rationale_class_summary["no_support_driven"] += 1
+        else:
+            rationale_class_summary["other_review_required"] += 1
+        priority_buckets[priority] += 1
+        priority_rationale.append(
+            {
+                "claim_id": entry.claim_id,
+                "priority": priority,
+                "gate_reason": reason_key,
+                "support_rationale": support_rationale,
+                "citation_quality_flags": citation_quality_flags,
+                "rationale_flags": rationale_flags,
+            }
+        )
+    return {
+        "review_required_claim_count": sum(reason_buckets.values()),
+        "reason_buckets": dict(sorted(reason_buckets.items())),
+        "priority_buckets": dict(sorted(priority_buckets.items())),
+        "rationale_class_summary": dict(sorted(rationale_class_summary.items())),
+        "priority_rationale": priority_rationale,
+    }
+
+
+def _format_count_map_markdown(counts: dict[str, int]) -> str:
+    if not counts:
+        return "none"
+    return ", ".join(f"{name}={count}" for name, count in counts.items())
+
+
+def _humanize_support_rationale(rationale: str) -> str:
+    return rationale.replace("_", " ")
+
+
+def _humanize_review_queue_priority(priority: str) -> str:
+    return priority.replace("_", " ")
+
+
+def _humanize_review_queue_gate_reason(reason: str) -> str:
+    return reason.replace("_", " ")
+
+
+def _humanize_review_queue_flags(flags: object) -> str:
+    if not isinstance(flags, list) or not flags:
+        return "none"
+    return ", ".join(str(flag).replace("_", " ") for flag in flags)
+
+
+def _humanize_review_queue_rationale_class_summary(summary: dict[str, int]) -> dict[str, int]:
+    return {key.replace("_", " "): value for key, value in summary.items()}
+
+
+def _format_support_rationale_summary_markdown(summary: dict[str, int]) -> str:
+    parts = []
+    for key in (
+        "exact_lexical_match_count",
+        "corroborated_partial_hits_count",
+        "conflicting_evidence_count",
+        "unsupported_or_not_applicable_count",
+    ):
+        parts.append(
+            f"{_humanize_support_rationale(key.removesuffix('_count'))}={summary.get(key, 0)}"
+        )
+    return ", ".join(parts)
+
+
+def _review_queue_priority_buckets(review_queue_signals: dict[str, object]) -> dict[str, int]:
+    buckets = review_queue_signals.get("priority_buckets")
+    return buckets if isinstance(buckets, dict) else {}
+
+
+def _review_queue_rationale_class_summary(review_queue_signals: dict[str, object]) -> dict[str, int]:
+    summary = review_queue_signals.get("rationale_class_summary")
+    return summary if isinstance(summary, dict) else {}
+
+
+def _review_queue_priority_rationale_markdown_lines(
+    review_queue_signals: dict[str, object],
+) -> list[str]:
+    items = review_queue_signals.get("priority_rationale")
+    if not isinstance(items, list):
+        return []
+    lines: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        citation_flags = item.get("citation_quality_flags")
+        rationale_flags = item.get("rationale_flags")
+        lines.append(
+            "- Claim "
+            f"{item.get('claim_id', 'unknown')}: priority={_humanize_review_queue_priority(str(item.get('priority', 'unknown')))}, "
+            f"gate reason={_humanize_review_queue_gate_reason(str(item.get('gate_reason', 'unknown')))}, "
+            f"support rationale={_humanize_support_rationale(str(item.get('support_rationale', 'unknown')))}, "
+            f"citation flags={_humanize_review_queue_flags(citation_flags)}, "
+            f"rationale flags={_humanize_review_queue_flags(rationale_flags)}"
+        )
+    return lines
+
+
+def _review_queue_summary_markdown_lines(
+    review_queue_signals: dict[str, object],
+) -> list[str]:
+    review_required_count = review_queue_signals.get("review_required_claim_count")
+    review_required_claim_count = (
+        review_required_count if isinstance(review_required_count, int) else 0
+    )
+    if review_required_claim_count == 0:
+        return [
+            "## Review queue rationale",
+            "",
+            "- Review-required claims: 0",
+            "- Priority buckets: none",
+            "- Rationale classes: none",
+            "- Queue status: no review-required claims",
+        ]
+    return [
+        "## Review queue rationale",
+        "",
+        f"- Review-required claims: {review_required_claim_count}",
+        f"- Priority buckets: {_format_count_map_markdown(_review_queue_priority_buckets(review_queue_signals))}",
+        "- Rationale classes: "
+        f"{_format_count_map_markdown(_humanize_review_queue_rationale_class_summary(_review_queue_rationale_class_summary(review_queue_signals)))}",
+        *_review_queue_priority_rationale_markdown_lines(review_queue_signals),
+    ]
+
+
+def _review_queue_priority_rationale_html(review_queue_signals: dict[str, object]) -> str:
+    items = review_queue_signals.get("priority_rationale")
+    if not isinstance(items, list) or not items:
+        return "<p><strong>Priority rationale:</strong> none</p>"
+    rendered: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        citation_flags = item.get("citation_quality_flags")
+        rationale_flags = item.get("rationale_flags")
+        rendered.append(
+            "<li>"
+            f"<strong>{_escape_html(str(item.get('claim_id', 'unknown')))}</strong>: "
+            f"priority={_escape_html(_humanize_review_queue_priority(str(item.get('priority', 'unknown'))))}, "
+            f"gate reason={_escape_html(_humanize_review_queue_gate_reason(str(item.get('gate_reason', 'unknown'))))}, "
+            f"support rationale={_escape_html(_humanize_support_rationale(str(item.get('support_rationale', 'unknown'))))}, "
+            f"citation flags={_escape_html(_humanize_review_queue_flags(citation_flags))}, "
+            f"rationale flags={_escape_html(_humanize_review_queue_flags(rationale_flags))}"
+            "</li>"
+        )
+    return "<p><strong>Priority rationale:</strong></p><ul>" + "".join(rendered) + "</ul>"
+
+
+def _review_queue_summary_html(review_queue_signals: dict[str, object]) -> str:
+    items = review_queue_signals.get("priority_rationale")
+    review_required_count = review_queue_signals.get("review_required_claim_count")
+    review_required_claim_count = (
+        review_required_count if isinstance(review_required_count, int) else 0
+    )
+    if review_required_claim_count == 0 or not isinstance(items, list) or not items:
+        return (
+            "<p><strong>Priority rationale classes:</strong> none</p>"
+            "<p><strong>Priority rationale:</strong> none</p>"
+            "<p><strong>Queue status:</strong> no review-required claims</p>"
+        )
+    rationale_classes = _format_count_map_markdown(
+        _humanize_review_queue_rationale_class_summary(
+            _review_queue_rationale_class_summary(review_queue_signals)
+        )
+    )
+    return (
+        f"<p><strong>Priority rationale classes:</strong> {_escape_html(rationale_classes)}</p>"
+        f"{_review_queue_priority_rationale_html(review_queue_signals)}"
+    )
+
+
+def _verification_summary_section_html(
+    verification_summary: dict[str, dict[str, int]],
+) -> str:
+    publication_summary = verification_summary["publication_summary"]
+    return (
+        "<h2>Verification summary</h2>"
+        f"<p><strong>Evidence sufficiency:</strong> {_escape_html(_format_count_map_markdown(verification_summary['evidence_sufficiency']))}</p>"
+        f"<p><strong>Publication gate:</strong> {_escape_html(_format_count_map_markdown(verification_summary['publication_gate']))}</p>"
+        f"<p><strong>Gate reason:</strong> {_escape_html(_format_count_map_markdown(verification_summary['gate_reason']))}</p>"
+        f"<p><strong>Support rationale counts:</strong> {_escape_html(_format_support_rationale_summary_markdown(verification_summary['support_rationale_summary']))}</p>"
+        f"<p><strong>Contradiction diagnostics:</strong> {_escape_html(_format_count_map_markdown(verification_summary['contradiction_diagnostics']))}</p>"
+        f"<p><strong>Allowed claims:</strong> {publication_summary['allowed_claim_count']} &middot; "
+        f"<strong>Review-required claims:</strong> {publication_summary['review_required_claim_count']} &middot; "
+        f"<strong>Blocked claims:</strong> {publication_summary['blocked_claim_count']}</p>"
+    )
 
 
 def _claim_row_html(delivery: SourceTraceDelivery, claim: Claim) -> str:
@@ -1651,11 +2448,57 @@ def _claim_row_html(delivery: SourceTraceDelivery, claim: Claim) -> str:
     ]
     verification_link = f'/api/claims/{claim.claim_id}/verification'
     claim_links.append(f'<a href="{verification_link}">verification</a>')
+    verification_supporting_chunk_ids = (
+        verification.supporting_chunk_ids if verification is not None else ()
+    )
+    verification_contradicting_chunk_ids = (
+        verification.contradicting_chunk_ids if verification is not None else ()
+    )
+    citation_quality_flags = (
+        _citation_quality_flags(
+            verdict=verification.verdict,
+            supporting_chunk_ids=verification_supporting_chunk_ids,
+            contradicting_chunk_ids=verification_contradicting_chunk_ids,
+            evidence_links=links,
+        )
+        if verification is not None
+        else []
+    )
+    contradiction_snippet = (
+        _report_entry_contradiction_summary(
+            ClaimReportEntry(
+                claim_id=claim.claim_id,
+                case_id=claim.case_id,
+                final_verdict=verdict_enum,
+                human_review_status=(
+                    review.human_review_status
+                    if review is not None
+                    else HumanReviewStatus.UNREVIEWED
+                ),
+                summary_text="",
+                supporting_chunk_ids=verification_supporting_chunk_ids,
+                contradicting_chunk_ids=verification_contradicting_chunk_ids,
+            )
+        )["contradiction_snippet"]
+        if verification is not None
+        else "No contradicting chunks selected."
+    )
     claim_detail_lines = [
         _escape_html(claim.exact_text),
         f"Evidence sufficiency: {_escape_html(evidence_sufficiency)}",
         f"Publication gate: {_escape_html(publication_gate)}",
         f"Gate reason: {_escape_html(gate_reason or 'none')}",
+        f"Support signals present: {'yes' if verification_supporting_chunk_ids else 'no'}",
+        f"Conflict signals present: {'yes' if verification_contradicting_chunk_ids else 'no'}",
+        "Evidence count: "
+        f"{len(verification_supporting_chunk_ids) + len(verification_contradicting_chunk_ids)}",
+        "Sufficiency summary: "
+        f"{_escape_html(_verification_sufficiency_summary(verdict_enum, verification_supporting_chunk_ids, verification_contradicting_chunk_ids))}",
+        "Support rationale: "
+        f"{_escape_html(_humanize_support_rationale(_support_rationale(verification, links) if verification is not None else 'unsupported_or_not_applicable'))}",
+        f"Contradiction snippet: {_escape_html(str(contradiction_snippet))}",
+        f"Citation quality flags: {_escape_html(', '.join(citation_quality_flags) if citation_quality_flags else 'none')}",
+        f"Best evidence: {_escape_html(_best_evidence_html_summary(links))}",
     ]
     return (
         "<tr>"
@@ -1673,6 +2516,47 @@ def _continuity_pack_list_html(items: tuple[str, ...]) -> str:
     return "<ul>" + "".join(f"<li>{_escape_html(item)}</li>" for item in items) + "</ul>"
 
 
+def _continuity_pack_verification_diagnostics_html(items: tuple[str, ...]) -> str:
+    if not items:
+        return (
+            "<p><strong>Diagnostics status:</strong> no verification diagnostics</p>"
+            "<p><strong>Diagnostics:</strong> none</p>"
+        )
+    return "<ul>" + "".join(
+        f"<li>{_escape_html(_humanize_continuity_verification_diagnostic_text(item))}</li>"
+        for item in items
+    ) + "</ul>"
+
+
+def _continuity_pack_decision_support_section_html(pack: ContinuityPack) -> str:
+    return (
+        "<h2>Decision support</h2>"
+        "<p><strong>Verification diagnostics:</strong></p>"
+        f"{_continuity_pack_verification_diagnostics_html(pack.verification_diagnostics)}"
+        "<p><strong>Decision snapshot:</strong></p>"
+        f"{_continuity_pack_list_html(pack.decision_snapshot)}"
+    )
+
+
+def _continuity_pack_verification_diagnostics_section_html(items: tuple[str, ...]) -> str:
+    return (
+        "<h2>Verification diagnostics</h2>"
+        f"{_continuity_pack_verification_diagnostics_html(items)}"
+    )
+
+
+def _humanize_continuity_verification_diagnostic_text(item: str) -> str:
+    text = item.strip()
+    if not text:
+        return text
+    if ":" not in text:
+        return text.replace("_", " ")
+    label, value = text.split(":", 1)
+    humanized_label = label.strip().replace("_", " ").capitalize()
+    humanized_value = value.strip().replace("_", " ")
+    return f"{humanized_label}: {humanized_value}" if humanized_value else humanized_label
+
+
 def _suggested_continuity_pack_artifacts_html(
     *,
     replace: bool,
@@ -1680,7 +2564,7 @@ def _suggested_continuity_pack_artifacts_html(
     suggestions = _discover_continuity_pack_artifact_paths()
     if not suggestions:
         return ""
-    action_label = "Replace with" if replace else "Assign"
+    action_label = "Replace with this continuity pack" if replace else "Assign this continuity pack"
     intro = (
         "<p><strong>Suggested replacement continuity-pack artifacts:</strong></p>"
         if replace
@@ -1712,27 +2596,57 @@ def _discover_continuity_pack_artifact_paths() -> tuple[str, ...]:
     return tuple(suggestions)
 
 
+def _case_continuity_pack_decision_support_html(pack: ContinuityPack) -> str:
+    return (
+        "<h3>Decision support</h3>"
+        "<p><strong>Verification diagnostics:</strong></p>"
+        f"{_continuity_pack_verification_diagnostics_html(pack.verification_diagnostics)}"
+        "<p><strong>Decision snapshot:</strong></p>"
+        f"{_continuity_pack_list_html(pack.decision_snapshot)}"
+    )
+
+
 def _case_continuity_pack_section_html(
     continuity_pack: ContinuityPackOutcome | None,
     *,
     latest_previous_continuity_pack: ContinuityPackOutcome | None = None,
 ) -> str:
-    if continuity_pack is None:
-        suggested_artifacts_html = _suggested_continuity_pack_artifacts_html(replace=False)
-        return (
-            "<h2>Continuity pack</h2>"
-            "<p>No active continuity pack for this case yet.</p>"
-            "<p><strong>Next step:</strong> "
-            "POST /api/cases/{case_id}/continuity-pack with an artifact_path from "
-            "<code>docs/plans/...continuity-pack...</code>.</p>"
-            f"{suggested_artifacts_html}"
-        )
-    pack = continuity_pack.continuity_pack
     previous_pack = (
         latest_previous_continuity_pack.continuity_pack
         if latest_previous_continuity_pack is not None
         else None
     )
+    if continuity_pack is None:
+        suggested_artifacts_html = _suggested_continuity_pack_artifacts_html(replace=False)
+        latest_previous_html = ""
+        if previous_pack is not None:
+            previous_view_href = (
+                f"/continuity-packs/view?artifact_path={url_quote(previous_pack.source_artifact_path)}"
+            )
+            previous_assign_href = (
+                "/cases/assign-continuity-pack?case_id={case_id}&artifact_path="
+                f"{url_quote(previous_pack.source_artifact_path)}"
+            )
+            latest_previous_html = (
+                "<h3>Latest previous continuity pack</h3>"
+                "<p><strong>Status:</strong> No active continuity pack is assigned.</p>"
+                f"<p><strong>Title:</strong> {_escape_html(previous_pack.title)}</p>"
+                f"<p><strong>Source artifact:</strong> <code>{_escape_html(previous_pack.source_artifact_path)}</code></p>"
+                f"<p><a href=\"{_escape_html(previous_view_href)}\">View previous continuity pack</a>"
+                " &middot; "
+                f"<a href=\"{_escape_html(previous_assign_href)}\">Reassign this continuity pack</a></p>"
+                f"{_case_continuity_pack_decision_support_html(previous_pack)}"
+            )
+        return (
+            "<h2>Continuity pack</h2>"
+            "<p><strong>Status:</strong> No active continuity pack is assigned.</p>"
+            "<p><strong>Next step:</strong> Assign a continuity pack from "
+            "<code>docs/plans/...continuity-pack...</code> via "
+            "<code>POST /api/cases/{case_id}/continuity-pack</code>.</p>"
+            f"{latest_previous_html}"
+            f"{suggested_artifacts_html}"
+        )
+    pack = continuity_pack.continuity_pack
     suggested_replacements_html = _suggested_continuity_pack_artifacts_html(replace=True)
     clear_href = f"/cases/clear-continuity-pack?case_id={{case_id}}"
     view_href = f"/continuity-packs/view?artifact_path={url_quote(pack.source_artifact_path)}"
@@ -1751,18 +2665,19 @@ def _case_continuity_pack_section_html(
             "<h3>Latest previous continuity pack</h3>"
             f"<p><strong>Title:</strong> {_escape_html(previous_pack.title)}</p>"
             f"<p><strong>Source artifact:</strong> <code>{_escape_html(previous_pack.source_artifact_path)}</code></p>"
-            f"<p><a href=\"{_escape_html(previous_view_href)}\">Open previous continuity-pack view</a>"
+            f"<p><a href=\"{_escape_html(previous_view_href)}\">View previous continuity pack</a>"
             " &middot; "
-            f"<a href=\"{_escape_html(previous_assign_href)}\">Reassign previous continuity pack</a></p>"
+            f"<a href=\"{_escape_html(previous_assign_href)}\">Reassign this continuity pack</a></p>"
+            f"{_case_continuity_pack_decision_support_html(previous_pack)}"
         )
     return (
         "<h2>Continuity pack</h2>"
         f"<p><strong>Title:</strong> {_escape_html(pack.title)}</p>"
         f"<p><strong>Source artifact:</strong> <code>{_escape_html(pack.source_artifact_path)}</code></p>"
-        "<p><strong>Replace warning:</strong> assigning another continuity pack will replace the current active pack for this case.</p>"
-        f"<p><a href=\"{_escape_html(view_href)}\">Open dedicated continuity-pack view</a>"
+        "<p><strong>Replace note:</strong> Assigning a new continuity pack replaces the current active continuity pack for this case.</p>"
+        f"<p><a href=\"{_escape_html(view_href)}\">View continuity pack</a>"
         " &middot; "
-        f"<a href=\"{_escape_html(render_href)}\">Render markdown</a>"
+        f"<a href=\"{_escape_html(render_href)}\">Render continuity pack markdown</a>"
         " &middot; "
         f"<a href=\"{_escape_html(clear_href)}\">Clear active continuity pack</a></p>"
         f"{latest_previous_html}"
@@ -1775,8 +2690,7 @@ def _case_continuity_pack_section_html(
         f"{_continuity_pack_list_html(pack.to_verify)}"
         f"<h3>{_escape_html(CONTINUITY_PACK_SECTIONS[3])}</h3>"
         f"{_continuity_pack_list_html(pack.recommended_next_test)}"
-        "<h3>Decision snapshot</h3>"
-        f"{_continuity_pack_list_html(pack.decision_snapshot)}"
+        f"{_case_continuity_pack_decision_support_html(pack)}"
     )
 
 
@@ -1947,6 +2861,24 @@ def _escape_html(value: str) -> str:
 
 def _format_chunk_ids(chunk_ids: tuple[str, ...]) -> str:
     return ", ".join(chunk_ids) if chunk_ids else "none"
+
+
+def _report_entry_contradiction_summary(entry: ClaimReportEntry) -> dict[str, object]:
+    contradicting_chunks_preview = list(entry.contradicting_chunk_ids[:2])
+    has_contradiction = bool(entry.contradicting_chunk_ids)
+    if has_contradiction:
+        contradiction_snippet = (
+            "Conflicting evidence flagged in chunks: "
+            f"{_format_chunk_ids(entry.contradicting_chunk_ids[:2])}."
+        )
+    else:
+        contradiction_snippet = "No contradicting chunks selected."
+    return {
+        "has_contradiction": has_contradiction,
+        "contradicting_chunk_count": len(entry.contradicting_chunk_ids),
+        "contradicting_chunks_preview": contradicting_chunks_preview,
+        "contradiction_snippet": contradiction_snippet,
+    }
 
 
 def _optional_str(value: object) -> str | None:

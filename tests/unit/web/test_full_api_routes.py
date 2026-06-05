@@ -15,6 +15,7 @@ from sourcetrace.domain.types import VerificationVerdict
 from sourcetrace.llm.models import LlmGenerationResult
 from sourcetrace.web import (
     SourceTraceWSGIApp,
+    continuity_pack_inspection_to_payload,
     create_default_delivery,
     create_wsgi_app,
     render_case_review_html,
@@ -134,10 +135,12 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "decision_support": None,
         "latest_previous": {
             "assigned": False,
             "title": None,
             "source_artifact_path": None,
+            "decision_support": None,
         },
     }
     assert case_payload["status"] == "ready"
@@ -168,10 +171,12 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "decision_support": None,
         "latest_previous": {
             "assigned": False,
             "title": None,
             "source_artifact_path": None,
+            "decision_support": None,
         },
     }
     assert get_case_status == "200 OK"
@@ -180,10 +185,12 @@ def test_wsgi_product_resource_flow_and_read_surfaces() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "decision_support": None,
         "latest_previous": {
             "assigned": False,
             "title": None,
             "source_artifact_path": None,
+            "decision_support": None,
         },
     }
     assert docs_status == "200 OK"
@@ -784,28 +791,50 @@ def test_case_payload_includes_current_continuity_pack_summary() -> None:
 
     assert cases_status == "200 OK"
     cases_payload = json.loads(cases_body)
-    assert cases_payload["cases"][0]["continuity_pack"] == {
-        "assigned": True,
-        "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
-        "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
-        "latest_previous": {
-            "assigned": False,
-            "title": None,
-            "source_artifact_path": None,
-        },
+    continuity_pack_payload = cases_payload["cases"][0]["continuity_pack"]
+    assert continuity_pack_payload["assigned"] is True
+    assert (
+        continuity_pack_payload["title"]
+        == "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks"
+    )
+    assert (
+        continuity_pack_payload["source_artifact_path"]
+        == "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    )
+    assert continuity_pack_payload["decision_support"]["section_label"] == "Decision support"
+    assert continuity_pack_payload["decision_support"]["decision_snapshot_label"] == "Decision snapshot"
+    assert continuity_pack_payload["decision_support"]["verification_diagnostics_label"] == (
+        "Verification diagnostics"
+    )
+    assert continuity_pack_payload["latest_previous"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+        "decision_support": None,
     }
 
     assert case_status == "200 OK"
     case_payload = json.loads(case_body)
-    assert case_payload["case"]["continuity_pack"] == {
-        "assigned": True,
-        "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
-        "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
-        "latest_previous": {
-            "assigned": False,
-            "title": None,
-            "source_artifact_path": None,
-        },
+    continuity_pack_payload = case_payload["case"]["continuity_pack"]
+    assert continuity_pack_payload["assigned"] is True
+    assert (
+        continuity_pack_payload["title"]
+        == "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks"
+    )
+    assert (
+        continuity_pack_payload["source_artifact_path"]
+        == "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    )
+    assert continuity_pack_payload["decision_support"]["section_label"] == "Decision support"
+    assert continuity_pack_payload["decision_support"]["decision_snapshot_label"] == "Decision snapshot"
+    assert continuity_pack_payload["decision_support"]["verification_diagnostics_label"] == (
+        "Verification diagnostics"
+    )
+    assert continuity_pack_payload["latest_previous"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+        "decision_support": None,
     }
 
 
@@ -849,16 +878,85 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "Not assessed yet." in body
     assert "POST /api/documents/doc-bridge-note/credibility" in body
     assert "POST /api/documents/doc-bridge-note/extract-claims" in body
-    assert "No active continuity pack for this case yet." in body
+    assert "<strong>Status:</strong> No active continuity pack is assigned." in body
+    assert "<strong>Next step:</strong>" in body
+    assert "Assign a continuity pack from" in body
     assert "POST /api/cases/case-1/continuity-pack" in body
     assert "docs/plans/...continuity-pack..." in body
     assert "Suggested continuity-pack artifacts:" in body
-    assert "Assign 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in body
-    assert "Assign 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in body
+    assert "Assign this continuity pack 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in body
+    assert "Assign this continuity pack 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in body
     assert (
         "/cases/assign-continuity-pack?case_id=case-1&amp;artifact_path="
         "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
     ) in body
+
+
+def test_case_payload_continuity_summary_contract_is_consistent_across_create_list_and_get() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    create_status, _, create_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases",
+        payload={"case_id": "case-contract", "title": "Continuity contract case"},
+    )
+    assert create_status == "201 Created"
+    create_payload = json.loads(create_body)
+    create_summary = create_payload["case"]["continuity_pack"]
+    assert create_summary == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+        "decision_support": None,
+        "latest_previous": {
+            "assigned": False,
+            "title": None,
+            "source_artifact_path": None,
+            "decision_support": None,
+        },
+    }
+
+    assign_status, _, _ = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/cases/case-contract/continuity-pack",
+        payload={
+            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        },
+    )
+    assert assign_status == "200 OK"
+
+    list_status, _, list_body = _call_wsgi(app, method="GET", path="/api/cases")
+    get_status, _, get_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/cases/case-contract",
+    )
+    assert list_status == "200 OK"
+    assert get_status == "200 OK"
+
+    list_summary = json.loads(list_body)["cases"][0]["continuity_pack"]
+    get_summary = json.loads(get_body)["case"]["continuity_pack"]
+    assert list_summary == get_summary
+    assert list_summary["assigned"] is True
+    assert list_summary["decision_support"]["section_label"] == "Decision support"
+    assert list_summary["decision_support"]["verification_diagnostics_label"] == (
+        "Verification diagnostics"
+    )
+    assert list_summary["decision_support"]["decision_snapshot_label"] == (
+        "Decision snapshot"
+    )
+    assert list_summary["decision_support"]["diagnostics_status"] in {
+        "ready",
+        "no_verification_diagnostics",
+    }
+    assert list_summary["latest_previous"] == {
+        "assigned": False,
+        "title": None,
+        "source_artifact_path": None,
+        "decision_support": None,
+    }
 
 
 def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and_clear() -> None:
@@ -899,16 +997,28 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
     )
     assert case_status == "200 OK"
     continuity_pack = json.loads(case_body)["case"]["continuity_pack"]
-    assert continuity_pack == {
-        "assigned": True,
-        "title": "SourceTrace Research Continuity Pack — oskarbrzycki/llm-cerebroscope",
-        "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md",
-        "latest_previous": {
-            "assigned": True,
-            "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
-            "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
-        },
-    }
+    assert continuity_pack["assigned"] is True
+    assert (
+        continuity_pack["title"]
+        == "SourceTrace Research Continuity Pack — oskarbrzycki/llm-cerebroscope"
+    )
+    assert (
+        continuity_pack["source_artifact_path"]
+        == "docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md"
+    )
+    assert continuity_pack["decision_support"]["section_label"] == "Decision support"
+    assert continuity_pack["latest_previous"]["assigned"] is True
+    assert (
+        continuity_pack["latest_previous"]["title"]
+        == "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks"
+    )
+    assert (
+        continuity_pack["latest_previous"]["source_artifact_path"]
+        == "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+    )
+    assert continuity_pack["latest_previous"]["decision_support"]["section_label"] == (
+        "Decision support"
+    )
 
     clear_status, _, _ = _call_wsgi(
         app,
@@ -928,12 +1038,17 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "decision_support": None,
         "latest_previous": {
             "assigned": True,
             "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
             "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+            "decision_support": cleared_continuity_pack["latest_previous"]["decision_support"],
         },
     }
+    assert cleared_continuity_pack["latest_previous"]["decision_support"]["section_label"] == (
+        "Decision support"
+    )
 
 
 def test_case_review_html_renders_active_continuity_pack() -> None:
@@ -962,29 +1077,64 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
     assert "oskarbrzycki/llm-cerebroscope" in html
     assert "Source artifact:" in html
     assert "<code>docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md</code>" in html
-    assert "Open dedicated continuity-pack view" in html
+    assert "View continuity pack" in html
     assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
-    assert "Render markdown" in html
+    assert "Render continuity pack markdown" in html
     assert "/api/continuity-packs/render-markdown?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
     assert "Clear active continuity pack" in html
     assert "/cases/clear-continuity-pack?case_id=case-cp" in html
-    assert "Replace warning:" in html
-    assert "assigning another continuity pack will replace the current active pack for this case." in html
+    assert "Replace note:" in html
+    assert "Assigning a new continuity pack replaces the current active continuity pack for this case." in html
     assert "Latest previous continuity pack" in html
     assert "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks" in html
-    assert "Open previous continuity-pack view" in html
+    assert "View previous continuity pack" in html
     assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
-    assert "Reassign previous continuity pack" in html
+    assert "Reassign this continuity pack" in html
     assert (
         "/cases/assign-continuity-pack?case_id=case-cp&amp;artifact_path="
         "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
     ) in html
     assert "Suggested replacement continuity-pack artifacts:" in html
-    assert "Replace with 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
-    assert "Replace with 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
+    assert "Replace with this continuity pack 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
+    assert "Replace with this continuity pack 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
     assert "<h3>Potwierdzone</h3>" in html
-    assert "<h3>Decision snapshot</h3>" in html
+    assert html.count("<h3>Decision support</h3>") == 2
+    assert "<strong>Verification diagnostics:</strong>" in html
+    assert "<h2>Verification diagnostics</h2>" not in html
+    assert "<strong>Decision snapshot:</strong>" in html
+    assert "<h3>Decision snapshot</h3>" not in html
 
+
+
+def test_case_review_html_shows_latest_previous_continuity_pack_when_active_is_cleared() -> None:
+    delivery = create_default_delivery()
+    delivery.persistence.cases.save_case(
+        Case(case_id="case-cp-cleared", title="Continuity cleared case", description=None)
+    )
+
+    assigned = delivery.assign_case_continuity_pack(
+        case_id="case-cp-cleared",
+        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+    )
+    assert assigned is not None
+    replaced = delivery.assign_case_continuity_pack(
+        case_id="case-cp-cleared",
+        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md",
+    )
+    assert replaced is not None
+    cleared = delivery.clear_case_continuity_pack("case-cp-cleared")
+    assert cleared is True
+
+    html = render_case_review_html(delivery, "case-cp-cleared")
+
+    assert "<strong>Status:</strong> No active continuity pack is assigned." in html
+    assert "Latest previous continuity pack" in html
+    assert "No active continuity pack is assigned." in html
+    assert "View previous continuity pack" in html
+    assert "Reassign this continuity pack" in html
+    assert html.count("<h3>Decision support</h3>") == 1
+    assert "<strong>Verification diagnostics:</strong>" in html
+    assert "<strong>Decision snapshot:</strong>" in html
 
 
 def test_wsgi_document_credibility_response_includes_workflow_envelope() -> None:
@@ -1254,6 +1404,10 @@ def test_delivery_can_assemble_continuity_pack_preview() -> None:
             to_verify=("Whether broader rollout is justified.",),
             recommended_next_test=("Run one bounded follow-up on another source class.",),
             decision_snapshot=("Ready for bounded follow-up.",),
+            verification_diagnostics=(
+                "support rationale counts: exact lexical match=1",
+                "contradiction diagnostics: contradicted claim count=0",
+            ),
         )
     )
 
@@ -1267,7 +1421,59 @@ def test_delivery_can_assemble_continuity_pack_preview() -> None:
     assert inspection.sections["Recommended next test"] == (
         "Run one bounded follow-up on another source class.",
     )
+    assert inspection.verification_diagnostics == (
+        "support rationale counts: exact lexical match=1",
+        "contradiction diagnostics: contradicted claim count=0",
+    )
     assert inspection.decision_snapshot == ("Ready for bounded follow-up.",)
+
+    inspection_payload = continuity_pack_inspection_to_payload(inspection)
+    assert inspection_payload["verification_diagnostics"] == [
+        "support rationale counts: exact lexical match=1",
+        "contradiction diagnostics: contradicted claim count=0",
+    ]
+    assert inspection_payload["decision_support"] == {
+        "section_label": "Decision support",
+        "verification_diagnostics_label": "Verification diagnostics",
+        "decision_snapshot_label": "Decision snapshot",
+        "verification_diagnostics": [
+            "support rationale counts: exact lexical match=1",
+            "contradiction diagnostics: contradicted claim count=0",
+        ],
+        "decision_snapshot": ["Ready for bounded follow-up."],
+        "diagnostics_status": "ready",
+        "diagnostics_empty": False,
+    }
+
+
+def test_delivery_continuity_pack_inspection_payload_marks_empty_decision_support_diagnostics() -> None:
+    delivery = create_default_delivery()
+
+    inspection = delivery.inspect_continuity_pack(
+        ContinuityPackRequest(
+            title="Reuters A1 continuity pack",
+            source_artifact_path="docs/plans/2026-05-21-observation-a1-reuters-south-africa-risks.md",
+            confirmed=("Evidence exists.",),
+            assumptions=("Decision owner is still the same.",),
+            to_verify=("Whether broader rollout is justified.",),
+            recommended_next_test=("Run one bounded follow-up on another source class.",),
+            decision_snapshot=("Ready for bounded follow-up.",),
+            verification_diagnostics=(),
+        )
+    )
+
+    assert inspection is not None
+    inspection_payload = continuity_pack_inspection_to_payload(inspection)
+    assert inspection_payload["verification_diagnostics"] == []
+    assert inspection_payload["decision_support"] == {
+        "section_label": "Decision support",
+        "verification_diagnostics_label": "Verification diagnostics",
+        "decision_snapshot_label": "Decision snapshot",
+        "verification_diagnostics": [],
+        "decision_snapshot": ["Ready for bounded follow-up."],
+        "diagnostics_status": "no_verification_diagnostics",
+        "diagnostics_empty": True,
+    }
 
 
 def test_delivery_can_build_continuity_pack_from_artifact() -> None:
@@ -1299,6 +1505,54 @@ def test_delivery_can_render_continuity_pack_markdown_from_artifact() -> None:
     assert "## Recommended next test" in markdown
 
 
+def test_delivery_can_render_continuity_pack_markdown_with_verification_diagnostics() -> None:
+    delivery = create_default_delivery()
+
+    markdown = delivery.render_continuity_pack_markdown(
+        ContinuityPackRequest(
+            title="Continuity pack with diagnostics",
+            source_artifact_path="docs/plans/example.md",
+            confirmed=("Evidence exists.",),
+            assumptions=("Assumption.",),
+            to_verify=("Verify scope.",),
+            recommended_next_test=("Run next test.",),
+            decision_snapshot=("Ready.",),
+            verification_diagnostics=(
+                "support rationale counts: exact lexical match=1",
+                "contradiction diagnostics: contradicted claim count=0",
+            ),
+        )
+    )
+
+    assert markdown is not None
+    assert "## Verification diagnostics" in markdown
+    assert "- Support rationale counts: exact lexical match=1" in markdown
+    assert "- Contradiction diagnostics: contradicted claim count=0" in markdown
+    assert markdown.index("## Verification diagnostics") < markdown.index("## Decision snapshot")
+
+
+def test_delivery_can_render_continuity_pack_markdown_with_empty_verification_diagnostics() -> None:
+    delivery = create_default_delivery()
+
+    markdown = delivery.render_continuity_pack_markdown(
+        ContinuityPackRequest(
+            title="Continuity pack without diagnostics",
+            source_artifact_path="docs/plans/example.md",
+            confirmed=("Evidence exists.",),
+            assumptions=("Assumption.",),
+            to_verify=("Verify scope.",),
+            recommended_next_test=("Run next test.",),
+            decision_snapshot=("Ready.",),
+            verification_diagnostics=(),
+        )
+    )
+
+    assert markdown is not None
+    assert "## Verification diagnostics" in markdown
+    assert "- Diagnostics status: no verification diagnostics" in markdown
+    assert "- Diagnostics: none" in markdown
+
+
 def test_wsgi_can_assemble_continuity_pack_preview() -> None:
     app = SourceTraceWSGIApp(delivery=create_default_delivery())
 
@@ -1314,6 +1568,10 @@ def test_wsgi_can_assemble_continuity_pack_preview() -> None:
             "to_verify": ["Whether broader rollout is justified."],
             "recommended_next_test": ["Run one bounded follow-up on another source class."],
             "decision_snapshot": ["Ready for bounded follow-up."],
+            "verification_diagnostics": [
+                "support rationale counts: exact lexical match=1",
+                "contradiction diagnostics: contradicted claim count=0",
+            ],
         },
     )
 
@@ -1329,6 +1587,22 @@ def test_wsgi_can_assemble_continuity_pack_preview() -> None:
     assert payload["continuity_pack"]["recommended_next_test"] == [
         "Run one bounded follow-up on another source class.",
     ]
+    assert payload["continuity_pack"]["verification_diagnostics"] == [
+        "support rationale counts: exact lexical match=1",
+        "contradiction diagnostics: contradicted claim count=0",
+    ]
+    assert payload["continuity_pack"]["decision_support"] == {
+        "section_label": "Decision support",
+        "verification_diagnostics_label": "Verification diagnostics",
+        "decision_snapshot_label": "Decision snapshot",
+        "verification_diagnostics": [
+            "support rationale counts: exact lexical match=1",
+            "contradiction diagnostics: contradicted claim count=0",
+        ],
+        "decision_snapshot": ["Ready for bounded follow-up."],
+        "diagnostics_status": "ready",
+        "diagnostics_empty": False,
+    }
 
 
 def test_wsgi_rejects_invalid_continuity_pack_preview_payload() -> None:
@@ -1461,6 +1735,40 @@ def test_wsgi_can_render_continuity_pack_html_view() -> None:
     assert "Source artifact:" in body
     assert "<h2>Potwierdzone</h2>" in body
     assert "<h2>Recommended next test</h2>" in body
+    assert "<h2>Decision support</h2>" in body
+    assert "<strong>Verification diagnostics:</strong>" in body
+    assert "Diagnostics status:" in body
+    assert "no verification diagnostics" in body
+    assert "Diagnostics:" in body
+    assert "none" in body
+    assert "<strong>Decision snapshot:</strong>" in body
+    assert "<h2>Verification diagnostics</h2>" not in body
+    assert "<h2>Decision snapshot</h2>" not in body
+
+
+def test_wsgi_can_render_continuity_pack_html_view_with_verification_diagnostics() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    status, headers, body = _call_wsgi(
+        app,
+        method="GET",
+        path="/continuity-packs/view",
+        query_string=(
+            "artifact_path="
+            "docs/plans/2026-06-05-test-continuity-pack-with-diagnostics.md"
+        ),
+    )
+
+    assert status == "200 OK"
+    assert ("Content-Type", "text/html; charset=utf-8") in headers
+    assert "<h2>Decision support</h2>" in body
+    assert "<strong>Verification diagnostics:</strong>" in body
+    assert "Support rationale counts: exact lexical match=1" in body
+    assert "Contradiction diagnostics: contradicted claim count=0" in body
+    assert "<strong>Decision snapshot:</strong>" in body
+    assert body.index("<strong>Verification diagnostics:</strong>") < body.index("<strong>Decision snapshot:</strong>")
+    assert "<h2>Verification diagnostics</h2>" not in body
+    assert "<h2>Decision snapshot</h2>" not in body
 
 
 def test_wsgi_rejects_continuity_pack_html_view_without_artifact_path() -> None:
@@ -1576,10 +1884,12 @@ def test_wsgi_can_clear_case_continuity_pack_via_api() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "decision_support": None,
         "latest_previous": {
             "assigned": False,
             "title": None,
             "source_artifact_path": None,
+            "decision_support": None,
         },
     }
     assert get_payload["artifacts"] == {
@@ -1636,10 +1946,12 @@ def test_wsgi_can_clear_case_continuity_pack_from_query_and_redirect() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "decision_support": None,
         "latest_previous": {
             "assigned": False,
             "title": None,
             "source_artifact_path": None,
+            "decision_support": None,
         },
     }
     assert get_payload["artifacts"] == {
@@ -1677,10 +1989,12 @@ def test_wsgi_case_continuity_pack_missing_for_existing_case() -> None:
         "assigned": False,
         "title": None,
         "source_artifact_path": None,
+        "decision_support": None,
         "latest_previous": {
             "assigned": False,
             "title": None,
             "source_artifact_path": None,
+            "decision_support": None,
         },
     }
     assert payload["artifacts"] == {
