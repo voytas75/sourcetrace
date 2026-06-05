@@ -95,6 +95,7 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "docs/plans/test-use-observation-template.md" in readme
     assert "docs/plans/test-use-observation-example-bbc.md" in readme
     assert "docs/plans/2026-05-23-continuity-pack-usage-note.md" in readme
+    assert "docs/plans/2026-06-05-test-continuity-pack-with-diagnostics.md" in readme
     assert "continuity-pack operator surfaces are now aligned around a shared `Decision support` model" in readme
     assert "continuity-pack case-page actions and microcopy are normalized" in readme
     assert "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in readme

@@ -34,6 +34,7 @@ Confirmed baseline now:
 - `docs/plans/2026-05-24-credibility-policy-closeout.md` — current credibility metadata-sensitivity policy and reopen conditions
 - `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md` — staged repo-facing backlog for the next bounded product slices
 - `docs/plans/2026-05-23-continuity-pack-usage-note.md` — when to create a decision-ready continuity-pack wrapper over an existing artifact
+- `docs/plans/2026-06-05-test-continuity-pack-with-diagnostics.md` — example continuity-pack artifact showing how verification diagnostics can be carried through a bounded handoff
 - `notes/` — working notes
 - `src/sourcetrace/` — application package
 - `tests/` — unit/integration/doc assertions
