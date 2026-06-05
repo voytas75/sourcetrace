@@ -2,11 +2,22 @@ import json
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from io import BytesIO
+from typing import cast
 from wsgiref.util import setup_testing_defaults
 
 import pytest
 
-from sourcetrace.domain import Case, Claim, ClaimReviewDecision, Document, DocumentChunk
+from sourcetrace.domain import (
+    Case,
+    CaseReport,
+    Claim,
+    ClaimEvidenceLink,
+    ClaimReportEntry,
+    ClaimReviewDecision,
+    ClaimVerification,
+    Document,
+    DocumentChunk,
+)
 from sourcetrace.domain.types import (
     AnalystDisposition,
     HumanReviewStatus,
@@ -14,6 +25,7 @@ from sourcetrace.domain.types import (
 )
 from sourcetrace.llm.models import LlmGenerationResult, LlmStructuredGenerationResult
 from sourcetrace.storage import create_in_memory_persistence
+from sourcetrace.application.reporting import ReportAssemblyOutcome, ReportAssemblyRequest
 from sourcetrace.web import (
     PersistenceReportAssembler,
     SourceTraceDelivery,
@@ -23,6 +35,7 @@ from sourcetrace.web import (
     create_wsgi_app,
     create_wsgi_server,
     run_local_server,
+    verification_inspection_to_payload,
     verification_to_payload,
     render_report_markdown,
     report_outcome_to_payload,
@@ -33,6 +46,8 @@ from sourcetrace.web.api import create_wsgi_server as module_create_wsgi_server
 from sourcetrace.web.api import run_local_server as module_run_local_server
 from sourcetrace.web.delivery import (
     PersistenceReportAssembler as ModulePersistenceReportAssembler,
+    VerificationInspection,
+    report_entry_to_payload,
 )
 from sourcetrace.web.delivery import SourceTraceDelivery as ModuleSourceTraceDelivery
 from sourcetrace.web.delivery import (
@@ -175,20 +190,76 @@ def test_delivery_service_assembles_json_and_markdown_report_output() -> None:
     markdown = render_report_markdown(outcome)
 
     assert payload["case_report"]["case_id"] == "case-1"
-    assert payload["case_report"]["generated_claim_ids"] == ["claim-1"]
-    assert payload["case_report"]["entries"][0]["supporting_chunk_ids"] == ["chunk-1"]
-    assert payload["case_report"]["entries"][0]["evidence_sufficiency"] == "supported"
-    assert payload["case_report"]["entries"][0]["publication_gate"] == "allowed"
-    assert payload["case_report"]["entries"][0]["gate_reason"] is None
-    assert payload["case_report"]["publication_summary"] == {
+    case_report = payload["case_report"]
+    assert case_report["generated_claim_ids"] == ["claim-1"]
+    assert case_report["entries"][0]["supporting_chunk_ids"] == ["chunk-1"]
+    assert case_report["entries"][0]["evidence_sufficiency"] == "supported"
+    assert case_report["entries"][0]["publication_gate"] == "allowed"
+    assert case_report["entries"][0]["gate_reason"] is None
+    assert case_report["entries"][0]["support_signals_present"] is True
+    assert case_report["entries"][0]["conflict_signals_present"] is False
+    assert case_report["entries"][0]["evidence_count"] == 1
+    assert case_report["entries"][0]["support_rationale"] == "exact_lexical_match"
+    assert (
+        case_report["entries"][0]["sufficiency_summary"]
+        == "Supporting evidence found in 1 retrieved chunk."
+    )
+    assert case_report["entries"][0]["citation_quality_flags"] == []
+    assert case_report["publication_summary"] == {
         "allowed_claim_count": 1,
         "review_required_claim_count": 0,
         "blocked_claim_count": 0,
     }
+    assert payload["case_report"]["verification_summary"] == {
+        "publication_summary": {
+            "allowed_claim_count": 1,
+            "review_required_claim_count": 0,
+            "blocked_claim_count": 0,
+        },
+        "support_rationale_summary": {
+            "exact_lexical_match_count": 1,
+            "corroborated_partial_hits_count": 0,
+            "conflicting_evidence_count": 0,
+            "unsupported_or_not_applicable_count": 0,
+        },
+        "contradiction_diagnostics": {
+            "contradicted_claim_count": 0,
+            "contradicting_chunk_count": 0,
+            "claims_with_mixed_support_and_contradiction_count": 0,
+        },
+        "evidence_sufficiency": {"supported": 1},
+        "publication_gate": {"allowed": 1},
+        "gate_reason": {"none": 1},
+    }
+    cost_of_failure_metrics = payload["case_report"]["cost_of_failure_metrics"]
+    assert cost_of_failure_metrics == {
+        "claim_count": 1,
+        "evidence_count": 1,
+        "claims_review_required": 0,
+        "claims_insufficient": 0,
+        "publication_block_rate": 0.0,
+    }
+    assert "## Verification summary" in markdown
+    assert "- Evidence sufficiency: supported=1" in markdown
+    assert "- Gate counts: allowed=1" in markdown
+    assert "- Gate reason: none=1" in markdown
+    assert "- Support rationale counts: exact lexical match=1, corroborated partial hits=0, conflicting evidence=0, unsupported or not applicable=0" in markdown
+    assert "- Contradiction diagnostics: contradicted_claim_count=0, contradicting_chunk_count=0, claims_with_mixed_support_and_contradiction_count=0" in markdown
+    assert "## Review queue rationale" in markdown
+    assert "- Review-required claims: 0" in markdown
+    assert "- Priority buckets: none" in markdown
+    assert "- Rationale classes: none" in markdown
+    assert "- Queue status: no review-required claims" in markdown
     assert "Analyst confirmed the bridge reopened." in markdown
     assert "- Final verdict: support" in markdown
     assert "- Evidence sufficiency: supported" in markdown
     assert "- Publication gate: allowed" in markdown
+    assert "- Support signals present: yes" in markdown
+    assert "- Conflict signals present: no" in markdown
+    assert "- Evidence count: 1" in markdown
+    assert "- Sufficiency summary: Supporting evidence found in 1 retrieved chunk." in markdown
+    assert "- Support rationale: exact lexical match" in markdown
+    assert "- Best evidence chunks: chunk-1" in markdown
 
 
 def test_report_payload_counts_excluded_review_as_blocked() -> None:
@@ -215,10 +286,223 @@ def test_report_payload_counts_excluded_review_as_blocked() -> None:
         "review_required_claim_count": 0,
         "blocked_claim_count": 1,
     }
+    assert payload["case_report"]["verification_summary"] == {
+        "publication_summary": {
+            "allowed_claim_count": 0,
+            "review_required_claim_count": 0,
+            "blocked_claim_count": 1,
+        },
+        "support_rationale_summary": {
+            "exact_lexical_match_count": 0,
+            "corroborated_partial_hits_count": 0,
+            "conflicting_evidence_count": 0,
+            "unsupported_or_not_applicable_count": 0,
+        },
+        "contradiction_diagnostics": {
+            "contradicted_claim_count": 0,
+            "contradicting_chunk_count": 0,
+            "claims_with_mixed_support_and_contradiction_count": 0,
+        },
+        "evidence_sufficiency": {},
+        "publication_gate": {"blocked": 1},
+        "gate_reason": {"human_review_excluded": 1},
+    }
     assert "## Publication summary" in markdown
+    assert "## Verification summary" in markdown
+    assert "- Gate reason: human_review_excluded=1" in markdown
     assert "- Allowed claims: 0" in markdown
     assert "- Review-required claims: 0" in markdown
     assert "- Blocked claims: 1" in markdown
+
+
+def test_report_entry_payload_flags_corroborated_partial_support_rationale() -> None:
+    payload = report_entry_to_payload(
+        ClaimReportEntry(
+            claim_id="claim-corroborated",
+            case_id="case-1",
+            final_verdict=VerificationVerdict.SUPPORT,
+            human_review_status=HumanReviewStatus.UNREVIEWED,
+            summary_text="Two corroborating partial hits support the claim.",
+            supporting_chunk_ids=("chunk-a", "chunk-b"),
+            contradicting_chunk_ids=(),
+        )
+    )
+
+    assert payload["support_rationale"] == "corroborated_partial_hits"
+    assert payload["evidence_count"] == 2
+    assert payload["publication_gate"] == "allowed"
+
+
+def test_report_entry_payload_flags_conflicting_evidence_rationale() -> None:
+    payload = report_entry_to_payload(
+        ClaimReportEntry(
+            claim_id="claim-conflict",
+            case_id="case-1",
+            final_verdict=VerificationVerdict.CONTRADICT,
+            human_review_status=HumanReviewStatus.UNREVIEWED,
+            summary_text="Conflicting evidence needs analyst review.",
+            supporting_chunk_ids=("chunk-support",),
+            contradicting_chunk_ids=("chunk-contradict",),
+        )
+    )
+
+    assert payload["support_rationale"] == "conflicting_evidence"
+    assert payload["citation_quality_flags"] == ["mixed_support_and_contradiction"]
+    assert payload["contradiction_summary"] == {
+        "has_contradiction": True,
+        "contradicting_chunk_count": 1,
+        "contradicting_chunks_preview": ["chunk-contradict"],
+        "contradiction_snippet": "Conflicting evidence flagged in chunks: chunk-contradict.",
+    }
+    assert payload["publication_gate"] == "review_required"
+    assert payload["evidence_count"] == 2
+
+
+def test_report_entry_payload_flags_contradiction_without_support() -> None:
+    payload = report_entry_to_payload(
+        ClaimReportEntry(
+            claim_id="claim-conflict-only",
+            case_id="case-1",
+            final_verdict=VerificationVerdict.CONTRADICT,
+            human_review_status=HumanReviewStatus.UNREVIEWED,
+            summary_text="Only contradicting chunks were selected.",
+            supporting_chunk_ids=(),
+            contradicting_chunk_ids=("chunk-contradict-only",),
+        )
+    )
+
+    assert payload["citation_quality_flags"] == ["contradiction_without_support"]
+
+
+def test_report_payload_includes_review_queue_signals() -> None:
+    outcome = ReportAssemblyOutcome(
+        request=ReportAssemblyRequest(
+            case_id="case-queue",
+            review_decisions=(
+                ClaimReviewDecision(
+                    claim_id="claim-excluded",
+                    case_id="case-queue",
+                    human_review_status=HumanReviewStatus.EXCLUDED,
+                    analyst_disposition=AnalystDisposition.EXCLUDE_FROM_REPORT,
+                    final_verdict=VerificationVerdict.SUPPORT,
+                    review_notes="Do not publish.",
+                ),
+            ),
+        ),
+        entries=(
+            ClaimReportEntry(
+                claim_id="claim-conflict",
+                case_id="case-queue",
+                final_verdict=VerificationVerdict.CONTRADICT,
+                human_review_status=HumanReviewStatus.UNREVIEWED,
+                summary_text="Conflicting evidence needs analyst review.",
+                supporting_chunk_ids=("chunk-support",),
+                contradicting_chunk_ids=("chunk-contradict",),
+            ),
+            ClaimReportEntry(
+                claim_id="claim-insufficient",
+                case_id="case-queue",
+                final_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+                human_review_status=HumanReviewStatus.UNREVIEWED,
+                summary_text="Grounding still insufficient.",
+                supporting_chunk_ids=(),
+                contradicting_chunk_ids=(),
+            ),
+            ClaimReportEntry(
+                claim_id="claim-excluded",
+                case_id="case-queue",
+                final_verdict=VerificationVerdict.SUPPORT,
+                human_review_status=HumanReviewStatus.EXCLUDED,
+                summary_text="Excluded from report.",
+                supporting_chunk_ids=("chunk-excluded",),
+                contradicting_chunk_ids=(),
+            ),
+        ),
+        case_report=CaseReport(
+            case_id="case-queue",
+            generated_claim_ids=(
+                "claim-conflict",
+                "claim-insufficient",
+                "claim-excluded",
+            ),
+            entries=(),
+            report_summary="Queue test report.",
+        ),
+    )
+
+    payload = report_outcome_to_payload(outcome)
+    markdown = render_report_markdown(outcome)
+    case_report = cast(dict[str, object], payload["case_report"])
+    review_queue_signals = cast(
+        dict[str, object],
+        case_report["review_queue_signals"],
+    )
+    verification_summary = cast(
+        dict[str, object],
+        case_report["verification_summary"],
+    )
+
+    assert review_queue_signals == {
+        "review_required_claim_count": 2,
+        "reason_buckets": {
+            "conflicting_evidence": 1,
+            "no_verified_support": 1,
+        },
+        "priority_buckets": {
+            "high": 1,
+            "normal": 1,
+        },
+        "rationale_class_summary": {
+            "conflict_driven": 1,
+            "no_support_driven": 1,
+        },
+        "priority_rationale": [
+            {
+                "claim_id": "claim-conflict",
+                "priority": "high",
+                "gate_reason": "conflicting_evidence",
+                "support_rationale": "conflicting_evidence",
+                "citation_quality_flags": ["mixed_support_and_contradiction"],
+                "rationale_flags": [
+                    "gate_reason_conflicting_evidence",
+                    "mixed_support_and_contradiction",
+                ],
+            },
+            {
+                "claim_id": "claim-insufficient",
+                "priority": "normal",
+                "gate_reason": "no_verified_support",
+                "support_rationale": "unsupported_or_not_applicable",
+                "citation_quality_flags": [],
+                "rationale_flags": [],
+            },
+        ],
+    }
+    assert verification_summary["support_rationale_summary"] == {
+        "exact_lexical_match_count": 0,
+        "corroborated_partial_hits_count": 0,
+        "conflicting_evidence_count": 1,
+        "unsupported_or_not_applicable_count": 1,
+    }
+    assert verification_summary["contradiction_diagnostics"] == {
+        "contradicted_claim_count": 1,
+        "contradicting_chunk_count": 1,
+        "claims_with_mixed_support_and_contradiction_count": 1,
+    }
+    assert "## Review queue rationale" in markdown
+    assert "- Review-required claims: 2" in markdown
+    assert "- Priority buckets: high=1, normal=1" in markdown
+    assert "- Rationale classes: conflict driven=1, no support driven=1" in markdown
+    assert (
+        "- Claim claim-conflict: priority=high, gate reason=conflicting evidence, "
+        "support rationale=conflicting evidence, "
+        "citation flags=mixed support and contradiction, "
+        "rationale flags=gate reason conflicting evidence, mixed support and contradiction"
+    ) in markdown
+    assert (
+        "- Claim claim-insufficient: priority=normal, gate reason=no verified support, "
+        "support rationale=unsupported or not applicable, citation flags=none, rationale flags=none"
+    ) in markdown
 
 
 def test_verification_payload_marks_excluded_review_as_blocked() -> None:
@@ -243,7 +527,437 @@ def test_verification_payload_marks_excluded_review_as_blocked() -> None:
 
     assert verification_payload["publication_gate"] == "blocked"
     assert verification_payload["gate_reason"] == "human_review_excluded"
+    assert verification_payload["support_signals_present"] is True
+    assert verification_payload["conflict_signals_present"] is False
+    assert verification_payload["evidence_count"] == 1
+    assert verification_payload["citation_quality_flags"] == []
+    assert outcome.support_rationale == "exact_lexical_match"
+    inspection_payload = verification_inspection_to_payload(outcome)
+    assert inspection_payload["support_rationale"] == "exact_lexical_match"
+    assert (
+        verification_payload["sufficiency_summary"]
+        == "Supporting evidence found in 1 retrieved chunk."
+    )
     assert outcome.verification.verdict is VerificationVerdict.SUPPORT
+
+
+def test_verification_inspection_payload_includes_previously_fact_checked_matches() -> None:
+    delivery = _seeded_delivery()
+    delivery.verify_claim(VerificationDeliveryRequest(claim=_claim(), requested_k=2))
+    duplicate_claim = delivery.persistence.claims.save_claims(
+        (
+            Claim(
+                claim_id="claim-2",
+                case_id="case-1",
+                document_id="doc-1",
+                chunk_id="chunk-1",
+                exact_text="  the BRIDGE reopened after inspection. ",
+                source_span_reference="p1",
+                system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+                rationale=None,
+            ),
+        )
+    )[0]
+    delivery.persistence.claims.save_verification(
+        ClaimVerification(
+            claim_id=duplicate_claim.claim_id,
+            case_id=duplicate_claim.case_id,
+            verdict=VerificationVerdict.SUPPORT,
+            supporting_chunk_ids=("chunk-1",),
+            contradicting_chunk_ids=(),
+            analyst_notes="matched previous support",
+        )
+    )
+    delivery.record_review(
+        ClaimReviewDecision(
+            claim_id=duplicate_claim.claim_id,
+            case_id=duplicate_claim.case_id,
+            human_review_status=HumanReviewStatus.REVIEWED_ACCEPT,
+            analyst_disposition=AnalystDisposition.CONFIRMED_SUPPORT,
+            final_verdict=VerificationVerdict.SUPPORT,
+            review_notes="Previously confirmed claim.",
+        )
+    )
+
+    inspection = delivery.inspect_verification("claim-1")
+    assert inspection is not None
+
+    payload = verification_inspection_to_payload(inspection)
+
+    assert payload["previously_fact_checked_matches"] == [
+        {
+            "claim_id": "claim-2",
+            "case_id": "case-1",
+            "exact_text": "  the BRIDGE reopened after inspection. ",
+            "human_review_status": "reviewed_accept",
+            "final_verdict": "support",
+            "normalization_risk_flags": [
+                "whitespace_normalized_match",
+            ],
+            "claim_type_signals": [],
+        }
+    ]
+
+
+def test_verification_inspection_payload_flags_diacritic_normalized_match_risk() -> None:
+    delivery = _seeded_delivery()
+    delivery.verify_claim(VerificationDeliveryRequest(claim=_claim(), requested_k=2))
+    duplicate_claim = delivery.persistence.claims.save_claims(
+        (
+            Claim(
+                claim_id="claim-3",
+                case_id="case-1",
+                document_id="doc-1",
+                chunk_id="chunk-1",
+                exact_text="The brídge reopened after inspection.",
+                source_span_reference="p1",
+                system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+                rationale=None,
+            ),
+        )
+    )[0]
+    delivery.persistence.claims.save_verification(
+        ClaimVerification(
+            claim_id=duplicate_claim.claim_id,
+            case_id=duplicate_claim.case_id,
+            verdict=VerificationVerdict.SUPPORT,
+            supporting_chunk_ids=("chunk-1",),
+            contradicting_chunk_ids=(),
+            analyst_notes="matched after diacritic stripping",
+        )
+    )
+
+    inspection = delivery.inspect_verification("claim-1")
+    assert inspection is not None
+
+    payload = verification_inspection_to_payload(inspection)
+
+    assert payload["previously_fact_checked_matches"] == [
+        {
+            "claim_id": "claim-3",
+            "case_id": "case-1",
+            "exact_text": "The brídge reopened after inspection.",
+            "human_review_status": None,
+            "final_verdict": "support",
+            "normalization_risk_flags": ["diacritic_stripped_match"],
+            "claim_type_signals": [],
+        }
+    ]
+
+
+def test_verification_inspection_payload_flags_numeric_and_temporal_claim_types() -> None:
+    delivery = _seeded_delivery()
+    numeric_claim = delivery.persistence.claims.save_claims(
+        (
+            Claim(
+                claim_id="claim-4",
+                case_id="case-1",
+                document_id="doc-1",
+                chunk_id="chunk-1",
+                exact_text="Revenue increased by 12% in 2024.",
+                source_span_reference="p1",
+                system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+                rationale=None,
+            ),
+        )
+    )[0]
+    delivery.persistence.claims.save_verification(
+        ClaimVerification(
+            claim_id=numeric_claim.claim_id,
+            case_id=numeric_claim.case_id,
+            verdict=VerificationVerdict.SUPPORT,
+            supporting_chunk_ids=("chunk-1",),
+            contradicting_chunk_ids=(),
+            analyst_notes="matched numeric temporal claim",
+        )
+    )
+
+    inspection = VerificationInspection(
+        claim=numeric_claim,
+        verification=ClaimVerification(
+            claim_id=numeric_claim.claim_id,
+            case_id=numeric_claim.case_id,
+            verdict=VerificationVerdict.SUPPORT,
+            supporting_chunk_ids=("chunk-1",),
+            contradicting_chunk_ids=(),
+            analyst_notes="supported numeric temporal claim",
+        ),
+        review_decision=None,
+        evidence_links=(),
+        evidence_count=0,
+        supporting_evidence_count=0,
+        contradicting_evidence_count=0,
+        insufficient_evidence_count=0,
+        has_review=False,
+        has_report_entry=False,
+        support_rationale="corroborated_partial_hits",
+        previously_fact_checked_matches=(
+            {
+                "claim_id": "claim-4",
+                "case_id": "case-1",
+                "exact_text": "Revenue increased by 12% in 2024.",
+                "human_review_status": None,
+                "final_verdict": "support",
+                "normalization_risk_flags": [],
+                "claim_type_signals": ["numeric_claim", "temporal_claim"],
+            },
+        ),
+    )
+
+    payload = verification_inspection_to_payload(inspection)
+
+    assert payload["support_rationale"] == "corroborated_partial_hits"
+    assert payload["previously_fact_checked_matches"] == [
+        {
+            "claim_id": "claim-4",
+            "case_id": "case-1",
+            "exact_text": "Revenue increased by 12% in 2024.",
+            "human_review_status": None,
+            "final_verdict": "support",
+            "normalization_risk_flags": [],
+            "claim_type_signals": ["numeric_claim", "temporal_claim"],
+        }
+    ]
+
+
+def test_verification_payload_without_evidence_link_context_does_not_guess_missing_best_evidence() -> None:
+    payload = verification_to_payload(
+        ClaimVerification(
+            claim_id="claim-1",
+            case_id="case-1",
+            verdict=VerificationVerdict.SUPPORT,
+            supporting_chunk_ids=("chunk-1",),
+            contradicting_chunk_ids=(),
+            analyst_notes="supported",
+        )
+    )
+
+    assert payload["citation_quality_flags"] == []
+
+
+def test_verification_payload_flags_non_retrieval_and_redundant_citation() -> None:
+    payload = verification_to_payload(
+        ClaimVerification(
+            claim_id="claim-1",
+            case_id="case-1",
+            verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            supporting_chunk_ids=(),
+            contradicting_chunk_ids=(),
+            analyst_notes="no retrieved support",
+        ),
+        evidence_links=(
+            ClaimEvidenceLink(
+                claim_id="claim-1",
+                document_id="doc-1",
+                chunk_id="chunk-1",
+                evidence_rank=1,
+                evidence_verdict=VerificationVerdict.SUPPORT,
+                rationale="manual citation",
+                snippet="supporting text",
+                score=None,
+            ),
+            ClaimEvidenceLink(
+                claim_id="claim-1",
+                document_id="doc-1",
+                chunk_id="chunk-1",
+                evidence_rank=2,
+                evidence_verdict=VerificationVerdict.SUPPORT,
+                rationale="duplicate citation",
+                snippet="supporting text",
+                score=None,
+            ),
+        ),
+    )
+
+    assert payload["citation_quality_flags"] == [
+        "non_retrieval_attributable",
+        "redundant_citation",
+    ]
+
+
+def test_verification_inspection_payload_includes_top_two_best_evidence_links() -> None:
+    inspection = VerificationInspection(
+        claim=_claim(),
+        verification=ClaimVerification(
+            claim_id="claim-1",
+            case_id="case-1",
+            verdict=VerificationVerdict.SUPPORT,
+            supporting_chunk_ids=("chunk-2", "chunk-1"),
+            contradicting_chunk_ids=(),
+            analyst_notes="supported",
+        ),
+        review_decision=None,
+        evidence_links=(
+            ClaimEvidenceLink(
+                claim_id="claim-1",
+                document_id="doc-1",
+                chunk_id="chunk-2",
+                evidence_rank=2,
+                evidence_verdict=VerificationVerdict.SUPPORT,
+                rationale="second-best",
+                snippet="second snippet",
+                score=0.7,
+            ),
+            ClaimEvidenceLink(
+                claim_id="claim-1",
+                document_id="doc-1",
+                chunk_id="chunk-1",
+                evidence_rank=1,
+                evidence_verdict=VerificationVerdict.SUPPORT,
+                rationale="best",
+                snippet="best snippet",
+                score=0.9,
+            ),
+            ClaimEvidenceLink(
+                claim_id="claim-1",
+                document_id="doc-1",
+                chunk_id="chunk-3",
+                evidence_rank=3,
+                evidence_verdict=VerificationVerdict.SUPPORT,
+                rationale="third-best",
+                snippet="third snippet",
+                score=0.4,
+            ),
+        ),
+        evidence_count=3,
+        supporting_evidence_count=3,
+        contradicting_evidence_count=0,
+        insufficient_evidence_count=0,
+        has_review=False,
+        has_report_entry=False,
+    )
+
+    payload = verification_inspection_to_payload(inspection)
+
+    assert [item["chunk_id"] for item in payload["best_evidence"]] == ["chunk-1", "chunk-2"]
+    assert [item["evidence_rank"] for item in payload["best_evidence"]] == [1, 2]
+    assert payload["best_evidence"][0]["snippet"] == "best snippet"
+    assert payload["best_evidence"][1]["snippet"] == "second snippet"
+    assert payload["claim_trace_summary"] == {
+        "final_verdict": "support",
+        "evidence_sufficiency": "supported",
+        "publication_gate": "allowed",
+        "gate_reason": None,
+        "sufficiency_summary": "Supporting evidence found in 2 retrieved chunks.",
+        "citation_quality_flags": [],
+        "best_evidence": payload["best_evidence"],
+        "review_note": "supported",
+    }
+    assert payload["verification_trace_log"] == {
+        "retrieval_trace": {
+            "query_text": "The bridge reopened after inspection.",
+            "considered_chunks": [
+                {
+                    "chunk_id": "chunk-2",
+                    "document_id": "doc-1",
+                    "evidence_rank": 2,
+                    "evidence_verdict": "support",
+                    "score": 0.7,
+                },
+                {
+                    "chunk_id": "chunk-1",
+                    "document_id": "doc-1",
+                    "evidence_rank": 1,
+                    "evidence_verdict": "support",
+                    "score": 0.9,
+                },
+                {
+                    "chunk_id": "chunk-3",
+                    "document_id": "doc-1",
+                    "evidence_rank": 3,
+                    "evidence_verdict": "support",
+                    "score": 0.4,
+                },
+            ],
+            "selected_supporting_chunks": ["chunk-2", "chunk-1"],
+            "selected_contradicting_chunks": [],
+        },
+        "decision_trace": {
+            "verdict": "support",
+            "evidence_sufficiency": "supported",
+            "publication_gate": "allowed",
+            "gate_reason": None,
+            "sufficiency_summary": "Supporting evidence found in 2 retrieved chunks.",
+            "contradiction_trace": {
+                "selected_contradicting_chunks": [],
+                "contradicting_evidence_count": 0,
+                "best_contradicting_evidence": [],
+            },
+        },
+        "review_trace": {
+            "has_review": False,
+            "review_status": None,
+            "review_verdict": None,
+            "review_notes": None,
+        },
+    }
+
+
+def test_verification_inspection_payload_includes_contradiction_trace() -> None:
+    inspection = VerificationInspection(
+        claim=_claim(),
+        verification=ClaimVerification(
+            claim_id="claim-1",
+            case_id="case-1",
+            verdict=VerificationVerdict.CONTRADICT,
+            supporting_chunk_ids=(),
+            contradicting_chunk_ids=("chunk-conflict",),
+            analyst_notes="contradicted by retrieved evidence",
+        ),
+        review_decision=None,
+        evidence_links=(
+            ClaimEvidenceLink(
+                claim_id="claim-1",
+                document_id="doc-1",
+                chunk_id="chunk-conflict",
+                evidence_rank=1,
+                evidence_verdict=VerificationVerdict.CONTRADICT,
+                rationale="directly refutes claim",
+                snippet="The bridge remained closed pending inspection.",
+                score=0.95,
+            ),
+            ClaimEvidenceLink(
+                claim_id="claim-1",
+                document_id="doc-1",
+                chunk_id="chunk-support-ish",
+                evidence_rank=2,
+                evidence_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+                rationale="mentions bridge but not reopening",
+                snippet="Officials discussed the bridge status.",
+                score=0.4,
+            ),
+        ),
+        evidence_count=2,
+        supporting_evidence_count=0,
+        contradicting_evidence_count=1,
+        insufficient_evidence_count=1,
+        has_review=False,
+        has_report_entry=False,
+        support_rationale="conflicting_evidence",
+    )
+
+    payload = verification_inspection_to_payload(inspection)
+    verification_trace_log = cast(dict[str, object], payload["verification_trace_log"])
+    decision_trace = cast(dict[str, object], verification_trace_log["decision_trace"])
+    contradiction_trace = cast(dict[str, object], decision_trace["contradiction_trace"])
+
+    assert payload["support_rationale"] == "conflicting_evidence"
+    assert contradiction_trace == {
+        "selected_contradicting_chunks": ["chunk-conflict"],
+        "contradicting_evidence_count": 1,
+        "best_contradicting_evidence": [
+            {
+                "claim_id": "claim-1",
+                "document_id": "doc-1",
+                "chunk_id": "chunk-conflict",
+                "evidence_rank": 1,
+                "evidence_verdict": "contradict",
+                "rationale": "directly refutes claim",
+                "snippet": "The bridge remained closed pending inspection.",
+                "score": 0.95,
+            }
+        ],
+    }
 
 
 def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
@@ -301,12 +1015,27 @@ def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
     assert verify_payload["verification"]["evidence_sufficiency"] == "supported"
     assert verify_payload["verification"]["publication_gate"] == "allowed"
     assert verify_payload["verification"]["gate_reason"] is None
+    assert verify_payload["verification"]["support_signals_present"] is True
+    assert verify_payload["verification"]["conflict_signals_present"] is False
+    assert verify_payload["verification"]["evidence_count"] == 1
+    assert (
+        verify_payload["verification"]["sufficiency_summary"]
+        == "Supporting evidence found in 1 retrieved chunk."
+    )
     assert inspect_status == "200 OK"
     inspection_payload = json.loads(inspect_body)
     assert inspection_payload["verification"]["evidence_sufficiency"] == "supported"
     assert inspection_payload["verification"]["publication_gate"] == "allowed"
     assert inspection_payload["verification"]["gate_reason"] is None
+    assert inspection_payload["verification"]["support_signals_present"] is True
+    assert inspection_payload["verification"]["conflict_signals_present"] is False
+    assert inspection_payload["verification"]["evidence_count"] == 1
+    assert (
+        inspection_payload["verification"]["sufficiency_summary"]
+        == "Supporting evidence found in 1 retrieved chunk."
+    )
     assert inspection_payload["evidence_links"][0]["chunk_id"] == "chunk-1"
+    assert inspection_payload["best_evidence"] == [inspection_payload["evidence_links"][0]]
     assert inspection_payload["evidence_summary"] == {
         "evidence_count": 1,
         "supporting_evidence_count": 1,
@@ -322,9 +1051,19 @@ def test_wsgi_app_exposes_verification_inspection_and_report_routes() -> None:
     assert case_status == "200 OK"
     assert ("Content-Type", "text/html; charset=utf-8") in case_headers
     assert "The bridge reopened after inspection." in case_body
+    assert "<h2>Verification summary</h2>" in case_body
+    assert "Evidence sufficiency:</strong> supported=1" in case_body
+    assert "Publication gate:</strong> allowed=1" in case_body
+    assert "Gate reason:</strong> none=1" in case_body
+    assert "Allowed claims:</strong> 1" in case_body
     assert "Evidence sufficiency: supported" in case_body
     assert "Publication gate: allowed" in case_body
     assert "Gate reason: none" in case_body
+    assert "Support signals present: yes" in case_body
+    assert "Conflict signals present: no" in case_body
+    assert "Evidence count: 1" in case_body
+    assert "Sufficiency summary: Supporting evidence found in 1 retrieved chunk." in case_body
+    assert "Best evidence: #1 [support] chunk-1:" in case_body
 
 
 def test_wsgi_root_route_returns_html_home_page() -> None:
@@ -726,6 +1465,121 @@ def test_render_case_review_html_shows_document_snippet_preview() -> None:
     assert "Status:" in html
     assert "Not assessed yet." in html
     assert "POST /api/documents/doc-snippet/credibility" in html
+
+
+def test_render_case_review_html_shows_support_rationale() -> None:
+    delivery = _seeded_delivery()
+    delivery.verify_claim(VerificationDeliveryRequest(claim=_claim(), requested_k=2))
+
+    html = render_case_review_html(delivery, "case-1")
+
+    assert "Support rationale counts:" in html
+    assert "exact lexical match=1, corroborated partial hits=0, conflicting evidence=0, unsupported or not applicable=0" in html
+    assert "Contradiction diagnostics:" in html
+    assert "contradicted_claim_count=0, contradicting_chunk_count=0, claims_with_mixed_support_and_contradiction_count=0" in html
+    assert "Support rationale: exact lexical match" in html
+    assert "Contradiction snippet: No contradicting chunks selected." in html
+    assert "Citation quality flags: none" in html
+    assert "Priority rationale classes:" in html
+    assert "Priority rationale:" in html
+    assert "Queue status:" in html
+    assert "no review-required claims" in html
+
+
+def test_render_case_review_html_shows_review_queue_priority_rationale() -> None:
+    delivery = create_default_delivery()
+    delivery.persistence.cases.save_case(
+        Case(case_id="case-queue-html", title="Queue HTML case", description="Queue review html")
+    )
+    delivery.persistence.documents.save_document(
+        Document(
+            document_id="doc-queue-html",
+            case_id="case-queue-html",
+            source_type="url",
+            source_url="https://example.test/queue-html",
+            publisher="Queue News",
+            author="Analyst",
+            title="Queue HTML doc",
+            published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+            retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+            content_hash="sha256:queue-html",
+            language="en",
+        )
+    )
+    conflict_claim = Claim(
+        claim_id="claim-conflict-html",
+        case_id="case-queue-html",
+        document_id="doc-queue-html",
+        chunk_id="chunk-support",
+        exact_text="Bridge reopened after inspection.",
+        source_span_reference="p1",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+    insufficient_claim = Claim(
+        claim_id="claim-insufficient-html",
+        case_id="case-queue-html",
+        document_id="doc-queue-html",
+        chunk_id="chunk-missing",
+        exact_text="Timetable was available.",
+        source_span_reference="p2",
+        system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+        rationale=None,
+    )
+    delivery.persistence.claims.save_claims((conflict_claim, insufficient_claim))
+    delivery.persistence.claims.save_verification(
+        ClaimVerification(
+            claim_id="claim-conflict-html",
+            case_id="case-queue-html",
+            verdict=VerificationVerdict.CONTRADICT,
+            supporting_chunk_ids=("chunk-support",),
+            contradicting_chunk_ids=("chunk-contradict",),
+            analyst_notes="conflict",
+        )
+    )
+    delivery.persistence.claims.save_verification(
+        ClaimVerification(
+            claim_id="claim-insufficient-html",
+            case_id="case-queue-html",
+            verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            supporting_chunk_ids=(),
+            contradicting_chunk_ids=(),
+            analyst_notes="missing support",
+        )
+    )
+    delivery.record_review(
+        ClaimReviewDecision(
+            claim_id="claim-conflict-html",
+            case_id="case-queue-html",
+            human_review_status=HumanReviewStatus.REVIEWED_OVERRIDE,
+            analyst_disposition=AnalystDisposition.CONFIRMED_CONTRADICTION,
+            final_verdict=VerificationVerdict.CONTRADICT,
+            review_notes="conflict review",
+        )
+    )
+    delivery.record_review(
+        ClaimReviewDecision(
+            claim_id="claim-insufficient-html",
+            case_id="case-queue-html",
+            human_review_status=HumanReviewStatus.NEEDS_FOLLOWUP,
+            analyst_disposition=AnalystDisposition.INSUFFICIENT_EVIDENCE,
+            final_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            review_notes="insufficient review",
+        )
+    )
+
+    html = render_case_review_html(delivery, "case-queue-html")
+
+    assert "Priority rationale:" in html
+    assert "claim-conflict-html" in html
+    assert "Priority rationale classes:" in html
+    assert "conflict driven=1, no support driven=1" in html
+    assert "priority=high, gate reason=conflicting evidence, support rationale=conflicting evidence" in html
+    assert "citation flags=mixed support and contradiction" in html
+    assert "rationale flags=gate reason conflicting evidence, mixed support and contradiction" in html
+    assert "claim-insufficient-html" in html
+    assert "priority=normal, gate reason=no verified support, support rationale=unsupported or not applicable" in html
+
 
 def test_document_from_payload_slugifies_polish_title_to_ascii_safe_document_id() -> None:
     from sourcetrace.web.delivery import document_from_payload

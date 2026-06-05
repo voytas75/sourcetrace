@@ -765,6 +765,10 @@ class SourceTraceWSGIApp:
                     payload.get("decision_snapshot", ()),
                     field_name="decision_snapshot",
                 ),
+                verification_diagnostics=_string_tuple(
+                    payload.get("verification_diagnostics", ()),
+                    field_name="verification_diagnostics",
+                ),
             )
         )
         if outcome is None:

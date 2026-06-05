@@ -28,6 +28,10 @@ class ClaimVerificationOutcome:
     evidence_sufficiency: EvidenceSufficiency
     publication_gate: PublicationGate
     gate_reason: str | None = None
+    support_signals_present: bool = False
+    conflict_signals_present: bool = False
+    evidence_count: int = 0
+    sufficiency_summary: str | None = None
 
 
 __all__ = [

@@ -24,6 +24,7 @@ class ContinuityPack:
     to_verify: tuple[str, ...]
     recommended_next_test: tuple[str, ...]
     decision_snapshot: tuple[str, ...] = ()
+    verification_diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class ContinuityPackRequest:
     to_verify: tuple[str, ...]
     recommended_next_test: tuple[str, ...]
     decision_snapshot: tuple[str, ...] = ()
+    verification_diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -69,11 +71,45 @@ def render_continuity_pack_markdown(continuity_pack: ContinuityPack) -> str:
         else:
             lines.append("- none")
         lines.append("")
+    lines.extend(
+        _continuity_pack_verification_diagnostics_markdown_lines(
+            continuity_pack.verification_diagnostics
+        )
+    )
     if continuity_pack.decision_snapshot:
         lines.append("## Decision snapshot")
         lines.extend(f"- {item}" for item in continuity_pack.decision_snapshot)
         lines.append("")
     return "\n".join(lines).strip() + "\n"
+
+
+def _continuity_pack_verification_diagnostics_markdown_lines(
+    items: tuple[str, ...],
+) -> list[str]:
+    if items:
+        return [
+            "## Verification diagnostics",
+            *(f"- {_humanize_continuity_verification_diagnostic(item)}" for item in items),
+            "",
+        ]
+    return [
+        "## Verification diagnostics",
+        "- Diagnostics status: no verification diagnostics",
+        "- Diagnostics: none",
+        "",
+    ]
+
+
+def _humanize_continuity_verification_diagnostic(item: str) -> str:
+    text = item.strip()
+    if not text:
+        return text
+    if ":" not in text:
+        return text.replace("_", " ")
+    label, value = text.split(":", 1)
+    humanized_label = label.strip().replace("_", " ").capitalize()
+    humanized_value = value.strip().replace("_", " ")
+    return f"{humanized_label}: {humanized_value}" if humanized_value else humanized_label
 
 
 def build_continuity_pack_request_from_artifact(
@@ -91,6 +127,7 @@ def build_continuity_pack_request_from_artifact(
     }
     _validate_artifact_sections(sections)
     decision_snapshot = _extract_markdown_section_items(text, "Decision snapshot")
+    verification_diagnostics = _extract_markdown_section_items(text, "Verification diagnostics")
     derived_title = title.strip() if title and title.strip() else _derive_title(text, resolved_path)
     return ContinuityPackRequest(
         title=derived_title,
@@ -100,6 +137,7 @@ def build_continuity_pack_request_from_artifact(
         to_verify=sections[CONTINUITY_PACK_SECTIONS[2]],
         recommended_next_test=sections[CONTINUITY_PACK_SECTIONS[3]],
         decision_snapshot=decision_snapshot,
+        verification_diagnostics=verification_diagnostics,
     )
 
 

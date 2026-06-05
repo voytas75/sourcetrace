@@ -39,12 +39,27 @@ class ClaimVerificationRuntimeOutcome:
 
 @dataclass(frozen=True)
 class EvidencePresenceClaimVerifier:
-    """Minimal verifier that treats retrieved chunks as supporting evidence."""
+    """Minimal verifier that treats exact matches or corroborated partial hits as support."""
 
     def __call__(self, request: ClaimVerificationRequest) -> ClaimVerificationOutcome:
-        supporting_chunk_ids = tuple(
-            hit.chunk_id for hit in request.retrieved_evidence.hits
+        exact_support_hits = tuple(
+            hit
+            for hit in request.retrieved_evidence.hits
+            if hit.score is not None and hit.score >= 1.0
         )
+        corroborating_partial_hits = tuple(
+            hit
+            for hit in request.retrieved_evidence.hits
+            if hit.score is not None and 0.6 <= hit.score < 1.0
+        )
+        supporting_hits = (
+            exact_support_hits
+            if exact_support_hits
+            else corroborating_partial_hits
+            if len(corroborating_partial_hits) >= 2
+            else ()
+        )
+        supporting_chunk_ids = tuple(hit.chunk_id for hit in supporting_hits)
         verdict = (
             VerificationVerdict.SUPPORT
             if supporting_chunk_ids
@@ -61,12 +76,17 @@ class EvidencePresenceClaimVerifier:
         evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
             verdict
         )
+        diagnostics = _verification_diagnostics(verification)
         return ClaimVerificationOutcome(
             request=request,
             verification=verification,
             evidence_sufficiency=evidence_sufficiency,
             publication_gate=publication_gate,
             gate_reason=gate_reason,
+            support_signals_present=diagnostics.support_signals_present,
+            conflict_signals_present=diagnostics.conflict_signals_present,
+            evidence_count=diagnostics.evidence_count,
+            sufficiency_summary=diagnostics.sufficiency_summary,
         )
 
 
@@ -99,12 +119,17 @@ class ClaimVerificationRuntime:
             ),
             review_verdict=(review_decision.final_verdict if review_decision is not None else None),
         )
+        diagnostics = _verification_diagnostics(verification_outcome.verification)
         verification_outcome = ClaimVerificationOutcome(
             request=verification_outcome.request,
             verification=verification_outcome.verification,
             evidence_sufficiency=evidence_sufficiency,
             publication_gate=publication_gate,
             gate_reason=gate_reason,
+            support_signals_present=diagnostics.support_signals_present,
+            conflict_signals_present=diagnostics.conflict_signals_present,
+            evidence_count=diagnostics.evidence_count,
+            sufficiency_summary=diagnostics.sufficiency_summary,
         )
         evidence_links = _build_evidence_links(
             claim,
@@ -165,6 +190,14 @@ def _verification_note(supporting_count: int) -> str:
     return f"{supporting_count} retrieved evidence chunks."
 
 
+@dataclass(frozen=True)
+class VerificationDiagnostics:
+    support_signals_present: bool
+    conflict_signals_present: bool
+    evidence_count: int
+    sufficiency_summary: str
+
+
 def _verification_controls(
     verdict: VerificationVerdict,
     review_status: HumanReviewStatus | None = None,
@@ -183,6 +216,33 @@ def _verification_controls(
     if verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE:
         return ("insufficient", "review_required", "grounding_insufficient")
     return ("supported", "allowed", None)
+
+
+def _verification_diagnostics(verification: ClaimVerification) -> VerificationDiagnostics:
+    support_signals_present = bool(verification.supporting_chunk_ids)
+    conflict_signals_present = bool(verification.contradicting_chunk_ids)
+    evidence_count = len(verification.supporting_chunk_ids) + len(
+        verification.contradicting_chunk_ids
+    )
+    if verification.verdict is VerificationVerdict.CONTRADICT:
+        sufficiency_summary = (
+            f"Conflicting evidence detected across {evidence_count} retrieved chunk"
+            f"{'s' if evidence_count != 1 else ''}."
+        )
+    elif verification.verdict is VerificationVerdict.INSUFFICIENT_EVIDENCE:
+        sufficiency_summary = "No retrieved evidence established support for the claim."
+    else:
+        support_count = len(verification.supporting_chunk_ids)
+        sufficiency_summary = (
+            f"Supporting evidence found in {support_count} retrieved chunk"
+            f"{'s' if support_count != 1 else ''}."
+        )
+    return VerificationDiagnostics(
+        support_signals_present=support_signals_present,
+        conflict_signals_present=conflict_signals_present,
+        evidence_count=evidence_count,
+        sufficiency_summary=sufficiency_summary,
+    )
 
 
 __all__ = [
