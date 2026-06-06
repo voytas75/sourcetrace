@@ -30,22 +30,13 @@ jobs:
       - name: Run unit smoke CLI checks
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run pytest -q tests/unit/test_smoke_flow.py
 
-      - name: Start Sourcetrace Web API
+      - name: Start Sourcetrace local launcher API
         run: |
-          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.web > /tmp/sourcetrace-ci-smoke.log 2>&1 &
-          echo $! > /tmp/sourcetrace-ci-smoke.pid
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher --pid-file /tmp/sourcetrace-ci-smoke.pid --log-file /tmp/sourcetrace-ci-smoke.log
 
-      - name: Wait for WWW readiness
+      - name: Wait for local-launcher readiness
         run: |
-          for _ in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8000/api/ready >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Sourcetrace WWW did not become ready in time." >&2
-          cat /tmp/sourcetrace-ci-smoke.log >&2 || true
-          exit 1
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
 
       - name: Run reusable smoke flow
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.smoke_flow --pretty --expect-claims-min 1
