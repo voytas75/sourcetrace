@@ -34,6 +34,7 @@ jobs:
         env:
           SOURCETRACE_LLM_API_KEY: ci-smoke-placeholder-key
           SOURCETRACE_LLM_BASE_URL: https://example.invalid/llm
+          SOURCETRACE_LLM_API_VERSION: ci-smoke
           SOURCETRACE_CI_SMOKE_STUB_CLAIM_EXTRACTION: "1"
         run: |
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run --python 3.13 python -m sourcetrace.local_launcher > /tmp/sourcetrace-ci-smoke.log 2>&1 &
