@@ -1,14 +1,14 @@
 # Contributing
 
-SourceTrace is not open for broad external contribution yet.
+SourceTrace is not open to broad public contribution yet.
 
-For now, treat this repository as owner-operated and local-first.
+At this stage the repository should be read as owner-operated, local-first, and still being shaped into a clearer external surface.
 
 ## Current contribution stance
 - default mode: private development
 - issues, plans, and research notes may exist only locally and may not appear in the remote repo
 - product and architecture truth should be updated in tracked SSOT docs before larger implementation changes
-- keep changes bounded and verifiable
+- changes should stay bounded, reviewable, and verifiable
 
 ## Local setup
 ```bash
@@ -16,14 +16,14 @@ uv sync --dev --extra dev
 uv run pytest -q
 ```
 
-## Change rules
+## What to keep in mind
 - prefer small slices over broad refactors
 - preserve evidence-first boundaries
 - do not commit secrets, datasets, generated runtime state, or local process notes
-- treat README and tracked docs as GitHub-facing surfaces; avoid references to local-only artifacts
+- treat `README.md` and tracked docs as GitHub-facing surfaces; avoid references to local-only artifacts
 
 ## Before proposing a change
 1. confirm scope against tracked docs
-2. run the smallest relevant test slice
-3. update README / docs only when verified behavior changed
+2. run the smallest relevant verification slice
+3. update `README.md` or tracked docs only when verified behavior changed
 4. keep uncertain claims marked as `do weryfikacji`

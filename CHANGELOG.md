@@ -1,14 +1,15 @@
 # Changelog
 
-All notable changes to this project should be recorded in this file.
+This file records the repository-visible changes that matter to someone reading or using SourceTrace from GitHub.
 
-The format is intentionally lightweight for now and can be tightened before any public release.
+The format is intentionally lightweight for now.
 
 ## Unreleased
-- repository prepared for private GitHub publication
-- README rewritten as a project card
-- documentation map narrowed to tracked system/user docs
-- `.gitignore` tightened for local-only research and runtime artifacts
+- prepared the repository for private GitHub publication
+- rewrote `README.md` into a user-facing project card
+- narrowed the documentation map to tracked system/user docs
+- tightened `.gitignore` for local-only research and runtime artifacts
+- added baseline GitHub repo surfaces: `LICENSE`, `CHANGELOG.md`, `CONTRIBUTING.md`, and `.github/` workflows/templates
 
 ## 0.1.0
 - initial local-first SourceTrace scaffold
