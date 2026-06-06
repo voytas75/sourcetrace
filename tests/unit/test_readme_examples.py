@@ -35,7 +35,9 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "## Quick start" in readme
     assert "uv sync --dev --extra dev" in readme
     assert "uv run pytest -q" in readme
+    assert "### 3. Start a local runtime" in readme
     assert "uv run python -m sourcetrace.web" in readme
+    assert "uv run sourcetrace-local" in readme
     assert "Expected startup:" in readme
     assert "SourceTrace local server listening on http://127.0.0.1:8000" in readme
     assert "## Runtime modes" in readme
@@ -47,6 +49,10 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "SOURCETRACE_LLM_API_VERSION" in readme
     assert "AZURE_OPENAI_API_KEY" in readme
     assert "SOURCETRACE_CONTINUITY_PACK_ROOT_DIR" in readme
+    assert "uv run sourcetrace-www-start --mode local-launcher" in readme
+    assert "uv run sourcetrace-www-wait --host 127.0.0.1 --port 8000 --timeout-seconds 15" in readme
+    assert "uv run sourcetrace-www-status --mode local-launcher" in readme
+    assert "uv run sourcetrace-www-stop --mode local-launcher" in readme
     assert "PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher" in readme
     assert "PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15" in readme
     assert "PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control status --mode local-launcher" in readme

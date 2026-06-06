@@ -64,9 +64,15 @@ uv sync --dev --extra dev
 uv run pytest -q
 ```
 
-### 3. Start the thin local web runtime
+### 3. Start a local runtime
+For a thin local web runtime:
 ```bash
 uv run python -m sourcetrace.web
+```
+
+For the repo-owned local launcher with LLM wiring:
+```bash
+uv run sourcetrace-local
 ```
 
 Expected startup:
@@ -108,7 +114,16 @@ The launcher also mirrors legacy Azure variables when the SourceTrace names are 
 Optional continuity-pack persistence:
 - `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR`
 
-Start / wait / status / stop via the repo helper:
+Installed console scripts declared in `pyproject.toml`:
+```bash
+uv run sourcetrace-local
+uv run sourcetrace-www-start --mode local-launcher
+uv run sourcetrace-www-wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
+uv run sourcetrace-www-status --mode local-launcher
+uv run sourcetrace-www-stop --mode local-launcher
+```
+
+Module-entrypoint equivalents:
 ```bash
 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher
 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
@@ -164,7 +179,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pret
 ```
 
 ## What still needs caution
-- this repo is now readable from GitHub, but it is still developer/operator-facing rather than public-polished
+- this repo is being prepared for private GitHub publication; it is still developer/operator-facing rather than public-polished
 - `.env` is not loaded by the repo itself; required secrets come from process environment
 - the thin `sourcetrace.web` path is a local stdlib runtime, not a production server stack
 - broader extraction/normalization/credibility behavior over real providers should be treated as local-runtime dependent unless re-verified live

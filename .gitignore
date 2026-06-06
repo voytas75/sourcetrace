@@ -23,6 +23,10 @@ wiki/
 htmlcov/
 docs/research/*
 !docs/research/.gitkeep
+.hermes/
+.venv-hermes/
+.tmp-*
+.tmp*
 docs/plans/2026-05-21-checkpoint-1-phase1-a123.md
 docs/plans/2026-05-21-observation-a1-reuters-south-africa-risks.md
 docs/plans/2026-05-21-observation-a2-bbc-us-inflation-energy-shock.md
