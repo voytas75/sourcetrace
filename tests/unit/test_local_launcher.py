@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sourcetrace.domain import Document
+from sourcetrace.domain import Document, DocumentChunk
 from sourcetrace.local_launcher import (
     _missing_litellm_completion,
     _resolve_continuity_pack_root_dir,
@@ -415,6 +415,178 @@ def test_build_local_server_runtime_uses_legacy_azure_env_fallback(
             environ.pop("AZURE_OPENAI_API_VERSION", None)
         else:
             environ["AZURE_OPENAI_API_VERSION"] = original_legacy_api_version
+
+
+def test_build_local_server_runtime_uses_smoke_claim_extraction_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+    original_stub_flag = environ.get("SOURCETRACE_CI_SMOKE_STUB_CLAIM_EXTRACTION")
+    original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
+    original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+    original_api_version = environ.get("SOURCETRACE_LLM_API_VERSION")
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        captured["completion_kwargs"] = kwargs
+        return {
+            "model": kwargs["model"],
+            "choices": [
+                {
+                    "message": {"content": "Credibility draft from local launcher."},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    def fake_run_local_server(*, host: str = "127.0.0.1", port: int = 8000, delivery=None, announce=print):
+        captured["delivery"] = delivery
+        return _FakeRuntime(server=_FakeServer(events=[]))
+
+    try:
+        environ["SOURCETRACE_CI_SMOKE_STUB_CLAIM_EXTRACTION"] = "1"
+        environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
+        environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+        environ["SOURCETRACE_LLM_API_VERSION"] = "preview"
+        monkeypatch.setattr("sourcetrace.local_launcher.run_local_server", fake_run_local_server)
+
+        runtime = build_local_server_runtime(completion_fn=completion_fn)
+        delivery = captured["delivery"]
+        assert isinstance(delivery, SourceTraceDelivery)
+        assert runtime.server.server_port == 8000
+
+        document = Document(
+            document_id="doc-smoke-1",
+            case_id="case-smoke-1",
+            source_type="url",
+            source_url="https://example.test/report",
+            publisher="Example News",
+            author="Analyst",
+            title="Network report",
+            published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+            retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+            content_hash="sha256:abc123",
+            language="en",
+        )
+        delivery.persistence.documents.save_document(document)
+        chunks = delivery.persistence.documents.save_chunks(
+            (
+                DocumentChunk(
+                    chunk_id="doc-smoke-1:chunk-1",
+                    case_id="case-smoke-1",
+                    document_id="doc-smoke-1",
+                    raw_text="OpenAI announced a major partnership with Example University.",
+                    start_char=0,
+                    end_char=61,
+                    chunk_index=0,
+                    position_reference="p1",
+                ),
+            )
+        )
+        outcome = delivery.extract_claims("doc-smoke-1", extraction_method="llm_v1")
+
+        assert outcome is not None
+        assert len(outcome.claims) == 1
+        assert outcome.claims[0].exact_text == "OpenAI announced a major partnership with Example University"
+        assert outcome.dropped_claim_items == 0
+        assert outcome.review_cautions == ("ci_smoke_stub_claim_extraction",)
+        assert outcome.evidence_links[0].snippet == chunks[0].raw_text
+    finally:
+        if original_stub_flag is None:
+            environ.pop("SOURCETRACE_CI_SMOKE_STUB_CLAIM_EXTRACTION", None)
+        else:
+            environ["SOURCETRACE_CI_SMOKE_STUB_CLAIM_EXTRACTION"] = original_stub_flag
+        if original_api_key is None:
+            environ.pop("SOURCETRACE_LLM_API_KEY", None)
+        else:
+            environ["SOURCETRACE_LLM_API_KEY"] = original_api_key
+        if original_base_url is None:
+            environ.pop("SOURCETRACE_LLM_BASE_URL", None)
+        else:
+            environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
+        if original_api_version is None:
+            environ.pop("SOURCETRACE_LLM_API_VERSION", None)
+        else:
+            environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version
+
+
+def test_build_local_server_runtime_uses_smoke_credibility_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+    original_stub_flag = environ.get("SOURCETRACE_CI_SMOKE_STUB_CREDIBILITY")
+    original_api_key = environ.get("SOURCETRACE_LLM_API_KEY")
+    original_base_url = environ.get("SOURCETRACE_LLM_BASE_URL")
+    original_api_version = environ.get("SOURCETRACE_LLM_API_VERSION")
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        captured["completion_kwargs"] = kwargs
+        return {
+            "model": kwargs["model"],
+            "choices": [
+                {
+                    "message": {"content": "Credibility draft from local launcher."},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    def fake_run_local_server(*, host: str = "127.0.0.1", port: int = 8000, delivery=None, announce=print):
+        captured["delivery"] = delivery
+        return _FakeRuntime(server=_FakeServer(events=[]))
+
+    try:
+        environ["SOURCETRACE_CI_SMOKE_STUB_CREDIBILITY"] = "1"
+        environ["SOURCETRACE_LLM_API_KEY"] = "test-api-key"
+        environ["SOURCETRACE_LLM_BASE_URL"] = "https://llm.example.test"
+        environ["SOURCETRACE_LLM_API_VERSION"] = "preview"
+        monkeypatch.setattr("sourcetrace.local_launcher.run_local_server", fake_run_local_server)
+
+        runtime = build_local_server_runtime(completion_fn=completion_fn)
+        delivery = captured["delivery"]
+        assert isinstance(delivery, SourceTraceDelivery)
+        assert runtime.server.server_port == 8000
+
+        delivery.persistence.documents.save_document(
+            Document(
+                document_id="doc-smoke-cred-1",
+                case_id="case-smoke-cred-1",
+                source_type="url",
+                source_url="https://example.test/report",
+                publisher="Example News",
+                author="Analyst",
+                title="Network report",
+                published_at=datetime(2026, 5, 18, 0, 0, tzinfo=UTC),
+                retrieved_at=datetime(2026, 5, 18, 0, 5, tzinfo=UTC),
+                content_hash="sha256:abc123",
+                language="en",
+            )
+        )
+        outcome = delivery.assess_document_credibility(
+            "doc-smoke-cred-1",
+            assessment_method="llm_draft_v1",
+        )
+
+        assert outcome is not None
+        assert outcome.assessment.summary == "Looks plausible."
+        assert outcome.assessment.notes == "CI smoke stub credibility assessment."
+        assert outcome.assessment.method == "llm_draft_v1"
+        assert outcome.assessment.source_reliability.value == "medium"
+        assert outcome.assessment.information_credibility.value == "medium"
+        assert outcome.assessment.provenance_distance.value == "unknown"
+        assert "completion_kwargs" not in captured
+    finally:
+        if original_stub_flag is None:
+            environ.pop("SOURCETRACE_CI_SMOKE_STUB_CREDIBILITY", None)
+        else:
+            environ["SOURCETRACE_CI_SMOKE_STUB_CREDIBILITY"] = original_stub_flag
+        if original_api_key is None:
+            environ.pop("SOURCETRACE_LLM_API_KEY", None)
+        else:
+            environ["SOURCETRACE_LLM_API_KEY"] = original_api_key
+        if original_base_url is None:
+            environ.pop("SOURCETRACE_LLM_BASE_URL", None)
+        else:
+            environ["SOURCETRACE_LLM_BASE_URL"] = original_base_url
+        if original_api_version is None:
+            environ.pop("SOURCETRACE_LLM_API_VERSION", None)
+        else:
+            environ["SOURCETRACE_LLM_API_VERSION"] = original_api_version
 
 
 def test_build_local_server_runtime_wires_runtime_config_into_delivery_and_server(monkeypatch: pytest.MonkeyPatch) -> None:
