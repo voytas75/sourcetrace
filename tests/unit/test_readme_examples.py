@@ -7,6 +7,9 @@ README_PATH = Path(__file__).resolve().parents[2] / "README.md"
 def test_readme_documents_local_web_smoke_examples() -> None:
     readme = README_PATH.read_text(encoding="utf-8")
 
+    assert "private-in-development application project" in readme
+    assert "## Private repo publication note" in readme
+    assert "publish to GitHub as a **private** repository first" in readme
     assert "Run locally with uv:" in readme
     assert "uv sync --dev --extra dev" in readme
     assert "uv run pytest -q" in readme
@@ -92,14 +95,10 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "exact claim shape can still vary between the stronger restriction clause and an additional reopening clause" in readme
     assert "## Example: run credibility on your own document payload" in readme
     assert "## Test-use checklist for collecting findings" in readme
-    assert "docs/plans/test-use-observation-template.md" in readme
-    assert "docs/plans/test-use-observation-example-bbc.md" in readme
-    assert "docs/plans/2026-05-23-continuity-pack-usage-note.md" in readme
-    assert "docs/plans/2026-06-05-test-continuity-pack-with-diagnostics.md" in readme
+    assert "process-shaped observation templates, filled examples, and continuity-pack artifacts stay local-only for now" in readme
+    assert "anchor on the tracked SSOT/backlog docs in `## Repository map` instead of local campaign notes" in readme
     assert "continuity-pack operator surfaces are now aligned around a shared `Decision support` model" in readme
     assert "continuity-pack case-page actions and microcopy are normalized" in readme
-    assert "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in readme
-    assert "docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in readme
     assert "Use a continuity pack selectively" in readme
     assert "## Reusable payload template" in readme
     assert "## systemd --user example" in readme

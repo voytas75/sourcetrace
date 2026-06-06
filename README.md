@@ -1,6 +1,11 @@
 # SourceTrace
 
-SourceTrace is an application project for building an evidence-centric OSINT + LLM system, with research, planning, and implementation in one repository.
+SourceTrace is a private-in-development application project for building an evidence-centric OSINT + LLM system. The repository combines product SSOT, bounded implementation slices, local web/API runtime, and smoke-testable operator flows in one place.
+
+## Private repo publication note
+- current intent: publish to GitHub as a **private** repository first
+- current repo posture: developer-first / operator-facing, not a public polished release yet
+- before any later public release, re-review product positioning, secrets hygiene, and which `docs/plans/` notes should remain in the default GitHub surface
 
 ## Current state
 This repo is no longer just a research scaffold. It now has a stable bounded product baseline around the local web/API flow, extraction, credibility drafting, and smoke verification.
@@ -27,24 +32,23 @@ Confirmed baseline now:
 - GitHub Actions also includes a lightweight `CI Smoke` workflow for the same local launcher + smoke path, although this repo is currently used without a configured remote
 ## Repository map
 - `docs/architecture/architecture-ssot.md` — canonical product and architecture baseline
-- `docs/research/research-ledger.md` — rolling research notes and architecture implications
-- `docs/plans/execution-blueprint-v0.md` — provisional plan between research and implementation
-- `docs/plans/2026-05-24-cross-bucket-closeout.md` — decision-ready real-data campaign closeout across Buckets A/B/C
-- `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md` — closed continuity seam for inline-content credibility reuse
+- `docs/plans/execution-blueprint-v0.md` — current execution blueprint for bounded implementation slices
+- `docs/plans/local-launcher-readiness-ssot.md` — launcher/runtime readiness baseline for the local web path
+- `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md` — continuity contract for inline-content prepare/extract/credibility reuse
 - `docs/plans/2026-05-24-credibility-policy-closeout.md` — current credibility metadata-sensitivity policy and reopen conditions
-- `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md` — staged repo-facing backlog for the next bounded product slices
-- `docs/plans/2026-05-23-continuity-pack-usage-note.md` — when to create a decision-ready continuity-pack wrapper over an existing artifact
-- `docs/plans/2026-06-05-test-continuity-pack-with-diagnostics.md` — example continuity-pack artifact showing how verification diagnostics can be carried through a bounded handoff
-- `notes/` — working notes
+- `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md` — staged product backlog after the current bounded closeouts
+- `docs/plans/2026-06-05-verification-control-plane-ssot.md` — verification/report/control-plane contract baseline
 - `src/sourcetrace/` — application package
 - `tests/` — unit/integration/doc assertions
-- `data/` — local working data directories kept mostly out of git
+- `data/` — local working data directories; repo keeps only directory placeholders, not produced runtime data
 
 ## Active bounded docs anchors
-- continuity seam closeout: `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md`
-- cross-bucket quality verdict: `docs/plans/2026-05-24-cross-bucket-closeout.md`
+- execution blueprint: `docs/plans/execution-blueprint-v0.md`
+- launcher/runtime readiness: `docs/plans/local-launcher-readiness-ssot.md`
+- inline continuity contract: `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md`
 - credibility policy default: `docs/plans/2026-05-24-credibility-policy-closeout.md`
 - next staged execution backlog: `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md`
+- verification/report contract baseline: `docs/plans/2026-06-05-verification-control-plane-ssot.md`
 
 ## Working model
 The intended workflow is now:
@@ -192,7 +196,7 @@ Do weryfikacji:
      - `curl -X POST http://127.0.0.1:8000/api/cases/case-1/continuity-pack \
         -H 'Content-Type: application/json' \
         -d '{
-          "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+          "artifact_path": "docs/plans/2026-06-05-verification-control-plane-ssot.md"
         }'`
    - inspect the case continuity-pack read surface:
      - `curl http://127.0.0.1:8000/api/cases/case-1/continuity-pack`
@@ -340,15 +344,8 @@ Do weryfikacji:
   - raw input paragraph
   - final persisted `exact_text`
   - whether the bad text appeared in all claims or only some
-- Recommended note-taking format:
-  - `docs/plans/test-use-observation-template.md`
-- Example filled note:
-  - `docs/plans/test-use-observation-example-bbc.md`
-- Continuity-pack guidance:
-  - `docs/plans/2026-05-23-continuity-pack-usage-note.md`
-- Current continuity-pack examples:
-  - `docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md`
-  - `docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md`
+- Repo publication note: process-shaped observation templates, filled examples, and continuity-pack artifacts stay local-only for now and are intentionally excluded from the default GitHub surface.
+- If you need reusable operator context before publish, anchor on the tracked SSOT/backlog docs in `## Repository map` instead of local campaign notes.
 - Runtime continuity-pack model is now `active + latest_previous` per case, not full history.
 - `GET /api/cases/{case_id}/continuity-pack` now acts as a read model for existing cases: it returns `200 OK` with current continuity-pack state, artifact pointers, and convenience actions even after clear.
 - Replace keeps the former active pack as `latest_previous`; clear removes only `active`.
