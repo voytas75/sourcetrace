@@ -21,7 +21,8 @@ wiki/
 *.out
 .coverage
 htmlcov/
-docs/research/research-ledger.md
+docs/research/*
+!docs/research/.gitkeep
 docs/plans/2026-05-21-checkpoint-1-phase1-a123.md
 docs/plans/2026-05-21-observation-a1-reuters-south-africa-risks.md
 docs/plans/2026-05-21-observation-a2-bbc-us-inflation-energy-shock.md

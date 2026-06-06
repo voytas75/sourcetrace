@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sourcetrace"
 version = "0.1.0"
-description = "Evidence-centric OSINT + LLM verification system scaffold."
+description = "Evidence-centric local-first verification and OSINT workflow system."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []

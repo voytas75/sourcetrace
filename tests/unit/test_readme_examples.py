@@ -67,8 +67,12 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pretty" in readme
     assert "## What still needs caution" in readme
     assert "the thin `sourcetrace.web` path is a local stdlib runtime, not a production server stack" in readme
-    assert "## About the documentation" in readme
+    assert "## Documentation map" in readme
     assert "docs/architecture/architecture-ssot.md" in readme
     assert "docs/plans/execution-blueprint-v0.md" in readme
     assert "docs/plans/local-launcher-readiness-ssot.md" in readme
     assert "docs/plans/2026-06-05-verification-control-plane-ssot.md" in readme
+    assert "docs/plans/2026-05-24-credibility-inline-continuity-ssot.md" in readme
+    assert "docs/plans/2026-05-24-credibility-policy-closeout.md" in readme
+    assert "docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md" in readme
+    assert "Local-only notes, ledgers, and transient research artifacts are intentionally excluded from the remote repo." in readme
