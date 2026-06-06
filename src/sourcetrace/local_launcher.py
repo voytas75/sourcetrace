@@ -5,9 +5,16 @@ from os import environ
 from pathlib import Path
 from typing import Any
 
-from sourcetrace.application import ClaimExtractionOutcome, ClaimExtractionRequest, ClaimExtractionRuntime
-from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk
-from sourcetrace.domain.types import VerificationVerdict
+from sourcetrace.application import (
+    ClaimExtractionOutcome,
+    ClaimExtractionRequest,
+    ClaimExtractionRuntime,
+    CredibilityAssessmentExecution,
+    CredibilityAssessmentOutcome,
+    CredibilityAssessmentRequest,
+)
+from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk, DocumentCredibilityAssessment
+from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance, VerificationVerdict
 
 _DEFAULT_WWW_HOST = "127.0.0.1"
 _DEFAULT_WWW_PORT = 8000
@@ -148,6 +155,39 @@ def _build_smoke_claim_extraction_runtime() -> ClaimExtractionRuntime:
     return ClaimExtractionRuntime(extract_claims=extract_claims)
 
 
+def _use_smoke_credibility_stub() -> bool:
+    return environ.get("SOURCETRACE_CI_SMOKE_STUB_CREDIBILITY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _build_smoke_credibility_assessment_execution() -> CredibilityAssessmentExecution:
+    def assess_credibility(
+        request: CredibilityAssessmentRequest,
+    ) -> CredibilityAssessmentOutcome:
+        assessment = DocumentCredibilityAssessment(
+            assessment_id=f"{request.document.document_id}:credibility-smoke-1",
+            document_id=request.document.document_id,
+            source_reliability=CredibilityBand.MEDIUM,
+            information_credibility=CredibilityBand.MEDIUM,
+            source_reliability_factors=("CI smoke stub used local launcher fallback.",),
+            information_credibility_factors=("Assessment generated from deterministic smoke stub.",),
+            provenance_distance=ProvenanceDistance.UNKNOWN,
+            method=request.assessment_method or "ci_smoke_stub",
+            notes="CI smoke stub credibility assessment.",
+            summary="Looks plausible.",
+            strengths=("Deterministic smoke stub response.",),
+            concerns=("Not a production credibility assessment.",),
+            verification_checks=("Run full credibility assessment outside CI smoke.",),
+        )
+        return CredibilityAssessmentOutcome(request=request, assessment=assessment)
+
+    return CredibilityAssessmentExecution(assess_credibility=assess_credibility)
+
+
 def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
@@ -164,8 +204,14 @@ def build_local_server_runtime(
         if _use_smoke_claim_extraction_stub()
         else None
     )
+    credibility_assessment = (
+        _build_smoke_credibility_assessment_execution()
+        if _use_smoke_credibility_stub()
+        else None
+    )
     delivery = create_default_delivery(
-        credibility_draft=llm_runtime.credibility_draft,
+        credibility_draft=None if credibility_assessment is not None else llm_runtime.credibility_draft,
+        credibility_assessment=credibility_assessment,
         claim_extraction=llm_runtime.claim_extraction,
         claim_normalization=llm_runtime.claim_normalization,
         claim_extraction_runtime=claim_extraction_runtime,

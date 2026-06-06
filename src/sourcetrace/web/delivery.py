@@ -742,6 +742,7 @@ def create_default_delivery(
     persistence: CorePersistence | None = None,
     credibility_draft: "CredibilityDraftGateway | None" = None,
     credibility_assessed_at: Callable[[], datetime] | None = None,
+    credibility_assessment: CredibilityAssessmentExecution | None = None,
     claim_extraction: "ClaimExtractionGateway | None" = None,
     claim_normalization: "ClaimNormalizationGateway | None" = None,
     claim_extraction_runtime: ClaimExtractionRuntime | None = None,
@@ -772,7 +773,7 @@ def create_default_delivery(
     continuity_pack_execution = ContinuityPackExecution(
         assemble_pack=ContinuityPackAssemblerRuntime()
     )
-    credibility_assessment = _build_credibility_assessment_execution(
+    credibility_assessment = credibility_assessment or _build_credibility_assessment_execution(
         credibility_draft=credibility_draft,
         credibility_assessed_at=credibility_assessed_at,
     )
