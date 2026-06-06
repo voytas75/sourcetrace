@@ -30,9 +30,9 @@ jobs:
       - name: Run unit smoke CLI checks
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run pytest -q tests/unit/test_smoke_flow.py
 
-      - name: Start Sourcetrace WWW API
+      - name: Start Sourcetrace Web API
         run: |
-          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.www > /tmp/sourcetrace-ci-smoke.log 2>&1 &
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.web > /tmp/sourcetrace-ci-smoke.log 2>&1 &
           echo $! > /tmp/sourcetrace-ci-smoke.pid
 
       - name: Wait for WWW readiness
