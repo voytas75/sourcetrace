@@ -5,6 +5,10 @@ from os import environ
 from pathlib import Path
 from typing import Any
 
+from sourcetrace.application import ClaimExtractionOutcome, ClaimExtractionRequest, ClaimExtractionRuntime
+from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk
+from sourcetrace.domain.types import VerificationVerdict
+
 _DEFAULT_WWW_HOST = "127.0.0.1"
 _DEFAULT_WWW_PORT = 8000
 
@@ -86,6 +90,64 @@ def _resolve_continuity_pack_root_dir() -> Path | None:
     return resolved_root_dir
 
 
+def _use_smoke_claim_extraction_stub() -> bool:
+    return environ.get("SOURCETRACE_CI_SMOKE_STUB_CLAIM_EXTRACTION", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _build_smoke_claim_extraction_runtime() -> ClaimExtractionRuntime:
+    def extract_claims(
+        request: ClaimExtractionRequest,
+        *,
+        document: Document,
+        chunks: tuple[DocumentChunk, ...],
+    ) -> ClaimExtractionOutcome:
+        if not chunks:
+            return ClaimExtractionOutcome(
+                request=request,
+                document=document,
+                chunks=chunks,
+                claims=(),
+                evidence_links=(),
+            )
+        first_chunk = chunks[0]
+        exact_text = first_chunk.raw_text.strip().split(".")[0].strip() or first_chunk.raw_text.strip()
+        claim = Claim(
+            claim_id=f"{document.document_id}:claim-smoke-1",
+            case_id=request.case_id,
+            document_id=request.document_id,
+            chunk_id=first_chunk.chunk_id,
+            exact_text=exact_text,
+            source_span_reference=first_chunk.position_reference or "p1",
+            system_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            rationale="CI smoke stub claim extracted from first prepared chunk.",
+        )
+        evidence_link = ClaimEvidenceLink(
+            claim_id=claim.claim_id,
+            document_id=document.document_id,
+            chunk_id=first_chunk.chunk_id,
+            evidence_rank=1,
+            evidence_verdict=VerificationVerdict.INSUFFICIENT_EVIDENCE,
+            rationale="CI smoke stub evidence link.",
+            snippet=first_chunk.raw_text,
+            score=None,
+        )
+        return ClaimExtractionOutcome(
+            request=request,
+            document=document,
+            chunks=chunks,
+            claims=(claim,),
+            evidence_links=(evidence_link,),
+            review_cautions=("ci_smoke_stub_claim_extraction",),
+        )
+
+    return ClaimExtractionRuntime(extract_claims=extract_claims)
+
+
 def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
@@ -97,10 +159,16 @@ def build_local_server_runtime(
         completion_fn=_resolve_completion_fn(completion_fn),
         config=_build_runtime_config_with_legacy_env_fallback(),
     )
+    claim_extraction_runtime = (
+        _build_smoke_claim_extraction_runtime()
+        if _use_smoke_claim_extraction_stub()
+        else None
+    )
     delivery = create_default_delivery(
         credibility_draft=llm_runtime.credibility_draft,
         claim_extraction=llm_runtime.claim_extraction,
         claim_normalization=llm_runtime.claim_normalization,
+        claim_extraction_runtime=claim_extraction_runtime,
         continuity_pack_root_dir=_resolve_continuity_pack_root_dir(),
     )
     host, port = _resolve_server_bind()
