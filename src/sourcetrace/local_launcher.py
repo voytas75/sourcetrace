@@ -182,6 +182,7 @@ def _build_smoke_credibility_assessment_execution() -> CredibilityAssessmentExec
             strengths=("Deterministic smoke stub response.",),
             concerns=("Not a production credibility assessment.",),
             verification_checks=("Run full credibility assessment outside CI smoke.",),
+            assessed_at=request.document.retrieved_at,
         )
         return CredibilityAssessmentOutcome(request=request, assessment=assessment)
 
