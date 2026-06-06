@@ -32,7 +32,7 @@ jobs:
 
       - name: Start Sourcetrace WWW API
         run: |
-          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.local_launcher > /tmp/sourcetrace-ci-smoke.log 2>&1 &
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.www > /tmp/sourcetrace-ci-smoke.log 2>&1 &
           echo $! > /tmp/sourcetrace-ci-smoke.pid
 
       - name: Wait for WWW readiness
