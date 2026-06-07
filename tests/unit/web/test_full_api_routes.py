@@ -884,7 +884,7 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "POST /api/cases/case-1/continuity-pack" in body
     assert "docs/...continuity-pack..." in body
     assert "Suggested continuity-pack artifacts:" in body
-    assert "Assign this continuity pack continuity-pack-cerebroscope.md" in body
+    assert "Assign this continuity pack continuity-pack-reuters-a1.md" in body
     assert "Assign this continuity pack continuity-pack-reuters-a1.md" in body
     assert (
         "/cases/assign-continuity-pack?case_id=case-1&amp;artifact_path="
@@ -985,7 +985,7 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
         method="POST",
         path="/api/cases/case-history/continuity-pack",
         payload={
-            "artifact_path": "docs/continuity-pack-cerebroscope.md"
+            "artifact_path": "tests/fixtures/continuity-pack-cerebroscope.md"
         },
     )
     assert second_assign_status == "200 OK"
@@ -1000,11 +1000,11 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
     assert continuity_pack["assigned"] is True
     assert (
         continuity_pack["title"]
-        == "SourceTrace Research Continuity Pack — oskarbrzycki/llm-cerebroscope"
+        == "SourceTrace Research Continuity Pack — alternative active pack"
     )
     assert (
         continuity_pack["source_artifact_path"]
-        == "docs/continuity-pack-cerebroscope.md"
+        == "tests/fixtures/continuity-pack-cerebroscope.md"
     )
     assert continuity_pack["decision_support"]["section_label"] == "Decision support"
     assert continuity_pack["latest_previous"]["assigned"] is True
@@ -1067,20 +1067,20 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
     assert assigned is not None
     replaced = delivery.assign_case_continuity_pack(
         "case-cp",
-        artifact_path="docs/continuity-pack-cerebroscope.md",
+        artifact_path="tests/fixtures/continuity-pack-cerebroscope.md",
     )
     assert replaced is not None
 
     html = render_case_review_html(delivery, "case-cp")
 
     assert "<h2>Continuity pack</h2>" in html
-    assert "oskarbrzycki/llm-cerebroscope" in html
+    assert "alternative active pack" in html
     assert "Source artifact:" in html
-    assert "<code>docs/continuity-pack-cerebroscope.md</code>" in html
+    assert "<code>tests/fixtures/continuity-pack-cerebroscope.md</code>" in html
     assert "View continuity pack" in html
-    assert "/continuity-packs/view?artifact_path=docs/continuity-pack-cerebroscope.md" in html
+    assert "/continuity-packs/view?artifact_path=tests/fixtures/continuity-pack-cerebroscope.md" in html
     assert "Render continuity pack markdown" in html
-    assert "/api/continuity-packs/render-markdown?artifact_path=docs/continuity-pack-cerebroscope.md" in html
+    assert "/api/continuity-packs/render-markdown?artifact_path=tests/fixtures/continuity-pack-cerebroscope.md" in html
     assert "Clear active continuity pack" in html
     assert "/cases/clear-continuity-pack?case_id=case-cp" in html
     assert "Replace note:" in html
@@ -1095,7 +1095,7 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
         "docs/continuity-pack-reuters-a1.md"
     ) in html
     assert "Suggested replacement continuity-pack artifacts:" in html
-    assert "Replace with this continuity pack continuity-pack-cerebroscope.md" in html
+    assert "Replace with this continuity pack continuity-pack-reuters-a1.md" in html
     assert "Replace with this continuity pack continuity-pack-reuters-a1.md" in html
     assert "<h3>Potwierdzone</h3>" in html
     assert html.count("<h3>Decision support</h3>") == 2
@@ -1119,7 +1119,7 @@ def test_case_review_html_shows_latest_previous_continuity_pack_when_active_is_c
     assert assigned is not None
     replaced = delivery.assign_case_continuity_pack(
         case_id="case-cp-cleared",
-        artifact_path="docs/continuity-pack-cerebroscope.md",
+        artifact_path="tests/fixtures/continuity-pack-cerebroscope.md",
     )
     assert replaced is not None
     cleared = delivery.clear_case_continuity_pack("case-cp-cleared")
@@ -1669,7 +1669,7 @@ def test_wsgi_rejects_incomplete_continuity_pack_artifact() -> None:
         app,
         method="POST",
         path="/api/continuity-packs/assemble-from-artifact",
-        payload={"artifact_path": "docs/continuity-pack-broken.md"},
+        payload={"artifact_path": "tests/fixtures/continuity-pack-broken.md"},
     )
 
     assert status == "400 Bad Request"
@@ -1755,7 +1755,7 @@ def test_wsgi_can_render_continuity_pack_html_view_with_verification_diagnostics
         path="/continuity-packs/view",
         query_string=(
             "artifact_path="
-            "docs/continuity-pack-with-diagnostics.md"
+            "tests/fixtures/continuity-pack-with-diagnostics.md"
         ),
     )
 
