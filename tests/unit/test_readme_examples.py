@@ -33,6 +33,6 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "## What still needs caution" in readme
     assert "the thin `sourcetrace.web` path is a local stdlib runtime, not a production server stack" in readme
     assert "## Documentation map" in readme
-    assert "docs/architecture/architecture-ssot.md" in readme
-    assert "docs/plans/execution-blueprint-v0.md" in readme
+    assert "docs/architecture-ssot.md" in readme
+    assert "docs/execution-blueprint.md" in readme
     assert "Everything else that is not needed for first project understanding belongs in `notes/`" in readme

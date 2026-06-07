@@ -41,11 +41,11 @@ docs/plans/2026-05-23-bucket-a-checkpoint.md
 docs/plans/2026-05-23-bucket-b-checkpoint.md
 docs/plans/2026-05-23-bucket-c-checkpoint.md
 docs/plans/2026-05-23-bucket-d-checkpoint.md
-docs/plans/2026-05-23-broken-continuity-pack.md
+docs/continuity-pack-broken.md
 docs/plans/2026-05-23-continuity-pack-usage-note.md
 docs/plans/2026-05-23-real-data-campaign-runbook-v1.md
 docs/plans/2026-05-23-real-data-campaign-synthesis-v1.md
-docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md
+docs/continuity-pack-cerebroscope.md
 docs/plans/2026-05-23-test-use-checkpoint-handoff.md
 docs/plans/2026-05-23-test-use-observation-a1-reuters-south-africa-risks.md
 docs/plans/2026-05-23-test-use-observation-a2-bbc-us-inflation-energy-shock.md
@@ -58,7 +58,7 @@ docs/plans/2026-05-23-test-use-observation-c2-bbc-uk-inflation-expected-rise.md
 docs/plans/2026-05-23-test-use-observation-d1-ap-einpresswire-war-market-trends.md
 docs/plans/2026-05-23-test-use-observation-d2-ap-photo-gallery-romania-hat-walk.md
 docs/plans/2026-05-24-cross-bucket-closeout.md
-docs/plans/2026-06-05-test-continuity-pack-with-diagnostics.md
+docs/continuity-pack-with-diagnostics.md
 docs/plans/test-use-observation-example-bbc.md
 docs/plans/test-use-observation-template.md
 notes/

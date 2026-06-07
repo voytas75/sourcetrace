@@ -104,8 +104,8 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pret
 ## Documentation usage
 Start from:
 - `README.md` for public repo framing
-- `docs/architecture/architecture-ssot.md` for architecture baseline
-- `docs/plans/execution-blueprint-v0.md` for implementation blueprint
+- `docs/architecture-ssot.md` for architecture baseline
+- `docs/execution-blueprint.md` for implementation blueprint
 - `notes/plans/local-launcher-readiness-ssot.md` for verified launcher/runtime boundary
 - `notes/plans/2026-06-05-verification-control-plane-ssot.md` for current verification-first execution SSOT
 

@@ -777,7 +777,7 @@ def test_case_payload_includes_current_continuity_pack_summary() -> None:
         method="POST",
         path="/api/cases/case-summary/continuity-pack",
         payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "artifact_path": "docs/continuity-pack-reuters-a1.md"
         },
     )
     assert assign_status == "200 OK"
@@ -799,7 +799,7 @@ def test_case_payload_includes_current_continuity_pack_summary() -> None:
     )
     assert (
         continuity_pack_payload["source_artifact_path"]
-        == "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        == "docs/continuity-pack-reuters-a1.md"
     )
     assert continuity_pack_payload["decision_support"]["section_label"] == "Decision support"
     assert continuity_pack_payload["decision_support"]["decision_snapshot_label"] == "Decision snapshot"
@@ -823,7 +823,7 @@ def test_case_payload_includes_current_continuity_pack_summary() -> None:
     )
     assert (
         continuity_pack_payload["source_artifact_path"]
-        == "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        == "docs/continuity-pack-reuters-a1.md"
     )
     assert continuity_pack_payload["decision_support"]["section_label"] == "Decision support"
     assert continuity_pack_payload["decision_support"]["decision_snapshot_label"] == "Decision snapshot"
@@ -882,13 +882,13 @@ def test_wsgi_case_html_shows_document_status_and_next_actions() -> None:
     assert "<strong>Next step:</strong>" in body
     assert "Assign a continuity pack from" in body
     assert "POST /api/cases/case-1/continuity-pack" in body
-    assert "docs/plans/...continuity-pack..." in body
+    assert "docs/...continuity-pack..." in body
     assert "Suggested continuity-pack artifacts:" in body
-    assert "Assign this continuity pack 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in body
-    assert "Assign this continuity pack 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in body
+    assert "Assign this continuity pack continuity-pack-cerebroscope.md" in body
+    assert "Assign this continuity pack continuity-pack-reuters-a1.md" in body
     assert (
         "/cases/assign-continuity-pack?case_id=case-1&amp;artifact_path="
-        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        "docs/continuity-pack-reuters-a1.md"
     ) in body
 
 
@@ -922,7 +922,7 @@ def test_case_payload_continuity_summary_contract_is_consistent_across_create_li
         method="POST",
         path="/api/cases/case-contract/continuity-pack",
         payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "artifact_path": "docs/continuity-pack-reuters-a1.md"
         },
     )
     assert assign_status == "200 OK"
@@ -975,7 +975,7 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
         method="POST",
         path="/api/cases/case-history/continuity-pack",
         payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "artifact_path": "docs/continuity-pack-reuters-a1.md"
         },
     )
     assert first_assign_status == "200 OK"
@@ -985,7 +985,7 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
         method="POST",
         path="/api/cases/case-history/continuity-pack",
         payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md"
+            "artifact_path": "docs/continuity-pack-cerebroscope.md"
         },
     )
     assert second_assign_status == "200 OK"
@@ -1004,7 +1004,7 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
     )
     assert (
         continuity_pack["source_artifact_path"]
-        == "docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md"
+        == "docs/continuity-pack-cerebroscope.md"
     )
     assert continuity_pack["decision_support"]["section_label"] == "Decision support"
     assert continuity_pack["latest_previous"]["assigned"] is True
@@ -1014,7 +1014,7 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
     )
     assert (
         continuity_pack["latest_previous"]["source_artifact_path"]
-        == "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        == "docs/continuity-pack-reuters-a1.md"
     )
     assert continuity_pack["latest_previous"]["decision_support"]["section_label"] == (
         "Decision support"
@@ -1042,7 +1042,7 @@ def test_case_payload_includes_latest_previous_continuity_pack_after_replace_and
         "latest_previous": {
             "assigned": True,
             "title": "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks",
-            "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+            "source_artifact_path": "docs/continuity-pack-reuters-a1.md",
             "decision_support": cleared_continuity_pack["latest_previous"]["decision_support"],
         },
     }
@@ -1062,12 +1062,12 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
     )
     assigned = delivery.assign_case_continuity_pack(
         "case-cp",
-        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+        artifact_path="docs/continuity-pack-reuters-a1.md",
     )
     assert assigned is not None
     replaced = delivery.assign_case_continuity_pack(
         "case-cp",
-        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md",
+        artifact_path="docs/continuity-pack-cerebroscope.md",
     )
     assert replaced is not None
 
@@ -1076,11 +1076,11 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
     assert "<h2>Continuity pack</h2>" in html
     assert "oskarbrzycki/llm-cerebroscope" in html
     assert "Source artifact:" in html
-    assert "<code>docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md</code>" in html
+    assert "<code>docs/continuity-pack-cerebroscope.md</code>" in html
     assert "View continuity pack" in html
-    assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
+    assert "/continuity-packs/view?artifact_path=docs/continuity-pack-cerebroscope.md" in html
     assert "Render continuity pack markdown" in html
-    assert "/api/continuity-packs/render-markdown?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
+    assert "/api/continuity-packs/render-markdown?artifact_path=docs/continuity-pack-cerebroscope.md" in html
     assert "Clear active continuity pack" in html
     assert "/cases/clear-continuity-pack?case_id=case-cp" in html
     assert "Replace note:" in html
@@ -1088,15 +1088,15 @@ def test_case_review_html_renders_active_continuity_pack() -> None:
     assert "Latest previous continuity pack" in html
     assert "SourceTrace Research Continuity Pack — A1 Reuters South Africa risks" in html
     assert "View previous continuity pack" in html
-    assert "/continuity-packs/view?artifact_path=docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
+    assert "/continuity-packs/view?artifact_path=docs/continuity-pack-reuters-a1.md" in html
     assert "Reassign this continuity pack" in html
     assert (
         "/cases/assign-continuity-pack?case_id=case-cp&amp;artifact_path="
-        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        "docs/continuity-pack-reuters-a1.md"
     ) in html
     assert "Suggested replacement continuity-pack artifacts:" in html
-    assert "Replace with this continuity pack 2026-05-23-source-trace-research-continuity-pack-cerebroscope.md" in html
-    assert "Replace with this continuity pack 2026-05-23-source-trace-research-continuity-pack-reuters-a1.md" in html
+    assert "Replace with this continuity pack continuity-pack-cerebroscope.md" in html
+    assert "Replace with this continuity pack continuity-pack-reuters-a1.md" in html
     assert "<h3>Potwierdzone</h3>" in html
     assert html.count("<h3>Decision support</h3>") == 2
     assert "<strong>Verification diagnostics:</strong>" in html
@@ -1114,12 +1114,12 @@ def test_case_review_html_shows_latest_previous_continuity_pack_when_active_is_c
 
     assigned = delivery.assign_case_continuity_pack(
         case_id="case-cp-cleared",
-        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+        artifact_path="docs/continuity-pack-reuters-a1.md",
     )
     assert assigned is not None
     replaced = delivery.assign_case_continuity_pack(
         case_id="case-cp-cleared",
-        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-cerebroscope.md",
+        artifact_path="docs/continuity-pack-cerebroscope.md",
     )
     assert replaced is not None
     cleared = delivery.clear_case_continuity_pack("case-cp-cleared")
@@ -1480,13 +1480,13 @@ def test_delivery_can_build_continuity_pack_from_artifact() -> None:
     delivery = create_default_delivery()
 
     outcome = delivery.build_continuity_pack_from_artifact(
-        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        "docs/continuity-pack-reuters-a1.md"
     )
 
     assert outcome is not None
     assert outcome.continuity_pack.title
     assert outcome.continuity_pack.source_artifact_path.endswith(
-        "2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        "continuity-pack-reuters-a1.md"
     )
     assert outcome.continuity_pack.confirmed
     assert outcome.continuity_pack.recommended_next_test
@@ -1496,7 +1496,7 @@ def test_delivery_can_render_continuity_pack_markdown_from_artifact() -> None:
     delivery = create_default_delivery()
 
     markdown = delivery.render_continuity_pack_markdown_from_artifact(
-        "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+        "docs/continuity-pack-reuters-a1.md"
     )
 
     assert markdown is not None
@@ -1635,7 +1635,7 @@ def test_wsgi_can_assemble_continuity_pack_from_artifact() -> None:
         method="POST",
         path="/api/continuity-packs/assemble-from-artifact",
         payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "artifact_path": "docs/continuity-pack-reuters-a1.md"
         },
     )
 
@@ -1669,7 +1669,7 @@ def test_wsgi_rejects_incomplete_continuity_pack_artifact() -> None:
         app,
         method="POST",
         path="/api/continuity-packs/assemble-from-artifact",
-        payload={"artifact_path": "docs/plans/2026-05-23-broken-continuity-pack.md"},
+        payload={"artifact_path": "docs/continuity-pack-broken.md"},
     )
 
     assert status == "400 Bad Request"
@@ -1689,7 +1689,7 @@ def test_wsgi_can_render_continuity_pack_markdown_from_artifact() -> None:
         method="POST",
         path="/api/continuity-packs/render-markdown",
         payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "artifact_path": "docs/continuity-pack-reuters-a1.md"
         },
     )
 
@@ -1725,7 +1725,7 @@ def test_wsgi_can_render_continuity_pack_html_view() -> None:
         path="/continuity-packs/view",
         query_string=(
             "artifact_path="
-            "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "docs/continuity-pack-reuters-a1.md"
         ),
     )
 
@@ -1755,7 +1755,7 @@ def test_wsgi_can_render_continuity_pack_html_view_with_verification_diagnostics
         path="/continuity-packs/view",
         query_string=(
             "artifact_path="
-            "docs/plans/2026-06-05-test-continuity-pack-with-diagnostics.md"
+            "docs/continuity-pack-with-diagnostics.md"
         ),
     )
 
@@ -1804,7 +1804,7 @@ def test_wsgi_can_assign_case_continuity_pack_from_query_and_redirect() -> None:
         path="/cases/assign-continuity-pack",
         query_string=(
             "case_id=case-assign&artifact_path="
-            "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "docs/continuity-pack-reuters-a1.md"
         ),
     )
 
@@ -1831,7 +1831,7 @@ def test_wsgi_assign_case_continuity_pack_from_query_missing_case_returns_html_4
         path="/cases/assign-continuity-pack",
         query_string=(
             "case_id=missing-case&artifact_path="
-            "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "docs/continuity-pack-reuters-a1.md"
         ),
     )
 
@@ -1857,7 +1857,7 @@ def test_wsgi_can_clear_case_continuity_pack_via_api() -> None:
         method="POST",
         path="/api/cases/case-clear/continuity-pack",
         payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "artifact_path": "docs/continuity-pack-reuters-a1.md"
         },
     )
     assert assign_status == "200 OK"
@@ -1918,7 +1918,7 @@ def test_wsgi_can_clear_case_continuity_pack_from_query_and_redirect() -> None:
         method="POST",
         path="/api/cases/case-clear-html/continuity-pack",
         payload={
-            "artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md"
+            "artifact_path": "docs/continuity-pack-reuters-a1.md"
         },
     )
     assert assign_status == "200 OK"
@@ -2023,7 +2023,7 @@ def test_file_backed_case_repository_persists_active_continuity_pack(
 
     assigned = delivery.assign_case_continuity_pack(
         "case-fs",
-        artifact_path="docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+        artifact_path="docs/continuity-pack-reuters-a1.md",
     )
     assert assigned is not None
 
@@ -2054,7 +2054,7 @@ def test_file_backed_case_repository_loads_legacy_continuity_pack_payload(
     legacy_payload = {
         "request": {
             "title": "Legacy continuity pack",
-            "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+            "source_artifact_path": "docs/continuity-pack-reuters-a1.md",
             "confirmed": ["Legacy confirmed item."],
             "assumptions": ["Legacy assumption item."],
             "to_verify": ["Legacy verify item."],
@@ -2063,7 +2063,7 @@ def test_file_backed_case_repository_loads_legacy_continuity_pack_payload(
         },
         "continuity_pack": {
             "title": "Legacy continuity pack",
-            "source_artifact_path": "docs/plans/2026-05-23-source-trace-research-continuity-pack-reuters-a1.md",
+            "source_artifact_path": "docs/continuity-pack-reuters-a1.md",
             "confirmed": ["Legacy confirmed item."],
             "assumptions": ["Legacy assumption item."],
             "to_verify": ["Legacy verify item."],

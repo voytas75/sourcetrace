@@ -316,8 +316,8 @@ When a new source materially changes assumptions about:
 
 then patch:
 1. `docs/research/research-ledger.md`
-2. `docs/architecture/architecture-ssot.md` if product truth changed
-3. `docs/plans/execution-blueprint-v0.md` if module or build-order assumptions changed
+2. `docs/architecture-ssot.md` if product truth changed
+3. `docs/execution-blueprint.md` if module or build-order assumptions changed
 
 ---
 

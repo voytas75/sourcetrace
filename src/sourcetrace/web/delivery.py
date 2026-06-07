@@ -2585,11 +2585,11 @@ def _suggested_continuity_pack_artifacts_html(
 
 
 def _discover_continuity_pack_artifact_paths() -> tuple[str, ...]:
-    docs_plans_dir = Path(__file__).resolve().parents[3] / "docs" / "plans"
-    if not docs_plans_dir.exists():
+    docs_dir = Path(__file__).resolve().parents[3] / "docs"
+    if not docs_dir.exists():
         return ()
     suggestions: list[str] = []
-    for path in sorted(docs_plans_dir.glob("*continuity-pack*.md")):
+    for path in sorted(docs_dir.glob("*continuity-pack*.md")):
         relative_path = path.relative_to(Path(__file__).resolve().parents[3]).as_posix()
         if "usage-note" in path.name or "broken-" in path.name:
             continue
@@ -2642,7 +2642,7 @@ def _case_continuity_pack_section_html(
             "<h2>Continuity pack</h2>"
             "<p><strong>Status:</strong> No active continuity pack is assigned.</p>"
             "<p><strong>Next step:</strong> Assign a continuity pack from "
-            "<code>docs/plans/...continuity-pack...</code> via "
+            "<code>docs/...continuity-pack...</code> via "
             "<code>POST /api/cases/{case_id}/continuity-pack</code>.</p>"
             f"{latest_previous_html}"
             f"{suggested_artifacts_html}"

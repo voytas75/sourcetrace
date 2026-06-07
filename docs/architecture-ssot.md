@@ -143,9 +143,9 @@ A synthesized investigation output assembled from reviewed or classified claims.
 10. Review UI should minimize cognitive overload by default and reveal deeper detail on demand.
 
 ## Repository document roles
-- `docs/architecture/architecture-ssot.md`: canonical product and architecture baseline.
+- `docs/architecture-ssot.md`: canonical product and architecture baseline.
 - `docs/research/research-ledger.md`: rolling evidence from reviewed external sources.
-- `docs/plans/execution-blueprint-v0.md`: provisional implementation-facing plan, still pre-build.
+- `docs/execution-blueprint.md`: provisional implementation-facing plan, still pre-build.
 
 ## Current recommended next step
 The initial contract-first baseline is now extended through lower-level seams, a minimal in-memory runtime path, and a minimal analyst-facing delivery surface.
