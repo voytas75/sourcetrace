@@ -65,12 +65,12 @@ Then open:
 
 ## Developer notes
 Developer/operator details were moved to:
-- `README-dev.md`
+- [`README-dev.md`](README-dev.md)
 
 That file covers local runtime variants, environment variables, deeper command references, smoke flows, and development constraints.
 
 ## Documentation map
-- `docs/architecture-ssot.md` — product and architecture baseline
-- `docs/execution-blueprint.md` — implementation overview and module map
+- [`docs/architecture-ssot.md`](docs/architecture-ssot.md) — product and architecture baseline
+- [`docs/execution-blueprint.md`](docs/execution-blueprint.md) — implementation overview and module map
 
 Everything else that is not needed for first project understanding belongs in `notes/` as local working material rather than public-facing docs.
