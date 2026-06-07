@@ -70,10 +70,7 @@ Developer/operator details were moved to:
 That file covers local runtime variants, environment variables, deeper command references, smoke flows, and development constraints.
 
 ## Documentation map
-Start with these tracked docs:
 - `docs/architecture/architecture-ssot.md` — product and architecture baseline
-- `docs/plans/execution-blueprint-v0.md` — implementation blueprint and module map
-- `docs/plans/local-launcher-readiness-ssot.md` — verified local launcher/runtime boundary
-- `docs/plans/2026-06-05-verification-control-plane-ssot.md` — current verification-first execution SSOT
+- `docs/plans/execution-blueprint-v0.md` — implementation overview and module map
 
-Local-only notes, ledgers, and transient research artifacts are intentionally excluded from the remote repo.
+Everything else that is not needed for first project understanding belongs in `notes/` as local working material rather than public-facing docs.

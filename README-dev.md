@@ -106,8 +106,8 @@ Start from:
 - `README.md` for public repo framing
 - `docs/architecture/architecture-ssot.md` for architecture baseline
 - `docs/plans/execution-blueprint-v0.md` for implementation blueprint
-- `docs/plans/local-launcher-readiness-ssot.md` for verified launcher/runtime boundary
-- `docs/plans/2026-06-05-verification-control-plane-ssot.md` for current verification-first execution SSOT
+- `notes/plans/local-launcher-readiness-ssot.md` for verified launcher/runtime boundary
+- `notes/plans/2026-06-05-verification-control-plane-ssot.md` for current verification-first execution SSOT
 
 Use tracked docs for durable product truth.
 Keep transient working notes and local process artifacts outside public-facing repo surfaces.
