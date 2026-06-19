@@ -2,10 +2,45 @@ from sourcetrace.application import (
     FakeResearchWorker,
     ResearchJobManager,
     ResearchJobStartRequest,
+    SearchHit,
     build_research_execution,
 )
 from sourcetrace.domain import ResearchCompletionMode, ResearchJobStatus
 from sourcetrace.storage import create_in_memory_research_persistence
+
+
+class NoisyMarketSearch:
+    def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+        if round_number == 1:
+            return (
+                SearchHit(
+                    url="https://example.test/ethusdc-weekly",
+                    title="ETHUSDC weekly price action",
+                    snippet="ETHUSDC weekly analysis with price action, support, resistance, and seven day trend.",
+                ),
+                SearchHit(
+                    url="https://example.test/physics",
+                    title="Quantum field notes",
+                    snippet="A physics explainer unrelated to crypto markets or digital asset price analysis.",
+                ),
+                SearchHit(
+                    url="https://example.test/usdcad",
+                    title="USDCAD weekly outlook",
+                    snippet="USDCAD weekly price chart and FX trend outlook.",
+                ),
+            )
+        return (
+            SearchHit(
+                url="https://example.test/ethusdc-ohlcv",
+                title="ETHUSDC OHLCV last week",
+                snippet="OHLCV summary for ETHUSDC over the last week with daily high low and volume.",
+            ),
+            SearchHit(
+                url="https://example.test/sociology",
+                title="Social theory review",
+                snippet="A sociology article with no market data and no ETHUSDC relevance.",
+            ),
+        )
 
 
 def test_research_job_manager_start_and_list_flow() -> None:
@@ -87,3 +122,23 @@ def test_fake_research_worker_runs_two_round_engine_loop() -> None:
     assert status is not None
     assert any(event.phase.value == "reading" for event in status.progress)
     assert any(event.phase.value == "analyzing" for event in status.progress)
+
+
+def test_fake_research_worker_filters_off_topic_hits_for_market_query() -> None:
+    persistence = create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+    worker = FakeResearchWorker(persistence, search=NoisyMarketSearch())
+    outcome = manager.start_job(
+        ResearchJobStartRequest(owner_id="user-1", query="analiza ostatniego tygodnia ethusdc")
+    )
+
+    result = worker(outcome.job.job_id)
+
+    assert result is not None
+    assert result.stats.rounds == 2
+    assert len(result.sources) == 2
+    assert all("ethusdc" in source.title.lower() or "ethusdc" in source.url.lower() for source in result.sources)
+    assert all("usdcad" not in source.title.lower() and "usdcad" not in source.url.lower() for source in result.sources)
+    assert "physics" not in result.result.lower()
+    assert "sociology" not in result.result.lower()
+    assert "usdcad" not in result.result.lower()

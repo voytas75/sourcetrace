@@ -51,17 +51,30 @@ class StubResearchPlanner:
 
 
 class StubQueryGenerator:
-    """Deterministic query generator stub for the first engine-loop slice."""
+    """Deterministic query generator stub with light domain-aware shaping."""
 
     def __call__(self, plan: ResearchPlan, *, round_number: int) -> tuple[str, ...]:
+        objective = plan.objective.strip()
+        normalized = objective.lower()
+        if _looks_like_market_query(normalized):
+            if round_number == 1:
+                return (
+                    objective,
+                    f"{objective} price last 7 days",
+                    f"{objective} weekly analysis tradingview",
+                )
+            return (
+                f"{objective} OHLCV last week",
+                f"{objective} support resistance last 7 days",
+            )
         if round_number == 1:
             return (
-                plan.objective,
-                f"{plan.objective} architecture",
+                objective,
+                f"{objective} architecture",
             )
         return (
-            f"{plan.objective} stop rails",
-            f"{plan.objective} result artifact",
+            f"{objective} stop rails",
+            f"{objective} result artifact",
         )
 
 
@@ -344,6 +357,83 @@ def _normalize_snippet(snippet: str) -> str:
     return compact
 
 
+def _looks_like_market_query(text: str) -> bool:
+    return any(token in text for token in ("eth", "btc", "usdc", "usdt", "tradingview", "price", "ohlcv"))
+
+
+def _extract_market_symbol(query: str) -> str:
+    tokens = [token.strip(".,:;!?()[]{}\"'").lower() for token in query.split()]
+    known_quotes = ("usdc", "usdt", "usd", "eur", "btc", "eth")
+    for token in tokens:
+        alnum = "".join(char for char in token if char.isalnum())
+        for quote in known_quotes:
+            if alnum.endswith(quote) and len(alnum) > len(quote):
+                base = alnum[: -len(quote)]
+                if 2 <= len(base) <= 6:
+                    return f"{base}{quote}"
+    return ""
+
+
+def _pair_aliases(symbol: str) -> tuple[str, ...]:
+    if not symbol:
+        return ()
+    for quote in ("usdc", "usdt", "usd", "eur", "btc", "eth"):
+        if symbol.endswith(quote) and len(symbol) > len(quote):
+            base = symbol[: -len(quote)]
+            return (
+                symbol,
+                f"{base}/{quote}",
+                f"{base}-{quote}",
+                f"{base}_{quote}",
+                f"{base} {quote}",
+            )
+    return (symbol,)
+
+
+def _query_keywords(query: str) -> tuple[str, ...]:
+    tokens = [token.strip(".,:;!?()[]{}\"'").lower() for token in query.split()]
+    keep = [token for token in tokens if len(token) >= 3]
+    stopwords = {
+        "analiza", "ostatniego", "ostatni", "tygodnia", "tydzien", "last", "week", "weekly",
+        "deep", "research", "the", "and", "for", "with", "architecture", "result", "artifact", "stop", "rails",
+    }
+    keep = [token for token in keep if token not in stopwords]
+    preferred = [
+        token for token in keep
+        if any(char.isdigit() for char in token)
+        or token in {"eth", "ethusdc", "ethereum", "usdc", "usdt", "btc", "ohlcv", "tradingview", "price", "support", "resistance", "volume"}
+    ]
+    if preferred:
+        return tuple(dict.fromkeys(preferred))
+    if _looks_like_market_query(query.lower()):
+        market_tokens = [token for token in keep if token in {"eth", "ethusdc", "ethereum", "usdc", "usdt", "btc"}]
+        if market_tokens:
+            return tuple(dict.fromkeys(market_tokens))
+    return tuple(dict.fromkeys(keep[:3]))
+
+
+def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
+    haystack = f"{hit.title} {hit.snippet} {hit.url}".lower()
+    keywords = _query_keywords(query)
+    if not keywords:
+        return True
+    matched = sum(1 for keyword in keywords if keyword in haystack)
+    if _looks_like_market_query(query.lower()):
+        symbol = _extract_market_symbol(query)
+        aliases = _pair_aliases(symbol)
+        if aliases and not any(alias in haystack for alias in aliases):
+            return False
+        asset_match = any(token in haystack for token in aliases) if aliases else any(
+            token in haystack for token in ("ethusdc", "ethereum", "eth/usdc", "usd coin", "usdc")
+        )
+        market_context = any(
+            token in haystack
+            for token in ("price", "ohlcv", "volume", "tradingview", "support", "resistance", "trend", "chart", "weekly", "last 7 days", "technicals", "historical")
+        )
+        return asset_match and market_context
+    return matched >= 1
+
+
 def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5) -> tuple[ExtractedFinding, ...]:
     ranked = sorted(
         findings,
@@ -587,7 +677,7 @@ class FakeResearchWorker:
                 errored = replace(running, status=ResearchJobStatus.ERROR, completed_at=_utcnow(), error=str(exc))
                 self.persistence.jobs.save_job(errored)
                 return None
-            new_hits = self._dedupe_hits(all_hits, hits)
+            new_hits = self._dedupe_hits(all_hits, hits, query=running.query)
             all_hits.extend(new_hits)
             total_urls = len(all_hits)
             if new_hits:
@@ -729,11 +819,15 @@ Partial salvage preserved.""",
         self,
         existing_hits: list[SearchHit],
         candidate_hits: tuple[SearchHit, ...],
+        *,
+        query: str,
     ) -> list[SearchHit]:
         seen = {hit.url for hit in existing_hits}
         deduped: list[SearchHit] = []
         for hit in candidate_hits:
             if hit.url in seen:
+                continue
+            if not _is_relevant_hit(query=query, hit=hit):
                 continue
             seen.add(hit.url)
             deduped.append(hit)
