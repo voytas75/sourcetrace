@@ -1638,7 +1638,7 @@ def _render_research_console_html() -> str:
           if (event.total_findings) bits.push(`findings=${event.total_findings}`);
           if (event.message) bits.push(`msg=${event.message}`);
           return bits.join(' | ');
-        }).join('\n');
+        }).join(String.fromCharCode(10));
       }
 
       function renderJobsList(payload) {
@@ -1664,32 +1664,68 @@ def _render_research_console_html() -> str:
         const text = await response.text();
         let payload;
         try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
+        if (!response.ok) {
+          const message = payload && (payload.error || payload.status || payload.raw)
+            ? String(payload.error || payload.status || payload.raw)
+            : `HTTP ${response.status}`;
+          throw new Error(`${response.status} ${response.statusText}: ${message}`);
+        }
         return { response, payload };
       }
 
+      function showUiError(prefix, error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setBox(statusBox, `${prefix}: ${message}`, 'mono warn');
+      }
+
       async function startJob() {
-        const { payload } = await jsonRequest('/api/research/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner_id: ownerInput.value.trim(), query: queryInput.value.trim() }),
-        });
-        if (payload.job && payload.job.job_id) {
-          jobInput.value = payload.job.job_id;
-          await refreshStatus();
-          await listJobs();
-          startAutoRefresh();
+        try {
+          const ownerId = ownerInput.value.trim();
+          const query = queryInput.value.trim();
+          if (!ownerId) {
+            showUiError('Start failed', 'owner_id is required');
+            return;
+          }
+          if (!query) {
+            showUiError('Start failed', 'query is required');
+            return;
+          }
+          const { payload } = await jsonRequest('/api/research/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ owner_id: ownerId, query }),
+          });
+          if (payload.job && payload.job.job_id) {
+            jobInput.value = payload.job.job_id;
+            setBox(statusBox, `Job created: ${payload.job.job_id}`, 'mono ok');
+            await refreshStatus();
+            await listJobs();
+            startAutoRefresh();
+            return;
+          }
+          showUiError('Start failed', 'server did not return a job id');
+        } catch (error) {
+          showUiError('Start failed', error);
         }
       }
 
       async function runJob() {
-        const jobId = jobInput.value.trim();
-        if (!jobId) return;
-        await jsonRequest(`/api/research/run/${jobId}`, { method: 'POST' });
-        await refreshStatus();
-        await readStream();
-        await loadResult();
-        await listJobs();
-        startAutoRefresh();
+        try {
+          const jobId = jobInput.value.trim();
+          if (!jobId) {
+            showUiError('Run failed', 'job_id is required');
+            return;
+          }
+          await jsonRequest(`/api/research/run/${jobId}`, { method: 'POST' });
+          setBox(statusBox, `Job started: ${jobId}`, 'mono ok');
+          await refreshStatus();
+          await readStream();
+          await loadResult();
+          await listJobs();
+          startAutoRefresh();
+        } catch (error) {
+          showUiError('Run failed', error);
+        }
       }
 
       async function refreshStatus() {

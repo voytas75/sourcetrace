@@ -140,7 +140,8 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pret
 Start from:
 - `README.md` for public repo framing
 - `docs/architecture-ssot.md` for architecture baseline
-- `docs/execution-blueprint.md` for implementation blueprint\n- `docs/deep-research-implementation-slice-v1.md` for the delivered Deep Research slice
+- `docs/execution-blueprint.md` for implementation blueprint
+- `docs/deep-research-implementation-slice-v1.md` for the delivered Deep Research slice
 
 Use tracked docs for durable product truth.
 Keep transient working notes and local process artifacts outside public-facing repo surfaces.
