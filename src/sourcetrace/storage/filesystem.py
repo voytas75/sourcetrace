@@ -130,6 +130,9 @@ def _continuity_pack_outcome_from_payload(
             decision_snapshot=tuple(
                 str(item) for item in request_payload.get("decision_snapshot", [])
             ),
+            verification_diagnostics=tuple(
+                str(item) for item in request_payload.get("verification_diagnostics", [])
+            ),
         ),
         continuity_pack=ContinuityPack(
             title=str(pack_payload["title"]),
@@ -142,6 +145,9 @@ def _continuity_pack_outcome_from_payload(
             ),
             decision_snapshot=tuple(
                 str(item) for item in pack_payload.get("decision_snapshot", [])
+            ),
+            verification_diagnostics=tuple(
+                str(item) for item in pack_payload.get("verification_diagnostics", [])
             ),
         ),
     )

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Lower-level persistence dependency interfaces."""
 
 from dataclasses import dataclass
@@ -11,8 +13,12 @@ from sourcetrace.domain.claims import (
     ClaimReviewDecision,
     ClaimVerification,
 )
-from sourcetrace.application.continuity import ContinuityPackOutcome
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sourcetrace.application.continuity import ContinuityPackOutcome
 from sourcetrace.domain.documents import Document
+from sourcetrace.domain.research import ResearchJob, ResearchProgressEvent, ResearchResultArtifact
 from sourcetrace.domain.documents import DocumentCredibilityAssessment
 
 
@@ -31,17 +37,17 @@ class CaseRepository(Protocol):
     def save_continuity_pack(
         self,
         case_id: str,
-        continuity_pack: ContinuityPackOutcome,
-    ) -> ContinuityPackOutcome:
+        continuity_pack: "ContinuityPackOutcome",
+    ) -> "ContinuityPackOutcome":
         ...
 
-    def get_continuity_pack(self, case_id: str) -> ContinuityPackOutcome | None:
+    def get_continuity_pack(self, case_id: str) -> "ContinuityPackOutcome" | None:
         ...
 
     def get_latest_previous_continuity_pack(
         self,
         case_id: str,
-    ) -> ContinuityPackOutcome | None:
+    ) -> "ContinuityPackOutcome" | None:
         ...
 
     def clear_continuity_pack(self, case_id: str) -> None:
@@ -141,9 +147,55 @@ class CorePersistence:
     claims: ClaimRepository
 
 
+class ResearchJobRepository(Protocol):
+    """Persistence seam for research job metadata."""
+
+    def save_job(self, job: ResearchJob) -> ResearchJob:
+        ...
+
+    def get_job(self, job_id: str) -> ResearchJob | None:
+        ...
+
+    def list_jobs_for_owner(self, owner_id: str) -> tuple[ResearchJob, ...]:
+        ...
+
+
+class ResearchResultRepository(Protocol):
+    """Persistence seam for research result artifacts."""
+
+    def save_result(self, result: ResearchResultArtifact) -> ResearchResultArtifact:
+        ...
+
+    def get_result(self, job_id: str) -> ResearchResultArtifact | None:
+        ...
+
+
+class ResearchProgressEventStore(Protocol):
+    """Persistence seam for research progress event streams."""
+
+    def append_event(self, event: ResearchProgressEvent) -> ResearchProgressEvent:
+        ...
+
+    def list_events(self, job_id: str) -> tuple[ResearchProgressEvent, ...]:
+        ...
+
+
+@dataclass(frozen=True)
+class ResearchPersistence:
+    """Deep Research persistence seam bundle for explicit dependency wiring."""
+
+    jobs: ResearchJobRepository
+    results: ResearchResultRepository
+    progress: ResearchProgressEventStore
+
+
 __all__ = [
     "CaseRepository",
     "ClaimRepository",
     "CorePersistence",
     "DocumentRepository",
+    "ResearchJobRepository",
+    "ResearchPersistence",
+    "ResearchProgressEventStore",
+    "ResearchResultRepository",
 ]

@@ -27,18 +27,23 @@ def build_default_llm_config() -> SourceTraceLlmConfig:
         default_max_output_tokens=1200,
         profiles={
             "claim_extraction_default": LlmProfileConfig(
-                model="gpt-5.4",
+                model="azure/gpt-5.4",
                 temperature=0.0,
             ),
             "claim_normalization_default": LlmProfileConfig(
-                model="gpt-5.4",
+                model="azure/gpt-5.4",
                 temperature=0.0,
                 max_output_tokens=400,
             ),
             "credibility_assessment_default": LlmProfileConfig(
-                model="gpt-5.4",
+                model="azure/gpt-5.4",
                 temperature=0.2,
                 max_output_tokens=600,
+            ),
+            "research_synthesis_default": LlmProfileConfig(
+                model="azure/gpt-5.4",
+                temperature=0.2,
+                max_output_tokens=900,
             ),
         },
         tasks={
@@ -50,6 +55,9 @@ def build_default_llm_config() -> SourceTraceLlmConfig:
             ),
             "credibility_draft": LlmTaskConfig(
                 profile="credibility_assessment_default",
+            ),
+            "research_synthesis": LlmTaskConfig(
+                profile="research_synthesis_default",
             ),
         },
     )

@@ -298,7 +298,7 @@ def test_build_local_server_runtime_uses_litellm_completion_when_available(
         assert runtime.server.server_port == 8000
         assert captured["host"] == "127.0.0.1"
         assert captured["port"] == 8000
-        assert completion_kwargs["model"] == "gpt-5.4"
+        assert completion_kwargs["model"] == "azure/gpt-5.4"
         assert completion_kwargs["temperature"] == 0.2
         assert completion_kwargs["max_completion_tokens"] == 600
         assert completion_kwargs["api_key"] == "test-api-key"
@@ -654,7 +654,7 @@ def test_build_local_server_runtime_wires_runtime_config_into_delivery_and_serve
         assert runtime.server.server_port == 8000
         assert captured["host"] == "0.0.0.0"
         assert captured["port"] == 8002
-        assert completion_kwargs["model"] == "gpt-5.4"
+        assert completion_kwargs["model"] == "azure/gpt-5.4"
         assert completion_kwargs["temperature"] == 0.2
         assert completion_kwargs["max_completion_tokens"] == 600
         assert completion_kwargs["api_key"] == "test-api-key"

@@ -11,10 +11,10 @@ from wsgiref.simple_server import WSGIServer, make_server
 
 from sourcetrace.application import (
     ContinuityPackRequest,
-    build_continuity_pack_request_from_artifact,
-    render_continuity_pack_markdown,
     DocumentPreparationOutcome,
     DocumentPreparationRequest,
+    build_continuity_pack_request_from_artifact,
+    render_continuity_pack_markdown,
 )
 from sourcetrace.web.delivery import (
     SourceTraceDelivery,
@@ -44,7 +44,8 @@ from sourcetrace.web.delivery import (
     verification_outcome_to_payload,
     _escape_html,
 )
-from sourcetrace.application import DocumentPreparationRequest, SourceIngestionRequest
+from sourcetrace.application import SourceIngestionRequest
+from sourcetrace.domain.research import ResearchJob, ResearchProgressEvent, ResearchResultArtifact, ResearchSettings
 
 
 StartResponse = Callable[[str, list[tuple[str, str]]], None]
@@ -117,6 +118,8 @@ class SourceTraceWSGIApp:
         parts = _path_parts(path)
         if method == "GET" and path == "/":
             return self._render_home(start_response)
+        if method == "GET" and path == "/research":
+            return self._render_research_console(start_response)
         if method == "GET" and path == "/api/health":
             return _json_response(start_response, "200 OK", {"status": "ok"})
         if method == "GET" and path == "/api/ready":
@@ -207,6 +210,21 @@ class SourceTraceWSGIApp:
                 return self._list_claim_evidence(claim_id, start_response)
             if parts[3] == "review" and method == "GET":
                 return self._get_claim_review(claim_id, start_response)
+        if parts[:2] == ("api", "research"):
+            if len(parts) == 3 and parts[2] == "start" and method == "POST":
+                return self._start_research_job(environ, start_response)
+            if len(parts) == 3 and parts[2] == "jobs" and method == "GET":
+                return self._list_research_jobs(environ, start_response)
+            if len(parts) == 4 and parts[2] == "status" and method == "GET":
+                return self._get_research_status(parts[3], start_response)
+            if len(parts) == 4 and parts[2] == "stream" and method == "GET":
+                return self._stream_research_progress(parts[3], start_response)
+            if len(parts) == 4 and parts[2] == "result" and method == "GET":
+                return self._get_research_result(parts[3], start_response)
+            if len(parts) == 4 and parts[2] == "run" and method == "POST":
+                return self._run_research_job(parts[3], start_response)
+            if len(parts) == 4 and parts[2] == "cancel" and method == "POST":
+                return self._cancel_research_job(parts[3], start_response)
         if method == "POST" and path == "/api/verify":
             return self._verify_claim(environ, start_response)
         if method == "POST" and path == "/api/dev/documents":
@@ -247,6 +265,136 @@ class SourceTraceWSGIApp:
             "200 OK",
             _render_home_html(),
         )
+
+    def _render_research_console(
+        self,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        return _html_response(
+            start_response,
+            "200 OK",
+            _render_research_console_html(),
+        )
+
+    def _start_research_job(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        payload = _read_json(environ)
+        owner_id = _required_str(payload, "owner_id")
+        query = _required_str(payload, "query")
+        outcome = self.delivery.start_research_job(owner_id=owner_id, query=query)
+        if outcome is None:
+            return _json_response(start_response, "503 Service Unavailable", {"error": "research_unavailable", "status": "unavailable"})
+        return _json_response(
+            start_response,
+            "201 Created",
+            {
+                "status": "accepted",
+                "job": _research_job_to_payload(outcome.job),
+            },
+        )
+
+    def _list_research_jobs(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        owner_id = _required_query_param(environ, "owner_id")
+        outcome = self.delivery.list_research_jobs(owner_id)
+        if outcome is None:
+            return _json_response(start_response, "503 Service Unavailable", {"error": "research_unavailable", "status": "unavailable"})
+        return _json_response(
+            start_response,
+            "200 OK",
+            {"owner_id": owner_id, "jobs": [_research_job_to_payload(job) for job in outcome.jobs]},
+        )
+
+    def _get_research_status(
+        self,
+        job_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        outcome = self.delivery.get_research_job_status(job_id)
+        if outcome is None:
+            return _missing_response(start_response, "research_job", job_id)
+        return _json_response(
+            start_response,
+            "200 OK",
+            {
+                "job": _research_job_to_payload(outcome.job),
+                "progress": [_research_progress_to_payload(event) for event in outcome.progress],
+            },
+        )
+
+    def _stream_research_progress(
+        self,
+        job_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        outcome = self.delivery.get_research_job_status(job_id)
+        if outcome is None:
+            return _missing_response(start_response, "research_job", job_id)
+        events = [_research_progress_to_payload(event) for event in outcome.progress]
+        final_payload = {
+            "job": _research_job_to_payload(outcome.job),
+            "final": outcome.job.status.value in {"done", "error", "cancelled"},
+        }
+        return _sse_response(
+            start_response,
+            events=events,
+            final_payload=final_payload,
+        )
+
+    def _get_research_result(
+        self,
+        job_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        outcome = self.delivery.get_research_result(job_id)
+        if outcome is None:
+            return _missing_response(start_response, "research_job", job_id)
+        if outcome.result is None:
+            return _json_response(
+                start_response,
+                "202 Accepted",
+                {"status": "pending", "job": _research_job_to_payload(outcome.job), "result": None},
+            )
+        return _json_response(
+            start_response,
+            "200 OK",
+            {"status": "ready", "job": _research_job_to_payload(outcome.job), "result": _research_result_to_payload(outcome.result)},
+        )
+
+    def _run_research_job(
+        self,
+        job_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        result = self.delivery.run_research_job(job_id)
+        status_outcome = self.delivery.get_research_job_status(job_id)
+        if status_outcome is None:
+            return _missing_response(start_response, "research_job", job_id)
+        return _json_response(
+            start_response,
+            "200 OK",
+            {
+                "job": _research_job_to_payload(status_outcome.job),
+                "progress": [_research_progress_to_payload(event) for event in status_outcome.progress],
+                "result": _research_result_to_payload(result) if result is not None else None,
+            },
+        )
+
+    def _cancel_research_job(
+        self,
+        job_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        job = self.delivery.cancel_research_job(job_id)
+        if job is None:
+            return _missing_response(start_response, "research_job", job_id)
+        return _json_response(start_response, "200 OK", {"job": _research_job_to_payload(job)})
 
     def _verify_claim(
         self,
@@ -1055,6 +1203,83 @@ def run_local_server(
         raise
 
 
+
+
+def _research_settings_to_payload(settings: ResearchSettings) -> dict[str, object]:
+    return {
+        "max_rounds": settings.max_rounds,
+        "max_time_seconds": settings.max_time_seconds,
+        "search_provider": settings.search_provider,
+        "endpoint_id": settings.endpoint_id,
+        "model": settings.model,
+        "extraction_timeout_seconds": settings.extraction_timeout_seconds,
+        "extraction_concurrency": settings.extraction_concurrency,
+        "category": settings.category,
+    }
+
+
+def _research_job_to_payload(job: ResearchJob) -> dict[str, object]:
+    return {
+        "job_id": job.job_id,
+        "owner_id": job.owner_id,
+        "query": job.query,
+        "status": job.status.value,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+        "settings": _research_settings_to_payload(job.settings),
+        "error": job.error,
+    }
+
+
+def _research_progress_to_payload(event: ResearchProgressEvent) -> dict[str, object]:
+    return {
+        "job_id": event.job_id,
+        "status": event.status.value,
+        "phase": event.phase.value,
+        "round": event.round,
+        "queries": event.queries,
+        "query_preview": event.query_preview,
+        "total_sources": event.total_sources,
+        "new_sources": event.new_sources,
+        "total_findings": event.total_findings,
+        "url": event.url,
+        "title": event.title,
+        "message": event.message,
+        "final": event.final,
+    }
+
+
+def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, object]:
+    return {
+        "job_id": result.job_id,
+        "owner_id": result.owner_id,
+        "query": result.query,
+        "status": result.status.value,
+        "completion_mode": result.completion_mode.value,
+        "result": result.result,
+        "raw_report": result.raw_report,
+        "category": result.category,
+        "stats": {
+            "duration_seconds": result.stats.duration_seconds,
+            "rounds": result.stats.rounds,
+            "queries": result.stats.queries,
+            "urls": result.stats.urls,
+            "model": result.stats.model,
+            "search_providers": list(result.stats.search_providers),
+        },
+        "sources": [
+            {"url": source.url, "title": source.title, "image": source.image}
+            for source in result.sources
+        ],
+        "raw_findings": [
+            {"url": finding.url, "title": finding.title, "summary": finding.summary}
+            for finding in result.raw_findings
+        ],
+        "created_at": result.created_at,
+        "completed_at": result.completed_at,
+    }
+
 def _read_json(environ: WsgiEnviron) -> dict[str, object]:
     try:
         content_length = int(environ.get("CONTENT_LENGTH") or "0")
@@ -1172,6 +1397,31 @@ def _json_response(
     return [body]
 
 
+def _sse_response(
+    start_response: StartResponse,
+    *,
+    events: list[dict[str, object]],
+    final_payload: dict[str, object],
+) -> Iterable[bytes]:
+    frames: list[bytes] = []
+    for event in events:
+        payload = json.dumps(event, sort_keys=True)
+        frames.append(f"event: progress\ndata: {payload}\n\n".encode("utf-8"))
+    payload = json.dumps(final_payload, sort_keys=True)
+    frames.append(f"event: done\ndata: {payload}\n\n".encode("utf-8"))
+    body = b"".join(frames)
+    start_response(
+        "200 OK",
+        [
+            ("Content-Type", "text/event-stream; charset=utf-8"),
+            ("Cache-Control", "no-cache"),
+            ("Connection", "keep-alive"),
+            ("Content-Length", str(len(body))),
+        ],
+    )
+    return [body]
+
+
 def _html_response(
     start_response: StartResponse,
     status: str,
@@ -1229,7 +1479,20 @@ def _render_home_html() -> str:
         "<html><head><title>SourceTrace Local</title></head>"
         "<body>"
         "<h1>SourceTrace local server</h1>"
-        "<p>Available routes:</p>"
+        '<p><a href="/research">Open Research console</a></p>'
+        "<h2>Research UI v1</h2>"
+        "<p>Minimal read-path for Deep Research progress and result inspection.</p>"
+        "<ul>"
+        "<li><code>POST /api/research/start</code></li>"
+        "<li><code>GET /api/research/jobs?owner_id=...</code></li>"
+        "<li><code>GET /api/research/status/{job_id}</code></li>"
+        "<li><code>GET /api/research/stream/{job_id}</code></li>"
+        "<li><code>GET /api/research/result/{job_id}</code></li>"
+        "<li><code>POST /api/research/run/{job_id}</code></li>"
+        "<li><code>POST /api/research/cancel/{job_id}</code></li>"
+        "</ul>"
+        "<p>Suggested operator flow: start a job, run it, read status/stream/result, verify the same state is visible through the API and this UI route list.</p>"
+        "<h2>Available routes</h2>"
         "<ul>"
         "<li><code>GET /api/health</code></li>"
         "<li><code>GET /api/ready</code></li>"
@@ -1262,6 +1525,248 @@ def _render_home_html() -> str:
         "<p>Use the API endpoints or the case route for smoke testing.</p>"
         "</body></html>"
     )
+
+
+def _render_research_console_html() -> str:
+    return """<!doctype html>
+<html>
+  <head>
+    <title>SourceTrace Research Console</title>
+    <style>
+      body { font-family: sans-serif; margin: 2rem; max-width: 1100px; }
+      label { display: block; margin-top: 0.75rem; font-weight: 600; }
+      input, textarea, button { font: inherit; }
+      input, textarea { width: 100%; max-width: 920px; }
+      textarea { min-height: 8rem; }
+      .row { margin-top: 1rem; }
+      .mono { font-family: monospace; white-space: pre-wrap; background: #f6f6f6; padding: 0.75rem; border-radius: 6px; }
+      .warn { background: #fff7e6; }
+      .ok { background: #eefbf1; }
+      .muted { color: #555; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
+      button { margin-right: 0.5rem; margin-top: 0.5rem; }
+      ul.clean { padding-left: 1rem; }
+      .job-link { display: inline-block; margin-top: 0.25rem; cursor: pointer; color: #0b57d0; text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <h1>Research console v3</h1>
+    <p class="muted">Interactive operator console with polling fallback and readable stream/result views.</p>
+
+    <div class="card">
+      <div class="row">
+        <label for="owner_id">Owner id</label>
+        <input id="owner_id" value="user-1" />
+      </div>
+
+      <div class="row">
+        <label for="query">Query</label>
+        <textarea id="query">deep research architecture</textarea>
+      </div>
+
+      <div class="row">
+        <button id="start_btn">Start job</button>
+        <button id="run_btn">Run job</button>
+        <button id="refresh_btn">Refresh status</button>
+        <button id="result_btn">Load result</button>
+        <button id="jobs_btn">List jobs</button>
+      </div>
+
+      <div class="row">
+        <label for="job_id">Job id</label>
+        <input id="job_id" placeholder="job id appears here after start" />
+      </div>
+    </div>
+
+    <div class="grid row">
+      <div class="card">
+        <h2>Status</h2>
+        <div id="status_box" class="mono">No job yet.</div>
+      </div>
+      <div class="card">
+        <h2>Stream</h2>
+        <div id="stream_box" class="mono">No stream yet.</div>
+      </div>
+    </div>
+
+    <div class="grid row">
+      <div class="card">
+        <h2>Result</h2>
+        <div id="result_banner" class="mono">No result yet.</div>
+        <div class="row">
+          <button id="preview_btn">Markdown preview</button>
+          <button id="raw_btn">Raw JSON</button>
+        </div>
+        <div id="result_preview" class="mono">No result yet.</div>
+        <div id="result_box" class="mono" style="display:none;">No result yet.</div>
+      </div>
+      <div class="card">
+        <h2>Jobs</h2>
+        <div id="jobs_box" class="mono">No jobs loaded.</div>
+        <div id="jobs_list"></div>
+      </div>
+    </div>
+
+    <p><a href="/">Back to home</a></p>
+
+    <script>
+      const ownerInput = document.getElementById('owner_id');
+      const queryInput = document.getElementById('query');
+      const jobInput = document.getElementById('job_id');
+      const statusBox = document.getElementById('status_box');
+      const streamBox = document.getElementById('stream_box');
+      const resultBox = document.getElementById('result_box');
+      const resultPreview = document.getElementById('result_preview');
+      const resultBanner = document.getElementById('result_banner');
+      const jobsBox = document.getElementById('jobs_box');
+      const jobsList = document.getElementById('jobs_list');
+      let refreshTimer = null;
+
+      function setBox(el, value, cls='mono') {
+        el.className = cls;
+        el.textContent = value;
+      }
+
+      function renderStreamText(payload) {
+        const progress = Array.isArray(payload.progress) ? payload.progress : [];
+        if (!progress.length) return 'No progress events yet.';
+        return progress.map((event) => {
+          const bits = [event.phase, event.status];
+          if (event.round) bits.push(`round=${event.round}`);
+          if (event.total_sources) bits.push(`sources=${event.total_sources}`);
+          if (event.total_findings) bits.push(`findings=${event.total_findings}`);
+          if (event.message) bits.push(`msg=${event.message}`);
+          return bits.join(' | ');
+        }).join('\n');
+      }
+
+      function renderJobsList(payload) {
+        const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+        jobsList.innerHTML = '';
+        for (const job of jobs) {
+          const item = document.createElement('div');
+          const link = document.createElement('span');
+          link.className = 'job-link';
+          link.textContent = `${job.job_id} — ${job.status}`;
+          link.onclick = async () => {
+            jobInput.value = job.job_id;
+            await refreshStatus();
+            await loadResult();
+          };
+          item.appendChild(link);
+          jobsList.appendChild(item);
+        }
+      }
+
+      async function jsonRequest(url, options={}) {
+        const response = await fetch(url, options);
+        const text = await response.text();
+        let payload;
+        try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
+        return { response, payload };
+      }
+
+      async function startJob() {
+        const { payload } = await jsonRequest('/api/research/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner_id: ownerInput.value.trim(), query: queryInput.value.trim() }),
+        });
+        if (payload.job && payload.job.job_id) {
+          jobInput.value = payload.job.job_id;
+          await refreshStatus();
+          await listJobs();
+          startAutoRefresh();
+        }
+      }
+
+      async function runJob() {
+        const jobId = jobInput.value.trim();
+        if (!jobId) return;
+        await jsonRequest(`/api/research/run/${jobId}`, { method: 'POST' });
+        await refreshStatus();
+        await readStream();
+        await loadResult();
+        await listJobs();
+        startAutoRefresh();
+      }
+
+      async function refreshStatus() {
+        const jobId = jobInput.value.trim();
+        if (!jobId) return;
+        const { payload } = await jsonRequest(`/api/research/status/${jobId}`);
+        setBox(statusBox, JSON.stringify(payload, null, 2));
+        setBox(streamBox, renderStreamText(payload));
+        const status = payload.job && payload.job.status ? payload.job.status : '';
+        if (['done', 'error', 'cancelled'].includes(status)) {
+          stopAutoRefresh();
+        }
+      }
+
+      async function loadResult() {
+        const jobId = jobInput.value.trim();
+        if (!jobId) return;
+        const { payload } = await jsonRequest(`/api/research/result/${jobId}`);
+        const completion = payload.result && payload.result.completion_mode ? payload.result.completion_mode : 'pending';
+        const bannerClass = completion === 'partial_error' ? 'mono warn' : 'mono ok';
+        setBox(resultBanner, `completion_mode: ${completion}`, bannerClass);
+        const markdown = payload.result && payload.result.result ? payload.result.result : 'No result yet.';
+        setBox(resultPreview, markdown);
+        setBox(resultBox, JSON.stringify(payload, null, 2));
+      }
+
+      async function listJobs() {
+        const ownerId = ownerInput.value.trim();
+        if (!ownerId) return;
+        const { payload } = await jsonRequest(`/api/research/jobs?owner_id=${encodeURIComponent(ownerId)}`);
+        setBox(jobsBox, JSON.stringify(payload, null, 2));
+        renderJobsList(payload);
+      }
+
+      async function readStream() {
+        const jobId = jobInput.value.trim();
+        if (!jobId) return;
+        try {
+          const response = await fetch(`/api/research/stream/${jobId}`);
+          const text = await response.text();
+          setBox(streamBox, text);
+        } catch {
+          await refreshStatus();
+        }
+      }
+
+      function startAutoRefresh() {
+        stopAutoRefresh();
+        refreshTimer = window.setInterval(async () => {
+          await refreshStatus();
+        }, 1500);
+      }
+
+      function stopAutoRefresh() {
+        if (refreshTimer !== null) {
+          window.clearInterval(refreshTimer);
+          refreshTimer = null;
+        }
+      }
+
+      document.getElementById('start_btn').addEventListener('click', startJob);
+      document.getElementById('run_btn').addEventListener('click', runJob);
+      document.getElementById('refresh_btn').addEventListener('click', refreshStatus);
+      document.getElementById('result_btn').addEventListener('click', loadResult);
+      document.getElementById('jobs_btn').addEventListener('click', listJobs);
+      document.getElementById('preview_btn').addEventListener('click', () => {
+        resultPreview.style.display = 'block';
+        resultBox.style.display = 'none';
+      });
+      document.getElementById('raw_btn').addEventListener('click', () => {
+        resultPreview.style.display = 'none';
+        resultBox.style.display = 'block';
+      });
+    </script>
+  </body>
+</html>
+"""
 
 
 __all__ = [

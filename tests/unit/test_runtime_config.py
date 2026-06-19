@@ -33,18 +33,23 @@ def test_build_default_llm_config_returns_expected_bootstrap_and_task_defaults(
     assert config.default_max_output_tokens == 1200
     assert config.profiles == {
         "claim_extraction_default": LlmProfileConfig(
-            model="gpt-5.4",
+            model="azure/gpt-5.4",
             temperature=0.0,
         ),
         "claim_normalization_default": LlmProfileConfig(
-            model="gpt-5.4",
+            model="azure/gpt-5.4",
             temperature=0.0,
             max_output_tokens=400,
         ),
         "credibility_assessment_default": LlmProfileConfig(
-            model="gpt-5.4",
+            model="azure/gpt-5.4",
             temperature=0.2,
             max_output_tokens=600,
+        ),
+        "research_synthesis_default": LlmProfileConfig(
+            model="azure/gpt-5.4",
+            temperature=0.2,
+            max_output_tokens=900,
         ),
     }
     assert config.tasks == {
@@ -56,5 +61,8 @@ def test_build_default_llm_config_returns_expected_bootstrap_and_task_defaults(
         ),
         "credibility_draft": LlmTaskConfig(
             profile="credibility_assessment_default",
+        ),
+        "research_synthesis": LlmTaskConfig(
+            profile="research_synthesis_default",
         ),
     }

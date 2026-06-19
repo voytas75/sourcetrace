@@ -12,19 +12,19 @@ from sourcetrace.application import (
     CredibilityAssessmentExecution,
     CredibilityAssessmentOutcome,
     CredibilityAssessmentRequest,
+    build_research_execution,
+    build_search_adapter,
 )
 from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk, DocumentCredibilityAssessment
 from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance, VerificationVerdict
-
-_DEFAULT_WWW_HOST = "127.0.0.1"
-_DEFAULT_WWW_PORT = 8000
-
-from sourcetrace.llm.errors import LlmConfigurationError
-
 from sourcetrace.llm import build_llm_runtime
+from sourcetrace.llm.errors import LlmConfigurationError
 from sourcetrace.runtime_config import build_default_llm_config
 from sourcetrace.web.api import run_local_server
 from sourcetrace.web.delivery import create_default_delivery
+
+_DEFAULT_WWW_HOST = "127.0.0.1"
+_DEFAULT_WWW_PORT = 8000
 
 
 def _missing_litellm_completion(**_: Any) -> dict[str, Any]:
@@ -83,6 +83,18 @@ def _resolve_server_bind() -> tuple[str, int]:
     except ValueError as exc:
         raise ValueError("SOURCETRACE_WWW_PORT must be an integer.") from exc
     return host, port
+
+
+def _resolve_searxng_base_url() -> str | None:
+    raw = environ.get("SOURCETRACE_SEARXNG_BASE_URL", "").strip()
+    return raw or None
+
+
+def _resolve_research_persistence_root_dir() -> Path | None:
+    raw = environ.get("SOURCETRACE_RESEARCH_DATA_DIR", "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path("data/research").resolve()
 
 
 def _resolve_continuity_pack_root_dir() -> Path | None:
@@ -210,6 +222,45 @@ def build_local_server_runtime(
         if _use_smoke_credibility_stub()
         else None
     )
+    searxng_base_url = _resolve_searxng_base_url()
+    research = build_research_execution()
+    if searxng_base_url:
+        from sourcetrace.application import (
+            FakeResearchWorker,
+            LlmResearchSynthesizer,
+            ResearchExecution,
+            ResearchJobManager,
+        )
+        from sourcetrace.storage import (
+            create_file_backed_research_persistence,
+            create_in_memory_research_persistence,
+            recover_interrupted_research_jobs,
+        )
+
+        research_root = _resolve_research_persistence_root_dir()
+        research_persistence = (
+            create_file_backed_research_persistence(research_root)
+            if research_root is not None
+            else create_in_memory_research_persistence()
+        )
+        if research_root is not None:
+            recover_interrupted_research_jobs(research_root)
+            research_persistence = create_file_backed_research_persistence(research_root)
+        research_manager = ResearchJobManager(research_persistence)
+        research_synthesizer = LlmResearchSynthesizer(llm_runtime.research_synthesis)
+        research_worker = FakeResearchWorker(
+            research_persistence,
+            search=build_search_adapter(searxng_base_url=searxng_base_url),
+            synthesize=research_synthesizer,
+        )
+        research = ResearchExecution(
+            start_job=research_manager.start_job,
+            get_job_status=research_manager.get_job_status,
+            cancel_job=research_manager.cancel_job,
+            get_job_result=research_manager.get_job_result,
+            list_jobs=research_manager.list_jobs,
+            run_job=research_worker,
+        )
     delivery = create_default_delivery(
         credibility_draft=None if credibility_assessment is not None else llm_runtime.credibility_draft,
         credibility_assessment=credibility_assessment,
@@ -217,6 +268,9 @@ def build_local_server_runtime(
         claim_normalization=llm_runtime.claim_normalization,
         claim_extraction_runtime=claim_extraction_runtime,
         continuity_pack_root_dir=_resolve_continuity_pack_root_dir(),
+        research=research,
+        research_search_backend=("searxng" if searxng_base_url else "stub"),
+        research_search_configured=bool(searxng_base_url),
     )
     host, port = _resolve_server_bind()
     return run_local_server(host=host, port=port, delivery=delivery)

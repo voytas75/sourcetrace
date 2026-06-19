@@ -1,0 +1,753 @@
+"""Runtime orchestration for the Deep Research lifecycle and bounded engine loop."""
+
+from collections.abc import Callable
+from urllib.error import URLError
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from sourcetrace.application.research import (
+    ExtractedFinding,
+    ResearchExecution,
+    ResearchExtractor,
+    ResearchJobListOutcome,
+    ResearchJobResultOutcome,
+    ResearchJobStartOutcome,
+    ResearchJobStartRequest,
+    ResearchJobStatusOutcome,
+    ResearchPlan,
+    ResearchPlanner,
+    ResearchQueryGenerator,
+    ResearchSearchAdapter,
+    ResearchSynthesizer,
+    SearchHit,
+    SynthesisResult,
+)
+from sourcetrace.domain.research import (
+    ResearchCompletionMode,
+    ResearchFinding,
+    ResearchJob,
+    ResearchJobStatus,
+    ResearchPhase,
+    ResearchProgressEvent,
+    ResearchResultArtifact,
+    ResearchSource,
+    ResearchStats,
+)
+from sourcetrace.storage.research import ResearchPersistence, create_in_memory_research_persistence
+
+
+class StubResearchPlanner:
+    """Deterministic planner stub for the first engine-loop slice."""
+
+    def __call__(self, query: str) -> ResearchPlan:
+        return ResearchPlan(
+            objective=query,
+            subquestions=(
+                f"What is the system shape of {query}?",
+                f"What runtime rails matter for {query}?",
+            ),
+        )
+
+
+class StubQueryGenerator:
+    """Deterministic query generator stub for the first engine-loop slice."""
+
+    def __call__(self, plan: ResearchPlan, *, round_number: int) -> tuple[str, ...]:
+        if round_number == 1:
+            return (
+                plan.objective,
+                f"{plan.objective} architecture",
+            )
+        return (
+            f"{plan.objective} stop rails",
+            f"{plan.objective} result artifact",
+        )
+
+
+
+from urllib.parse import quote_plus, urlencode
+from urllib.request import Request, urlopen
+
+
+
+
+class ResearchSearchError(RuntimeError):
+    """Raised when a provider-backed search adapter cannot return usable results."""
+
+
+class SearxNGSearchAdapter:
+    """HTTP-backed SearxNG adapter normalized to ResearchSearchAdapter output."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        count: int = 3,
+        language: str = "en",
+        timeout_seconds: int = 10,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.count = count
+        self.language = language
+        self.timeout_seconds = timeout_seconds
+
+    def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+        del round_number
+        hits: list[SearchHit] = []
+        seen: set[str] = set()
+        try:
+            for query in queries:
+                for item in self._fetch(query):
+                    url = str(item.get("url") or "").strip()
+                    title = str(item.get("title") or query).strip() or query
+                    snippet = str(item.get("content") or item.get("snippet") or "").strip()
+                    if not url or url in seen:
+                        continue
+                    seen.add(url)
+                    hits.append(SearchHit(url=url, title=title, snippet=snippet))
+        except (OSError, TimeoutError, URLError, ValueError) as exc:
+            raise ResearchSearchError(f"SearxNG search failed: {type(exc).__name__}: {exc}") from exc
+        return tuple(hits)
+
+    def _fetch(self, query: str) -> list[dict[str, object]]:
+        params = urlencode({
+            "q": query,
+            "format": "json",
+            "language": self.language,
+        })
+        request = Request(
+            f"{self.base_url}/search?{params}",
+            headers={"Accept": "application/json", "User-Agent": "SourceTrace/0.1"},
+        )
+        with urlopen(request, timeout=self.timeout_seconds) as response:
+            payload = __import__("json").loads(response.read().decode("utf-8"))
+        results = payload.get("results")
+        if not isinstance(results, list):
+            return []
+        return [item for item in results[: self.count] if isinstance(item, dict)]
+
+class WebSearchBackedSearchAdapter:
+    """Small real search adapter using a caller-supplied web search function."""
+
+    def __init__(
+        self,
+        search_web: Callable[..., list[dict[str, object]]],
+        *,
+        count: int = 3,
+    ) -> None:
+        self.search_web = search_web
+        self.count = count
+
+    def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+        del round_number
+        hits: list[SearchHit] = []
+        seen: set[str] = set()
+        for query in queries:
+            for item in self.search_web(query, count=self.count):
+                url = str(item.get("url") or "").strip()
+                title = str(item.get("title") or query).strip() or query
+                snippet = str(item.get("snippet") or item.get("description") or "").strip()
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                hits.append(SearchHit(url=url, title=title, snippet=snippet))
+        return tuple(hits)
+
+
+def build_search_adapter(
+    *,
+    search_web: Callable[..., list[dict[str, object]]] | None = None,
+    searxng_base_url: str | None = None,
+) -> ResearchSearchAdapter:
+    """Build the first real search adapter when a search callable is provided."""
+
+    return build_provider_search_adapter(
+        search_web=search_web,
+        searxng_base_url=searxng_base_url,
+    )
+
+
+
+@dataclass(frozen=True)
+class SearchProviderBridge:
+    """Thin runtime bridge for provider-backed web search."""
+
+    provider: str = "web_search"
+    default_count: int = 3
+
+    def search(self, search_web: Callable[..., list[dict[str, object]]], query: str) -> list[dict[str, object]]:
+        return search_web(query, count=self.default_count)
+
+
+def build_provider_search_adapter(
+    *,
+    search_web: Callable[..., list[dict[str, object]]] | None = None,
+    bridge: SearchProviderBridge | None = None,
+    searxng_base_url: str | None = None,
+) -> ResearchSearchAdapter:
+    """Build a provider-backed search adapter when the runtime supplies web search."""
+
+    if searxng_base_url:
+        return SearxNGSearchAdapter(base_url=searxng_base_url)
+    if search_web is None:
+        return StubSearchAdapter()
+    bridge = bridge or SearchProviderBridge()
+
+    def provider_search(query: str, *, count: int) -> list[dict[str, object]]:
+        del count
+        return bridge.search(search_web, query)
+
+    return WebSearchBackedSearchAdapter(provider_search, count=bridge.default_count)
+
+class LlmResearchSynthesizer:
+    """Text-generation-backed synthesizer for higher-quality research summaries."""
+
+    def __init__(self, synthesize_text: Callable[[str], object]) -> None:
+        self.synthesize_text = synthesize_text
+
+    def __call__(
+        self,
+        *,
+        query: str,
+        round_number: int,
+        findings: tuple[ExtractedFinding, ...],
+        previous_report: str | None,
+    ) -> SynthesisResult:
+        evidence = "\n".join(
+            f"- {finding.title}: {finding.summary}" for finding in _top_findings(findings)
+        ) or "- No useful findings in this round."
+        prompt = (
+            f"Write a concise Deep Research report update.\n"
+            f"Query: {query}\n"
+            f"Round: {round_number}\n"
+            f"Previous report: {previous_report or 'NONE'}\n"
+            f"Evidence:\n{evidence}\n\n"
+            "Return plain markdown with sections: Current answer, Evidence, Next step. Keep it compact and operator-facing."
+        )
+        result = self.synthesize_text(prompt)
+        text = getattr(result, 'text', '') if result is not None else ''
+        report = text.strip() or StubSynthesizer()(
+            query=query,
+            round_number=round_number,
+            findings=findings,
+            previous_report=previous_report,
+        ).report_markdown
+        answer_summary = report.splitlines()[2] if len(report.splitlines()) >= 3 else _summary_line(query=query, findings=_top_findings(findings))
+        return SynthesisResult(
+            report_markdown=report,
+            answer_summary=answer_summary,
+            should_continue=round_number < 2 and len(findings) > 0,
+        )
+
+
+class StubSearchAdapter:
+    """Deterministic search adapter stub with normalized hits."""
+
+    def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+        if round_number == 1:
+            return (
+                SearchHit(
+                    url="https://example.test/odysseus-architecture",
+                    title="Odysseus Deep Research Architecture",
+                    snippet="Async jobs, progress streaming, and persisted artifacts.",
+                ),
+                SearchHit(
+                    url="https://example.test/source-trace-design",
+                    title="SourceTrace Deep Research Design",
+                    snippet="Lifecycle-first implementation reduces rework.",
+                ),
+            )
+        return (
+            SearchHit(
+                url="https://example.test/stop-rails",
+                title="Deterministic Stop Rails",
+                snippet="Bound the loop with max rounds and low-yield guards.",
+            ),
+        )
+
+
+class StubExtractor:
+    """Deterministic extractor with light normalization and evidence shaping."""
+
+    def __call__(self, hits: tuple[SearchHit, ...]) -> tuple[ExtractedFinding, ...]:
+        findings: list[ExtractedFinding] = []
+        for hit in hits:
+            summary = _normalize_snippet(hit.snippet)
+            if not summary:
+                continue
+            findings.append(
+                ExtractedFinding(
+                    url=hit.url,
+                    title=hit.title.strip() or hit.url,
+                    summary=summary,
+                )
+            )
+        return tuple(findings)
+
+
+class StubSynthesizer:
+    """Deterministic synthesizer that writes a more useful operator-facing report."""
+
+    def __call__(
+        self,
+        *,
+        query: str,
+        round_number: int,
+        findings: tuple[ExtractedFinding, ...],
+        previous_report: str | None,
+    ) -> SynthesisResult:
+        top_findings = _top_findings(findings)
+        bullets = "\n".join(
+            f"- {finding.title}: {finding.summary}" for finding in top_findings
+        ) or "- No useful findings in this round."
+        summary_line = _summary_line(query=query, findings=top_findings)
+        if previous_report:
+            report = previous_report + f"\n\n## Round {round_number}\n{summary_line}\n\n### Evidence\n{bullets}"
+        else:
+            report = (
+                f"# Deep Research: {query}\n\n"
+                f"## Current answer\n{summary_line}\n\n"
+                f"## Round {round_number}\n### Evidence\n{bullets}"
+            )
+        return SynthesisResult(
+            report_markdown=report,
+            answer_summary=summary_line,
+            should_continue=round_number < 2 and len(top_findings) > 0,
+        )
+
+
+def _normalize_snippet(snippet: str) -> str:
+    compact = " ".join(snippet.split())
+    if not compact:
+        return ""
+    compact = compact.strip(" -:;,.	")
+    if len(compact) > 220:
+        compact = compact[:217].rstrip() + "..."
+    return compact
+
+
+def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5) -> tuple[ExtractedFinding, ...]:
+    ranked = sorted(
+        findings,
+        key=lambda finding: (len(finding.summary), len(finding.title)),
+        reverse=True,
+    )
+    return tuple(ranked[:limit])
+
+
+def _summary_line(*, query: str, findings: tuple[ExtractedFinding, ...]) -> str:
+    if not findings:
+        return f"No strong evidence gathered yet for: {query}."
+    titles = ", ".join(finding.title for finding in findings[:3])
+    return (
+        f"Current evidence suggests the research topic '{query}' is best explained through "
+        f"{titles}."
+    )
+
+class DeterministicStopRails:
+    """Bounded stop-rail evaluator for the first engine-loop slice."""
+
+    def __init__(
+        self,
+        *,
+        min_rounds: int = 2,
+        max_rounds: int = 6,
+        max_urls_total: int = 8,
+        max_consecutive_empty_rounds: int = 2,
+    ) -> None:
+        self.min_rounds = min_rounds
+        self.max_rounds = max_rounds
+        self.max_urls_total = max_urls_total
+        self.max_consecutive_empty_rounds = max_consecutive_empty_rounds
+
+    def should_stop(
+        self,
+        *,
+        round_number: int,
+        total_urls: int,
+        consecutive_empty_rounds: int,
+        llm_says_continue: bool,
+    ) -> bool:
+        if round_number >= self.max_rounds:
+            return True
+        if total_urls >= self.max_urls_total:
+            return True
+        if consecutive_empty_rounds >= self.max_consecutive_empty_rounds:
+            return True
+        if round_number < self.min_rounds:
+            return False
+        return not llm_says_continue
+
+
+class ResearchJobManager:
+    """Small in-process lifecycle manager for the Deep Research slice."""
+
+    def __init__(self, persistence: ResearchPersistence) -> None:
+        self.persistence = persistence
+
+    def start_job(self, request: ResearchJobStartRequest) -> ResearchJobStartOutcome:
+        now = _utcnow()
+        job = ResearchJob(
+            job_id=f"rj-{uuid4().hex[:12]}",
+            owner_id=request.owner_id,
+            query=request.query,
+            status=ResearchJobStatus.QUEUED,
+            created_at=now,
+            settings=request.settings,
+        )
+        self.persistence.jobs.save_job(job)
+        return ResearchJobStartOutcome(request=request, job=job)
+
+    def get_job_status(self, job_id: str) -> ResearchJobStatusOutcome | None:
+        job = self.persistence.jobs.get_job(job_id)
+        if job is None:
+            return None
+        return ResearchJobStatusOutcome(job=job, progress=self.persistence.progress.list_events(job_id))
+
+    def cancel_job(self, job_id: str) -> ResearchJob | None:
+        job = self.persistence.jobs.get_job(job_id)
+        if job is None:
+            return None
+        if job.status in {ResearchJobStatus.DONE, ResearchJobStatus.ERROR, ResearchJobStatus.CANCELLED}:
+            return job
+        cancelled = replace(job, status=ResearchJobStatus.CANCELLED, completed_at=_utcnow())
+        self.persistence.jobs.save_job(cancelled)
+        self.persistence.progress.append_event(
+            ResearchProgressEvent(
+                job_id=job_id,
+                status=ResearchJobStatus.CANCELLED,
+                phase=ResearchPhase.WARNING,
+                message="Research job cancelled.",
+                final=True,
+            )
+        )
+        return cancelled
+
+    def get_job_result(self, job_id: str) -> ResearchJobResultOutcome | None:
+        job = self.persistence.jobs.get_job(job_id)
+        if job is None:
+            return None
+        return ResearchJobResultOutcome(job=job, result=self.persistence.results.get_result(job_id))
+
+    def list_jobs(self, owner_id: str) -> ResearchJobListOutcome:
+        return ResearchJobListOutcome(owner_id=owner_id, jobs=self.persistence.jobs.list_jobs_for_owner(owner_id))
+
+
+class FakeResearchWorker:
+    """Deterministic worker with a bounded iterative engine loop."""
+
+    def __init__(
+        self,
+        persistence: ResearchPersistence,
+        *,
+        planner: ResearchPlanner | None = None,
+        query_generator: ResearchQueryGenerator | None = None,
+        search: ResearchSearchAdapter | None = None,
+        extract: ResearchExtractor | None = None,
+        synthesize: ResearchSynthesizer | None = None,
+        stop_rails: DeterministicStopRails | None = None,
+    ) -> None:
+        self.persistence = persistence
+        self.planner = planner or StubResearchPlanner()
+        self.query_generator = query_generator or StubQueryGenerator()
+        self.search = search or build_search_adapter()
+        self.extract = extract or StubExtractor()
+        self.synthesize = synthesize or StubSynthesizer()
+        self.stop_rails = stop_rails or DeterministicStopRails()
+
+    def __call__(self, job_id: str) -> ResearchResultArtifact | None:
+        job = self.persistence.jobs.get_job(job_id)
+        if job is None:
+            return None
+        if job.status == ResearchJobStatus.CANCELLED:
+            return self.persistence.results.get_result(job_id)
+        if job.status == ResearchJobStatus.DONE:
+            return self.persistence.results.get_result(job_id)
+
+        started = replace(job, status=ResearchJobStatus.PROBING, started_at=_utcnow())
+        self.persistence.jobs.save_job(started)
+        self._emit(job_id, ResearchJobStatus.PROBING, ResearchPhase.PROBING, message="Probing runtime configuration.")
+
+        running = replace(started, status=ResearchJobStatus.RUNNING)
+        self.persistence.jobs.save_job(running)
+
+        plan = self.planner(running.query)
+        self._emit(job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.subquestions)} subquestion(s).")
+
+        round_number = 0
+        total_urls = 0
+        consecutive_empty_rounds = 0
+        all_hits: list[SearchHit] = []
+        all_findings: list[ExtractedFinding] = []
+        evolving_report: str | None = None
+
+        while True:
+            round_number += 1
+            current = self.persistence.jobs.get_job(job_id)
+            if current is not None and current.status == ResearchJobStatus.CANCELLED:
+                return self.persistence.results.get_result(job_id)
+
+            queries = self.query_generator(plan, round_number=round_number)
+            self._emit(
+                job_id,
+                ResearchJobStatus.RUNNING,
+                ResearchPhase.SEARCHING,
+                round=round_number,
+                queries=len(queries),
+                query_preview=queries[0] if queries else None,
+                message=f"Running {len(queries)} search querie(s).",
+            )
+            try:
+                hits = self.search(queries, round_number=round_number)
+            except ResearchSearchError as exc:
+                self._emit(
+                    job_id,
+                    ResearchJobStatus.RUNNING,
+                    ResearchPhase.WARNING,
+                    round=round_number,
+                    total_sources=len(all_hits),
+                    total_findings=len(all_findings),
+                    message=str(exc),
+                )
+                if evolving_report or all_findings:
+                    return self.save_partial_result(
+                        job_id,
+                        mode=ResearchCompletionMode.PARTIAL_ERROR,
+                    )
+                self._emit(
+                    job_id,
+                    ResearchJobStatus.ERROR,
+                    ResearchPhase.ERROR,
+                    round=round_number,
+                    message="Research job failed before any usable findings were collected.",
+                    final=True,
+                )
+                errored = replace(running, status=ResearchJobStatus.ERROR, completed_at=_utcnow(), error=str(exc))
+                self.persistence.jobs.save_job(errored)
+                return None
+            new_hits = self._dedupe_hits(all_hits, hits)
+            all_hits.extend(new_hits)
+            total_urls = len(all_hits)
+            if new_hits:
+                consecutive_empty_rounds = 0
+            else:
+                consecutive_empty_rounds += 1
+
+            self._emit(
+                job_id,
+                ResearchJobStatus.RUNNING,
+                ResearchPhase.READING,
+                round=round_number,
+                total_sources=total_urls,
+                new_sources=len(new_hits),
+                url=new_hits[0].url if new_hits else None,
+                title=new_hits[0].title if new_hits else None,
+                message=f"Normalized {len(new_hits)} new source(s).",
+            )
+
+            findings = self.extract(tuple(new_hits))
+            all_findings.extend(findings)
+            self._emit(
+                job_id,
+                ResearchJobStatus.RUNNING,
+                ResearchPhase.ANALYZING,
+                round=round_number,
+                total_sources=total_urls,
+                total_findings=len(all_findings),
+                message=f"Extracted {len(findings)} finding(s) this round.",
+            )
+
+            synthesis = self.synthesize(
+                query=running.query,
+                round_number=round_number,
+                findings=findings,
+                previous_report=evolving_report,
+            )
+            evolving_report = synthesis.report_markdown
+            self._emit(
+                job_id,
+                ResearchJobStatus.RUNNING,
+                ResearchPhase.WRITING,
+                round=round_number,
+                total_sources=total_urls,
+                total_findings=len(all_findings),
+                message=synthesis.answer_summary,
+            )
+
+            if self.stop_rails.should_stop(
+                round_number=round_number,
+                total_urls=total_urls,
+                consecutive_empty_rounds=consecutive_empty_rounds,
+                llm_says_continue=synthesis.should_continue,
+            ):
+                break
+
+        completed_at = _utcnow()
+        result = ResearchResultArtifact(
+            job_id=job_id,
+            owner_id=running.owner_id,
+            query=running.query,
+            status=ResearchJobStatus.DONE,
+            completion_mode=ResearchCompletionMode.FULL,
+            result=evolving_report or """# Deep Research
+
+No report was produced.""",
+            raw_report=evolving_report or "",
+            category=running.settings.category,
+            stats=ResearchStats(
+                duration_seconds=1,
+                rounds=round_number,
+                queries=2 * round_number,
+                urls=len(all_hits),
+                model=running.settings.model,
+                search_providers=((running.settings.search_provider,) if running.settings.search_provider else ("stub-search",)),
+            ),
+            sources=tuple(ResearchSource(url=hit.url, title=hit.title) for hit in all_hits),
+            raw_findings=tuple(ResearchFinding(url=finding.url, title=finding.title, summary=finding.summary) for finding in all_findings),
+            created_at=running.created_at,
+            completed_at=completed_at,
+        )
+        self.persistence.results.save_result(result)
+        done = replace(running, status=ResearchJobStatus.DONE, completed_at=completed_at)
+        self.persistence.jobs.save_job(done)
+        self._emit(
+            job_id,
+            ResearchJobStatus.DONE,
+            ResearchPhase.WRITING,
+            round=round_number,
+            total_sources=len(all_hits),
+            total_findings=len(all_findings),
+            message="Research job completed.",
+            final=True,
+        )
+        return result
+
+    def save_partial_result(
+        self,
+        job_id: str,
+        *,
+        mode: ResearchCompletionMode = ResearchCompletionMode.PARTIAL_ERROR,
+    ) -> ResearchResultArtifact | None:
+        job = self.persistence.jobs.get_job(job_id)
+        if job is None:
+            return None
+        completed_at = _utcnow()
+        result = ResearchResultArtifact(
+            job_id=job_id,
+            owner_id=job.owner_id,
+            query=job.query,
+            status=ResearchJobStatus.DONE,
+            completion_mode=mode,
+            result="""# Partial Deep Research result
+
+Partial salvage preserved.""",
+            raw_report="Partial synthesis was available before failure.",
+            category=job.settings.category,
+            stats=ResearchStats(duration_seconds=1, rounds=1, queries=1, urls=1, model=job.settings.model),
+            sources=(ResearchSource(url="https://example.test/partial", title="Partial source"),),
+            raw_findings=(ResearchFinding(url="https://example.test/partial", title="Partial source", summary="One useful finding survived."),),
+            created_at=job.created_at,
+            completed_at=completed_at,
+        )
+        self.persistence.results.save_result(result)
+        done = replace(job, status=ResearchJobStatus.DONE, completed_at=completed_at)
+        self.persistence.jobs.save_job(done)
+        self._emit(
+            job_id,
+            ResearchJobStatus.DONE,
+            ResearchPhase.ERROR,
+            total_sources=1,
+            total_findings=1,
+            message="Partial research artifact salvaged after failure.",
+            final=True,
+        )
+        return result
+
+    def _dedupe_hits(
+        self,
+        existing_hits: list[SearchHit],
+        candidate_hits: tuple[SearchHit, ...],
+    ) -> list[SearchHit]:
+        seen = {hit.url for hit in existing_hits}
+        deduped: list[SearchHit] = []
+        for hit in candidate_hits:
+            if hit.url in seen:
+                continue
+            seen.add(hit.url)
+            deduped.append(hit)
+        return deduped
+
+    def _emit(
+        self,
+        job_id: str,
+        status: ResearchJobStatus,
+        phase: ResearchPhase,
+        *,
+        round: int = 0,
+        queries: int = 0,
+        query_preview: str | None = None,
+        total_sources: int = 0,
+        new_sources: int = 0,
+        total_findings: int = 0,
+        url: str | None = None,
+        title: str | None = None,
+        message: str | None = None,
+        final: bool = False,
+    ) -> None:
+        self.persistence.progress.append_event(
+            ResearchProgressEvent(
+                job_id=job_id,
+                status=status,
+                phase=phase,
+                round=round,
+                queries=queries,
+                query_preview=query_preview,
+                total_sources=total_sources,
+                new_sources=new_sources,
+                total_findings=total_findings,
+                url=url,
+                title=title,
+                message=message,
+                final=final,
+            )
+        )
+
+
+def build_research_execution(*, persistence: ResearchPersistence | None = None) -> ResearchExecution:
+    persistence = persistence or create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+    worker = FakeResearchWorker(persistence)
+    return ResearchExecution(
+        start_job=manager.start_job,
+        get_job_status=manager.get_job_status,
+        cancel_job=manager.cancel_job,
+        get_job_result=manager.get_job_result,
+        list_jobs=manager.list_jobs,
+        run_job=worker,
+    )
+
+
+def _utcnow() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+__all__ = [
+    "build_provider_search_adapter",
+    "ResearchSearchError",
+    "build_search_adapter",
+    "DeterministicStopRails",
+    "LlmResearchSynthesizer",
+    "SearxNGSearchAdapter",
+    "SearchProviderBridge",
+    "FakeResearchWorker",
+    "ResearchJobManager",
+    "StubExtractor",
+    "StubQueryGenerator",
+    "StubResearchPlanner",
+    "StubSearchAdapter",
+    "SearxNGSearchAdapter",
+    "WebSearchBackedSearchAdapter",
+    "StubSynthesizer",
+    "build_research_execution",
+]

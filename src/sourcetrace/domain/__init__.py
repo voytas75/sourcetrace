@@ -10,6 +10,18 @@ from sourcetrace.domain.claims import (
     ClaimVerification,
 )
 from sourcetrace.domain.documents import Document, DocumentCredibilityAssessment
+from sourcetrace.domain.research import (
+    ResearchCompletionMode,
+    ResearchFinding,
+    ResearchJob,
+    ResearchJobStatus,
+    ResearchPhase,
+    ResearchProgressEvent,
+    ResearchResultArtifact,
+    ResearchSettings,
+    ResearchSource,
+    ResearchStats,
+)
 from sourcetrace.domain.retrieval import RetrievalHit, RetrievalQuery, RetrievalResultSet
 from sourcetrace.domain.types import (
     INFORMATION_CREDIBILITY_FIELD,
@@ -39,6 +51,16 @@ __all__ = [
     "INFORMATION_CREDIBILITY_FIELD",
     "ProvenanceDistance",
     "QueueStatus",
+    "ResearchCompletionMode",
+    "ResearchFinding",
+    "ResearchJob",
+    "ResearchJobStatus",
+    "ResearchPhase",
+    "ResearchProgressEvent",
+    "ResearchResultArtifact",
+    "ResearchSettings",
+    "ResearchSource",
+    "ResearchStats",
     "RetrievalHit",
     "RetrievalQuery",
     "RetrievalResultSet",

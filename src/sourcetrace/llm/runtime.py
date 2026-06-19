@@ -34,6 +34,7 @@ class SourceTraceLlmRuntime:
     claim_extraction: ClaimExtractionGateway
     claim_normalization: ClaimNormalizationGateway
     credibility_draft: CredibilityDraftGateway
+    research_synthesis: CredibilityDraftGateway
 
 
 def _build_text_task_gateway(
@@ -90,6 +91,11 @@ def build_llm_runtime(
         generate_text=text_generator,
         config=config,
     )
+    research_synthesis = _build_text_task_gateway(
+        task_name="research_synthesis",
+        generate_text=text_generator,
+        config=config,
+    )
     return SourceTraceLlmRuntime(
         config=config,
         bootstrap=bootstrap,
@@ -97,6 +103,7 @@ def build_llm_runtime(
         claim_extraction=claim_extraction,
         claim_normalization=claim_normalization,
         credibility_draft=credibility_draft,
+        research_synthesis=research_synthesis,
     )
 
 

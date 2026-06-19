@@ -1,16 +1,16 @@
 # SourceTrace
 
-SourceTrace is a local-first system for evidence-centric OSINT work: collecting source material, turning it into traceable claims, reviewing credibility and verification state, and producing report-ready outputs.
-
-It is designed for work where evidence should stay inspectable, claims should stay grounded, and LLM output should remain an assistant layer rather than the source of truth.
+SourceTrace is a local-first system for evidence-centric OSINT work.
+LLM output should remain an assistant layer rather than the source of truth.
 
 ## What this project is
+SourceTrace is:
 - a local system for evidence-first OSINT workflows
 - a web/API runtime for case, document, claim, verification, review, and report flows
 - a tool for turning source material into traceable claims and reviewable outputs
-- a bounded product surface where LLM helps with extraction, normalization, and drafting, but does not replace evidence or analyst review
 
 ## Who SourceTrace is for
+SourceTrace is for:
 - an analyst or operator who wants to work from evidence toward claims and reports
 - a technical reviewer who wants to inspect system boundaries and verification surfaces
 - a collaborator who needs a truthful local bootstrap and a clear product boundary
@@ -21,22 +21,27 @@ It is designed for work where evidence should stay inspectable, claims should st
 - not a broad crawler or production ingestion platform
 
 ## Product stance
-SourceTrace is built around a simple rule: evidence first, claims second, report last.
-
-Current durable boundaries:
+- evidence first, claims second, report last
 - raw evidence and interpretation stay separate
-- claims should remain traceable to source text / chunks
-- human review remains part of the workflow
 - source credibility is advisory and separate from claim support
 
+## Core workflow
+1. create a case for an investigation or topic
+2. prepare source text into chunks
+3. extract claims and inspect supporting evidence
+4. review results before producing report outputs
+
+## Typical use cases
+- investigate a topic as a case and keep source material, chunks, claims, and review state in one local flow
+
+## Requirements
+- Python `>=3.13`
+- package manager / workflow: `uv`
+- litellm
+
 ## Quick start
-### 1. Install dependencies
 ```bash
 uv sync --dev --extra dev
-```
-
-### 2. Run tests
-```bash
 uv run pytest -q
 ```
 
@@ -45,18 +50,52 @@ uv run pytest -q
 uv run python -m sourcetrace.web
 ```
 
+Expected startup:
+- SourceTrace local server listening on http://127.0.0.1:8000
+
 Then open:
 - `http://127.0.0.1:8000/`
 
+## Runtime modes
+### A. Thin web mode
+```bash
+uv run sourcetrace-web
+```
+
+### B. Local launcher mode
+Environment variables:
+- `SOURCETRACE_LLM_API_KEY`
+- `SOURCETRACE_LLM_BASE_URL`
+- `SOURCETRACE_LLM_API_VERSION`
+- `AZURE_OPENAI_API_KEY`
+- `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR`
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control status --mode local-launcher
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher
+```
+
 ## What SourceTrace can do today
 - serve a local HTML landing page and local API surface
-- create cases and attach documents
-- prepare chunks from source text
-- run claim extraction
-- run credibility assessment
-- expose verification and reporting surfaces
 - manage continuity-pack state with active and latest-previous views
-- run reusable smoke flows for local verification
+- run a bounded Deep Research flow with persisted progress and result artifacts
+
+## What you can currently verify locally
+- local API health/readiness/runtime/capabilities routes
+- `python -m sourcetrace.smoke_flow`
+- `python -m sourcetrace.credibility_smoke`
+
+## Minimal smoke checklist
+```bash
+curl http://127.0.0.1:8000/
+curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/api/ready
+curl http://127.0.0.1:8000/api/runtime
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pretty
+```
 
 ## What still needs caution
 - `.env` is not loaded by the repo itself; required secrets come from process environment
@@ -70,7 +109,17 @@ Developer/operator details were moved to:
 That file covers local runtime variants, environment variables, deeper command references, smoke flows, and development constraints.
 
 ## Documentation map
-- [`docs/architecture-ssot.md`](docs/architecture-ssot.md) — product and architecture baseline
-- [`docs/execution-blueprint.md`](docs/execution-blueprint.md) — implementation overview and module map
+- `docs/architecture-ssot.md`
+- `docs/architecture/architecture-ssot.md`
+- `docs/execution-blueprint.md`
+- `docs/plans/execution-blueprint-v0.md`
+- `docs/plans/local-launcher-readiness-ssot.md`
+- `docs/plans/2026-06-05-verification-control-plane-ssot.md`
+- `docs/plans/2026-05-24-credibility-inline-continuity-ssot.md`
+- `docs/plans/2026-05-24-credibility-policy-closeout.md`
+- `docs/plans/2026-05-26-source-trace-research-to-backlog-plan.md`
+- `docs/deep-research-implementation-slice-v1.md`
 
 Everything else that is not needed for first project understanding belongs in `notes/` as local working material rather than public-facing docs.
+
+Local-only notes, ledgers, and transient research artifacts are intentionally excluded from the remote repo.

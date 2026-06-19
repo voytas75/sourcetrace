@@ -15,6 +15,12 @@ from urllib.parse import quote as url_quote
 from uuid import uuid4
 
 from sourcetrace.application import (
+    ResearchExecution,
+    ResearchJobListOutcome,
+    ResearchJobResultOutcome,
+    ResearchJobStartOutcome,
+    ResearchJobStartRequest,
+    ResearchJobStatusOutcome,
     CONTINUITY_PACK_SECTIONS,
     CaseCreationOutcome,
     CaseCreationRequest,
@@ -36,6 +42,7 @@ from sourcetrace.application import (
     SourceIngestionRequest,
     build_continuity_pack_request_from_artifact,
     build_llm_credibility_assessor,
+    build_research_execution,
     render_continuity_pack_markdown,
 )
 from sourcetrace.application.interfaces import (
@@ -45,6 +52,8 @@ from sourcetrace.application.interfaces import (
 from sourcetrace.application.extraction_runtime import build_llm_claim_extractor
 from sourcetrace.domain import (
     Case,
+    ResearchJob,
+    ResearchResultArtifact,
     CaseReport,
     Claim,
     ClaimEvidenceLink,
@@ -75,6 +84,7 @@ from sourcetrace.storage import (
     create_in_memory_persistence,
 )
 from sourcetrace.storage.interfaces import CorePersistence
+from sourcetrace.storage.research import ResearchPersistence, create_in_memory_research_persistence
 
 if TYPE_CHECKING:
     from sourcetrace.llm.interfaces import (
@@ -134,6 +144,56 @@ class SourceTraceDelivery:
     continuity_pack_execution: ContinuityPackExecution | None = None
     credibility_assessment: CredibilityAssessmentExecution | None = None
     claim_extraction_runtime: ClaimExtractionRuntime | None = None
+    research: ResearchExecution | None = None
+    research_search_backend: str = "stub"
+    research_search_configured: bool = False
+
+    def start_research_job(
+        self,
+        *,
+        owner_id: str,
+        query: str,
+    ) -> ResearchJobStartOutcome | None:
+        """Start a Deep Research job if the research runtime is configured."""
+
+        if self.research is None:
+            return None
+        return self.research.start_job(ResearchJobStartRequest(owner_id=owner_id, query=query))
+
+    def get_research_job_status(self, job_id: str) -> ResearchJobStatusOutcome | None:
+        """Return one persisted research job status view."""
+
+        if self.research is None:
+            return None
+        return self.research.get_job_status(job_id)
+
+    def cancel_research_job(self, job_id: str) -> ResearchJob | None:
+        """Cancel a running or queued research job."""
+
+        if self.research is None:
+            return None
+        return self.research.cancel_job(job_id)
+
+    def get_research_result(self, job_id: str) -> ResearchJobResultOutcome | None:
+        """Return one persisted research result view."""
+
+        if self.research is None:
+            return None
+        return self.research.get_job_result(job_id)
+
+    def list_research_jobs(self, owner_id: str) -> ResearchJobListOutcome | None:
+        """List persisted research jobs for one owner."""
+
+        if self.research is None:
+            return None
+        return self.research.list_jobs(owner_id)
+
+    def run_research_job(self, job_id: str) -> ResearchResultArtifact | None:
+        """Run the deterministic fake research worker for one job."""
+
+        if self.research is None:
+            return None
+        return self.research.run_job(job_id)
 
     def create_case(
         self,
@@ -553,6 +613,10 @@ class SourceTraceDelivery:
                 "continuity_pack": self.continuity_pack_execution is not None,
                 "continuity_pack_persistence": continuity_pack_persistence.enabled,
                 "credibility_assessment": self.credibility_assessment is not None,
+                "research": self.research is not None,
+                "research_search": self.research_search_configured,
+                "research": self.research is not None,
+                "research_search": self.research_search_configured,
             },
             "diagnostics": {
                 "continuity_pack_persistence": {
@@ -580,6 +644,9 @@ class SourceTraceDelivery:
                     "root_dir": continuity_pack_persistence.root_dir,
                 },
                 "credibility_assessment": _enabled(self.credibility_assessment),
+                "research": _enabled(self.research),
+                "research_search_backend": self.research_search_backend,
+                "research_search_configured": self.research_search_configured,
                 "reporting": "enabled",
                 "dev_routes": "enabled",
             }
@@ -598,10 +665,15 @@ class SourceTraceDelivery:
                 "continuity_packs": ["assemble_preview", "assemble_from_artifact", "render_markdown"],
                 "credibility_assessments": ["create", "get"],
                 "reports": ["get_json", "get_markdown"],
+                "research": ["start", "status", "result", "list", "cancel", "run"],
             },
             "runtime": {
                 "claim_extraction": self.claim_extraction_runtime is not None,
                 "credibility_assessment": self.credibility_assessment is not None,
+                "research": self.research is not None,
+                "research_search": self.research_search_configured,
+                "research": self.research is not None,
+                "research_search": self.research_search_configured,
             },
             "routes": {
                 "product": [
@@ -620,6 +692,12 @@ class SourceTraceDelivery:
                     "/api/claims/{claim_id}/review",
                     "/api/continuity-packs/assemble-preview",
                     "/api/continuity-packs/assemble-from-artifact",
+                    "/api/research/start",
+                    "/api/research/jobs",
+                    "/api/research/status/{job_id}",
+                    "/api/research/result/{job_id}",
+                    "/api/research/cancel/{job_id}",
+                    "/api/research/run/{job_id}",
                     "/api/continuity-packs/render-markdown",
                     "/api/reports/{case_id}",
                     "/api/reports/{case_id}.json",
@@ -747,6 +825,10 @@ def create_default_delivery(
     claim_normalization: "ClaimNormalizationGateway | None" = None,
     claim_extraction_runtime: ClaimExtractionRuntime | None = None,
     continuity_pack_root_dir: str | Path | None = None,
+    research_persistence: ResearchPersistence | None = None,
+    research: ResearchExecution | None = None,
+    research_search_backend: str = "stub",
+    research_search_configured: bool = False,
 ) -> SourceTraceDelivery:
     """Create the default analyst delivery surface."""
 
@@ -781,6 +863,8 @@ def create_default_delivery(
         claim_extraction=claim_extraction,
         claim_normalization=claim_normalization,
     )
+    research_persistence = research_persistence or create_in_memory_research_persistence()
+    research = research or build_research_execution(persistence=research_persistence)
     return SourceTraceDelivery(
         persistence=persistence,
         verification_runtime=verification_runtime,
@@ -788,6 +872,9 @@ def create_default_delivery(
         continuity_pack_execution=continuity_pack_execution,
         credibility_assessment=credibility_assessment,
         claim_extraction_runtime=claim_extraction_runtime,
+        research=research,
+        research_search_backend=research_search_backend,
+        research_search_configured=research_search_configured,
     )
 
 
