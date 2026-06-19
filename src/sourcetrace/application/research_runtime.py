@@ -416,12 +416,13 @@ def _query_keywords(query: str) -> tuple[str, ...]:
     stopwords = {
         "analiza", "ostatniego", "ostatni", "tygodnia", "tydzien", "last", "week", "weekly",
         "deep", "research", "the", "and", "for", "with", "architecture", "result", "artifact", "stop", "rails",
+        "jak", "działa", "dziala", "po", "na", "w", "do", "oraz", "czy", "kiedy", "why", "how", "what",
     }
     keep = [token for token in keep if token not in stopwords]
     preferred = [
         token for token in keep
         if any(char.isdigit() for char in token)
-        or token in {"eth", "ethusdc", "ethereum", "usdc", "usdt", "btc", "ohlcv", "tradingview", "price", "support", "resistance", "volume"}
+        or token in {"eth", "ethusdc", "ethereum", "usdc", "usdt", "btc", "ohlcv", "tradingview", "price", "support", "resistance", "volume", "sccm", "configuration", "baseline", "baselines", "compliance", "deploy", "deployment", "collection"}
     ]
     if preferred:
         return tuple(dict.fromkeys(preferred))
@@ -429,7 +430,33 @@ def _query_keywords(query: str) -> tuple[str, ...]:
         market_tokens = [token for token in keep if token in {"eth", "ethusdc", "ethereum", "usdc", "usdt", "btc"}]
         if market_tokens:
             return tuple(dict.fromkeys(market_tokens))
-    return tuple(dict.fromkeys(keep[:3]))
+    return tuple(dict.fromkeys(keep[:4]))
+
+
+def _procedural_query_bias(query: str) -> bool:
+    lowered = query.lower()
+    return any(token in lowered for token in ("jak ", "how ", "wdroż", "wdroze", "deploy", "configuration", "baseline", "sccm", "kiedy", "when "))
+
+
+def _looks_like_listing_page(hit: SearchHit) -> bool:
+    haystack = f"{hit.title} {hit.url}".lower()
+    return any(token in haystack for token in ("/category/", "/tag/", "/archive/", " category ", "| category", "– category", "archive"))
+
+
+def _general_relevance_score(*, query: str, hit: SearchHit) -> int:
+    haystack = f"{hit.title} {hit.snippet} {hit.url}".lower()
+    score = 0
+    keywords = _query_keywords(query)
+    score += sum(2 for keyword in keywords if keyword in hit.title.lower())
+    score += sum(1 for keyword in keywords if keyword in haystack)
+    if _procedural_query_bias(query):
+        if any(token in haystack for token in ("learn.microsoft.com", "docs", "documentation", "how to", "how-to", "guide", "baseline", "configuration manager")):
+            score += 3
+        if any(token in haystack for token in ("pdf", "windows 8", "category/", "tag/")):
+            score -= 2
+    if _looks_like_listing_page(hit):
+        score -= 4
+    return score
 
 
 def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
@@ -451,7 +478,20 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
             for token in ("price", "ohlcv", "volume", "tradingview", "support", "resistance", "trend", "chart", "weekly", "last 7 days", "technicals", "historical")
         )
         return asset_match and market_context
-    return matched >= 1
+    if _looks_like_listing_page(hit) and _procedural_query_bias(query):
+        return False
+    return matched >= 2 or _general_relevance_score(query=query, hit=hit) >= 4
+
+
+def _source_type(url: str, title: str) -> str:
+    haystack = f"{url} {title}".lower()
+    if any(token in haystack for token in ("technical", "technicals", "analysis", "chart")):
+        return "analysis"
+    if any(token in haystack for token in ("historical", "ohlcv", "price", "quotes", "markets", "market")):
+        return "data"
+    if any(token in haystack for token in ("docs", "architecture", "design", "guide")):
+        return "docs"
+    return "generic"
 
 
 def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5) -> tuple[ExtractedFinding, ...]:
@@ -460,7 +500,23 @@ def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5) -> tup
         key=lambda finding: (len(finding.summary), len(finding.title)),
         reverse=True,
     )
-    return tuple(ranked[:limit])
+    selected: list[ExtractedFinding] = []
+    seen_types: set[str] = set()
+    for finding in ranked:
+        source_type = _source_type(finding.url, finding.title)
+        if source_type in seen_types:
+            continue
+        selected.append(finding)
+        seen_types.add(source_type)
+        if len(selected) >= limit:
+            return tuple(selected)
+    for finding in ranked:
+        if finding in selected:
+            continue
+        selected.append(finding)
+        if len(selected) >= limit:
+            break
+    return tuple(selected)
 
 
 def _summary_line(*, query: str, findings: tuple[ExtractedFinding, ...]) -> str:

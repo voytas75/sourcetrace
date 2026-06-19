@@ -1,4 +1,5 @@
 from sourcetrace.application import (
+    ExtractedFinding,
     FakeResearchWorker,
     ResearchJobManager,
     ResearchJobStartRequest,
@@ -6,6 +7,7 @@ from sourcetrace.application import (
     SearchHit,
     build_research_execution,
 )
+from sourcetrace.application.research_runtime import _is_relevant_hit, _looks_like_listing_page, _top_findings
 from sourcetrace.domain import ResearchCompletionMode, ResearchJobStatus
 from sourcetrace.storage import create_in_memory_research_persistence
 
@@ -145,6 +147,41 @@ def test_stub_query_generator_diversifies_market_queries_by_round() -> None:
     assert any("historical data" in query for query in round_two)
     assert any("exchange market" in query for query in round_two)
     assert any("analytics volume open interest" in query for query in round_two)
+
+
+def test_top_findings_prefers_source_type_diversity() -> None:
+    findings = (
+        ExtractedFinding(url="https://example.test/architecture", title="Architecture Guide", summary="General system design summary."),
+        ExtractedFinding(url="https://example.test/chart", title="System Chart Analysis", summary="A longer analytical summary with shape and flow."),
+        ExtractedFinding(url="https://example.test/market-data", title="Historical Data Export", summary="Concrete metrics and timeline values."),
+        ExtractedFinding(url="https://example.test/notes", title="Operator Notes", summary="Generic operator observations."),
+    )
+
+    top = _top_findings(findings, limit=3)
+
+    assert len(top) == 3
+    titles = {finding.title for finding in top}
+    assert "System Chart Analysis" in titles
+    assert "Historical Data Export" in titles
+    assert any(title in titles for title in ("Architecture Guide", "Operator Notes"))
+
+
+def test_general_relevance_prefers_procedural_docs_over_loose_noise() -> None:
+    query = "jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów"
+    strong_hit = SearchHit(
+        url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
+        title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+        snippet="Learn how configuration baselines are created and deployed in Configuration Manager.",
+    )
+    weak_hit = SearchHit(
+        url="https://w-files.pl/category/security/",
+        title="security – W-Files",
+        snippet="Category page with mixed security articles.",
+    )
+
+    assert _is_relevant_hit(query=query, hit=strong_hit) is True
+    assert _looks_like_listing_page(weak_hit) is True
+    assert _is_relevant_hit(query=query, hit=weak_hit) is False
 
 
 def test_fake_research_worker_filters_off_topic_hits_for_market_query() -> None:
