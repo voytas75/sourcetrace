@@ -3,6 +3,7 @@ from sourcetrace.application import (
     FakeResearchWorker,
     ResearchJobManager,
     ResearchJobStartRequest,
+    StubExtractor,
     StubQueryGenerator,
     SearchHit,
     build_research_execution,
@@ -149,6 +150,27 @@ def test_stub_query_generator_diversifies_market_queries_by_round() -> None:
     assert any("analytics volume open interest" in query for query in round_two)
 
 
+def test_stub_extractor_preserves_concrete_evidence_cues() -> None:
+    extractor = StubExtractor()
+    findings = extractor(
+        (
+            SearchHit(
+                url="https://example.test/baseline",
+                title="Configuration Baseline Evaluation",
+                snippet="Clients report Compliant or Non-compliant after schedule evaluation; remediation can re-run checks every 7 days.",
+            ),
+        )
+    )
+
+    assert len(findings) == 1
+    summary = findings[0].summary.lower()
+    assert "key evidence:" in summary
+    assert "compliant" in summary
+    assert "non-compliant" in summary
+    assert "schedule" in summary
+    assert "7" in summary
+
+
 def test_top_findings_prefers_source_type_diversity() -> None:
     findings = (
         ExtractedFinding(url="https://example.test/architecture", title="Architecture Guide", summary="General system design summary."),
@@ -205,3 +227,101 @@ def test_fake_research_worker_filters_off_topic_hits_for_market_query() -> None:
     assert "physics" not in result.result.lower()
     assert "sociology" not in result.result.lower()
     assert "usdcad" not in result.result.lower()
+
+
+def test_chained_search_adapter_falls_back_after_empty_or_soft_failure() -> None:
+    from sourcetrace.application.research_runtime import (
+        ChainedSearchAdapter,
+        ResearchSearchError,
+        SearchProviderBridge,
+        SearxNGSearchAdapter,
+        build_provider_search_adapter,
+    )
+
+    class EmptyAdapter:
+        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+            return ()
+
+    class FailingAdapter:
+        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+            raise ResearchSearchError('searx temporary failure')
+
+    class ProviderAdapter:
+        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+            return (
+                SearchHit(
+                    url='https://example.test/fallback',
+                    title='Fallback Result',
+                    snippet='Recovered via provider fallback.',
+                ),
+            )
+
+    chained = ChainedSearchAdapter(EmptyAdapter(), ProviderAdapter())
+    hits = chained(('query',), round_number=1)
+    assert len(hits) == 1
+    assert hits[0].title == 'Fallback Result'
+
+    chained_after_error = ChainedSearchAdapter(FailingAdapter(), ProviderAdapter())
+    hits_after_error = chained_after_error(('query',), round_number=1)
+    assert len(hits_after_error) == 1
+    assert hits_after_error[0].url == 'https://example.test/fallback'
+
+    adapter = build_provider_search_adapter(
+        searxng_base_url='http://127.0.0.1:18080',
+        search_web=lambda query, count=3: [{'url': 'https://example.test/provider', 'title': 'Provider Result', 'snippet': 'Provider snippet'}],
+        bridge=SearchProviderBridge(),
+    )
+    assert isinstance(adapter, ChainedSearchAdapter)
+
+
+def test_general_relevance_rejects_weak_blog_root_and_generic_pdf_for_procedural_query() -> None:
+    query = "jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów"
+    weak_blog = SearchHit(
+        url="http://piotrsccm.blogspot.com/",
+        title="SCCM",
+        snippet="Zdalne wywołanie Configuration Baseline. Po utworzeniu i wdrożeniu na testową kolekcję komputerów...",
+    )
+    weak_pdf = SearchHit(
+        url="http://www.e-szbi.pl/files/Przewodnik_zabezpieczen_systemu_Win_8_1.pdf",
+        title="przewodnik zabezpieczeo - systemu windows 8 oraz",
+        snippet="PDF guide with mixed Windows security content.",
+    )
+    strong_doc = SearchHit(
+        url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
+        title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+        snippet="Configuration baselines contain predefined configuration items and can be deployed to collections for compliance evaluation.",
+    )
+
+    assert _is_relevant_hit(query=query, hit=weak_blog) is False
+    assert _is_relevant_hit(query=query, hit=weak_pdf) is False
+    assert _is_relevant_hit(query=query, hit=strong_doc) is True
+
+
+def test_top_findings_prefers_official_docs_over_blog_and_video_for_procedural_query() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
+            title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+            summary="Official procedural documentation for creating and deploying configuration baselines.",
+        ),
+        ExtractedFinding(
+            url="https://www.anoopcnair.com/how-create-sccm-configuration-items-baselines/",
+            title="How to Create SCCM Configuration Items Configuration Baselines",
+            summary="Community blog walkthrough for SCCM baselines.",
+        ),
+        ExtractedFinding(
+            url="https://www.youtube.com/watch?v=oKk2K_omk7c",
+            title="Configuring SCCM Configuration Items and Baselines",
+            summary="Video walkthrough of SCCM baseline setup.",
+        ),
+    )
+
+    top = _top_findings(
+        findings,
+        limit=2,
+        query="jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów",
+    )
+
+    assert len(top) == 2
+    assert top[0].url.startswith("https://learn.microsoft.com/")
+    assert all("youtube.com" not in finding.url for finding in top)

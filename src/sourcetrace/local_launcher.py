@@ -204,6 +204,7 @@ def _build_smoke_credibility_assessment_execution() -> CredibilityAssessmentExec
 def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
+    research_search_web: Callable[..., list[dict[str, object]]] | None = None,
 ):
     """Build the local web server runtime using the repo-owned runtime config."""
 
@@ -248,9 +249,13 @@ def build_local_server_runtime(
             research_persistence = create_file_backed_research_persistence(research_root)
         research_manager = ResearchJobManager(research_persistence)
         research_synthesizer = LlmResearchSynthesizer(llm_runtime.research_synthesis)
+        provider_search = research_search_web
         research_worker = FakeResearchWorker(
             research_persistence,
-            search=build_search_adapter(searxng_base_url=searxng_base_url),
+            search=build_search_adapter(
+                searxng_base_url=searxng_base_url,
+                search_web=provider_search,
+            ),
             synthesize=research_synthesizer,
         )
         research = ResearchExecution(

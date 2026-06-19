@@ -171,6 +171,29 @@ class WebSearchBackedSearchAdapter:
         return tuple(hits)
 
 
+class ChainedSearchAdapter:
+    """Try multiple search adapters in order until one returns usable hits."""
+
+    def __init__(self, *adapters: ResearchSearchAdapter) -> None:
+        self.adapters = tuple(adapter for adapter in adapters if adapter is not None)
+
+    def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+        if not self.adapters:
+            return ()
+        errors: list[str] = []
+        for adapter in self.adapters:
+            try:
+                hits = adapter(queries, round_number=round_number)
+            except ResearchSearchError as exc:
+                errors.append(str(exc))
+                continue
+            if hits:
+                return hits
+        if errors:
+            raise ResearchSearchError(" ; ".join(errors))
+        return ()
+
+
 def build_search_adapter(
     *,
     search_web: Callable[..., list[dict[str, object]]] | None = None,
@@ -204,17 +227,26 @@ def build_provider_search_adapter(
 ) -> ResearchSearchAdapter:
     """Build a provider-backed search adapter when the runtime supplies web search."""
 
+    provider_adapter: ResearchSearchAdapter | None = None
+    if search_web is not None:
+        bridge = bridge or SearchProviderBridge()
+
+        def provider_search(query: str, *, count: int) -> list[dict[str, object]]:
+            del count
+            return bridge.search(search_web, query)
+
+        provider_adapter = WebSearchBackedSearchAdapter(provider_search, count=bridge.default_count)
+
+    if searxng_base_url and provider_adapter is not None:
+        return ChainedSearchAdapter(
+            SearxNGSearchAdapter(base_url=searxng_base_url),
+            provider_adapter,
+        )
     if searxng_base_url:
         return SearxNGSearchAdapter(base_url=searxng_base_url)
-    if search_web is None:
+    if provider_adapter is None:
         return StubSearchAdapter()
-    bridge = bridge or SearchProviderBridge()
-
-    def provider_search(query: str, *, count: int) -> list[dict[str, object]]:
-        del count
-        return bridge.search(search_web, query)
-
-    return WebSearchBackedSearchAdapter(provider_search, count=bridge.default_count)
+    return provider_adapter
 
 class LlmResearchSynthesizer:
     """Text-generation-backed synthesizer for higher-quality research summaries."""
@@ -230,7 +262,7 @@ class LlmResearchSynthesizer:
         findings: tuple[ExtractedFinding, ...],
         previous_report: str | None,
     ) -> SynthesisResult:
-        top_findings = _top_findings(findings)
+        top_findings = _top_findings(findings, query=query)
         evidence = "\n".join(
             f"- {finding.title}: {finding.summary}" for finding in top_findings
         ) or "- No useful findings in this round."
@@ -304,7 +336,7 @@ class StubExtractor:
     def __call__(self, hits: tuple[SearchHit, ...]) -> tuple[ExtractedFinding, ...]:
         findings: list[ExtractedFinding] = []
         for hit in hits:
-            summary = _normalize_snippet(hit.snippet)
+            summary = _extract_evidence_summary(hit)
             if not summary:
                 continue
             findings.append(
@@ -329,7 +361,7 @@ class StubSynthesizer:
         previous_report: str | None,
     ) -> SynthesisResult:
         del previous_report
-        top_findings = _top_findings(findings)
+        top_findings = _top_findings(findings, query=query)
         key_findings = "\n".join(
             f"- {finding.title}: {finding.summary}" for finding in top_findings[:4]
         ) or "- No useful findings in this round."
@@ -358,6 +390,38 @@ def _normalize_snippet(snippet: str) -> str:
     if len(compact) > 220:
         compact = compact[:217].rstrip() + "..."
     return compact
+
+
+def _extract_evidence_summary(hit: SearchHit) -> str:
+    title = hit.title.strip()
+    snippet = _normalize_snippet(hit.snippet)
+    if not snippet:
+        return ""
+    evidence_bits = _evidence_fragments(snippet)
+    if evidence_bits:
+        return f"{snippet} Key evidence: {'; '.join(evidence_bits)}."
+    if title and title.lower() not in snippet.lower():
+        return f"{snippet} Source focus: {title}."
+    return snippet
+
+
+def _evidence_fragments(text: str) -> tuple[str, ...]:
+    fragments: list[str] = []
+    lowered = text.lower()
+    for token in (
+        "compliant", "non-compliant", "error", "unknown", "remediation",
+        "schedule", "policy", "tradingview", "support", "resistance",
+        "volume", "historical data", "technical analysis",
+    ):
+        if token in lowered:
+            fragments.append(token)
+    import re
+    for match in re.findall(r"\b\d+[\d.,%:-]*\b", text):
+        if match not in fragments:
+            fragments.append(match)
+        if len(fragments) >= 4:
+            break
+    return tuple(fragments[:4])
 
 
 def _looks_like_market_query(text: str) -> bool:
@@ -443,6 +507,22 @@ def _looks_like_listing_page(hit: SearchHit) -> bool:
     return any(token in haystack for token in ("/category/", "/tag/", "/archive/", " category ", "| category", "– category", "archive"))
 
 
+def _looks_like_weak_general_source(hit: SearchHit) -> bool:
+    domain = _normalized_domain(hit.url)
+    path = urlparse(hit.url).path.lower()
+    title = hit.title.lower()
+    weak_domains = {"quora.com"}
+    if domain in weak_domains:
+        return True
+    if domain.endswith("blogspot.com") and path in {"", "/", "/index.html"}:
+        return True
+    if path in {"", "/", "/index.html"} and not any(token in title for token in ("configuration baseline", "sccm", "configuration manager", "microsoft learn")):
+        return True
+    if path.endswith('.pdf') and not any(token in f"{title} {hit.snippet}".lower() for token in ("configuration baseline", "sccm", "configuration manager", "compliance baseline")):
+        return True
+    return False
+
+
 def _general_relevance_score(*, query: str, hit: SearchHit) -> int:
     haystack = f"{hit.title} {hit.snippet} {hit.url}".lower()
     score = 0
@@ -454,6 +534,8 @@ def _general_relevance_score(*, query: str, hit: SearchHit) -> int:
             score += 3
         if any(token in haystack for token in ("pdf", "windows 8", "category/", "tag/")):
             score -= 2
+        if _looks_like_weak_general_source(hit):
+            score -= 4
     if _looks_like_listing_page(hit):
         score -= 4
     return score
@@ -478,27 +560,62 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
             for token in ("price", "ohlcv", "volume", "tradingview", "support", "resistance", "trend", "chart", "weekly", "last 7 days", "technicals", "historical")
         )
         return asset_match and market_context
-    if _looks_like_listing_page(hit) and _procedural_query_bias(query):
-        return False
+    if _procedural_query_bias(query):
+        if _looks_like_listing_page(hit) or _looks_like_weak_general_source(hit):
+            return False
     return matched >= 2 or _general_relevance_score(query=query, hit=hit) >= 4
 
 
 def _source_type(url: str, title: str) -> str:
     haystack = f"{url} {title}".lower()
+    if 'learn.microsoft.com' in haystack or any(token in haystack for token in ('/docs/', 'documentation', 'configuration manager | microsoft learn')):
+        return 'official_docs'
     if any(token in haystack for token in ("technical", "technicals", "analysis", "chart")):
         return "analysis"
     if any(token in haystack for token in ("historical", "ohlcv", "price", "quotes", "markets", "market")):
         return "data"
+    if 'youtube.com' in haystack or 'youtu.be' in haystack:
+        return 'video'
+    if any(token in haystack for token in ('blog', 'blogspot', 'anoopcnair')):
+        return 'blog'
     if any(token in haystack for token in ("docs", "architecture", "design", "guide")):
         return "docs"
     return "generic"
 
 
-def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5) -> tuple[ExtractedFinding, ...]:
+def _source_rank_for_query(*, query: str, url: str, title: str) -> int:
+    source_type = _source_type(url, title)
+    if _procedural_query_bias(query):
+        order = {
+            'official_docs': 0,
+            'docs': 1,
+            'generic': 2,
+            'blog': 3,
+            'video': 4,
+            'analysis': 5,
+            'data': 6,
+        }
+        return order.get(source_type, 9)
+    order = {
+        'official_docs': 0,
+        'analysis': 1,
+        'data': 2,
+        'docs': 3,
+        'generic': 4,
+        'blog': 5,
+        'video': 6,
+    }
+    return order.get(source_type, 9)
+
+
+def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query: str | None = None) -> tuple[ExtractedFinding, ...]:
     ranked = sorted(
         findings,
-        key=lambda finding: (len(finding.summary), len(finding.title)),
-        reverse=True,
+        key=lambda finding: (
+            _source_rank_for_query(query=query or '', url=finding.url, title=finding.title),
+            -len(finding.summary),
+            -len(finding.title),
+        ),
     )
     selected: list[ExtractedFinding] = []
     seen_types: set[str] = set()
@@ -980,6 +1097,7 @@ __all__ = [
     "LlmResearchSynthesizer",
     "SearxNGSearchAdapter",
     "SearchProviderBridge",
+    "ChainedSearchAdapter",
     "FakeResearchWorker",
     "ResearchJobManager",
     "StubExtractor",
