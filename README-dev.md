@@ -32,7 +32,11 @@ uv run sourcetrace-web
 ```
 
 ### B. Local launcher mode
-Use this when you want the repo-owned runtime config plus LLM-backed credibility wiring.
+Use this when you want the repo-owned runtime config plus:
+- LLM-backed credibility wiring,
+- Deep Research search adapter wiring,
+- Deep Research LLM synthesis wiring,
+- persisted research runtime state.
 
 Required environment variables for this mode:
 - `SOURCETRACE_LLM_API_KEY`
@@ -44,8 +48,15 @@ The launcher also mirrors legacy Azure variables when the SourceTrace names are 
 - `AZURE_OPENAI_BASE_URL`
 - `AZURE_OPENAI_API_VERSION`
 
-Optional continuity-pack persistence:
+Optional runtime variables:
 - `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR`
+- `SOURCETRACE_SEARXNG_BASE_URL`
+- `SOURCETRACE_RESEARCH_DATA_DIR`
+
+Notes:
+- when `SOURCETRACE_SEARXNG_BASE_URL` is set, local launcher mode can run live Deep Research search against the configured SearxNG instance
+- research runtime state is persisted under `data/research` by default, or under `SOURCETRACE_RESEARCH_DATA_DIR` when set
+- the current Deep Research synthesis task uses repo task routing from `src/sourcetrace/runtime_config.py`
 
 Installed console scripts declared in `pyproject.toml`:
 ```bash
@@ -69,6 +80,23 @@ Direct fallback launcher:
 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher
 ```
 
+## Deep Research operator flow
+When local launcher mode is configured for research, the operator flow is:
+1. open `/research`
+2. start a job with `owner_id` and `query`
+3. run the job
+4. inspect status and progress stream
+5. inspect the final result artifact\n
+Current Deep Research endpoints:
+- `GET /research`
+- `POST /api/research/start`
+- `GET /api/research/jobs?owner_id=...`
+- `GET /api/research/status/{job_id}`
+- `GET /api/research/stream/{job_id}`
+- `GET /api/research/result/{job_id}`
+- `POST /api/research/run/{job_id}`
+- `POST /api/research/cancel/{job_id}`
+
 ## Local verification
 ### Minimal smoke checklist
 1. Start one of the local runtimes.
@@ -85,7 +113,14 @@ curl http://127.0.0.1:8000/api/health
 curl http://127.0.0.1:8000/api/ready
 curl http://127.0.0.1:8000/api/runtime
 ```
-5. Run the reusable smoke command against an already running server:
+5. For Deep Research-enabled launcher mode, also verify the research surface:
+```bash
+curl http://127.0.0.1:8000/research
+curl -X POST http://127.0.0.1:8000/api/research/start \
+  -H 'Content-Type: application/json' \
+  -d '{"owner_id":"demo","query":"deep research architecture"}'
+```
+6. Run the reusable smoke command against an already running server:
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pretty
 ```
@@ -105,9 +140,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pret
 Start from:
 - `README.md` for public repo framing
 - `docs/architecture-ssot.md` for architecture baseline
-- `docs/execution-blueprint.md` for implementation blueprint
-- `notes/plans/local-launcher-readiness-ssot.md` for verified launcher/runtime boundary
-- `notes/plans/2026-06-05-verification-control-plane-ssot.md` for current verification-first execution SSOT
+- `docs/execution-blueprint.md` for implementation blueprint\n- `docs/deep-research-implementation-slice-v1.md` for the delivered Deep Research slice
 
 Use tracked docs for durable product truth.
 Keep transient working notes and local process artifacts outside public-facing repo surfaces.
