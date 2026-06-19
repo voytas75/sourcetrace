@@ -2,6 +2,7 @@ from sourcetrace.application import (
     FakeResearchWorker,
     ResearchJobManager,
     ResearchJobStartRequest,
+    StubQueryGenerator,
     SearchHit,
     build_research_execution,
 )
@@ -14,7 +15,7 @@ class NoisyMarketSearch:
         if round_number == 1:
             return (
                 SearchHit(
-                    url="https://example.test/ethusdc-weekly",
+                    url="https://www.tradingview.com/symbols/ETHUSDC/",
                     title="ETHUSDC weekly price action",
                     snippet="ETHUSDC weekly analysis with price action, support, resistance, and seven day trend.",
                 ),
@@ -28,6 +29,11 @@ class NoisyMarketSearch:
                     title="USDCAD weekly outlook",
                     snippet="USDCAD weekly price chart and FX trend outlook.",
                 ),
+                SearchHit(
+                    url="https://pl.tradingview.com/symbols/ETHUSDC/technicals/",
+                    title="ETHUSDC technicals",
+                    snippet="TradingView technicals for ETHUSDC with momentum and trend summary.",
+                ),
             )
         return (
             SearchHit(
@@ -39,6 +45,11 @@ class NoisyMarketSearch:
                 url="https://example.test/sociology",
                 title="Social theory review",
                 snippet="A sociology article with no market data and no ETHUSDC relevance.",
+            ),
+            SearchHit(
+                url="https://www.tradingview.com/symbols/ETHUSDC.P/",
+                title="ETHUSDC perpetual chart",
+                snippet="TradingView perpetual chart for ETHUSDC with technical setup.",
             ),
         )
 
@@ -124,6 +135,18 @@ def test_fake_research_worker_runs_two_round_engine_loop() -> None:
     assert any(event.phase.value == "analyzing" for event in status.progress)
 
 
+def test_stub_query_generator_diversifies_market_queries_by_round() -> None:
+    generator = StubQueryGenerator()
+    round_one = generator(type("Plan", (), {"objective": "analiza ostatniego tygodnia ethusdc"})(), round_number=1)
+    round_two = generator(type("Plan", (), {"objective": "analiza ostatniego tygodnia ethusdc"})(), round_number=2)
+
+    assert any("price last 7 days" in query for query in round_one)
+    assert any("technical analysis tradingview" in query for query in round_one)
+    assert any("historical data" in query for query in round_two)
+    assert any("exchange market" in query for query in round_two)
+    assert any("analytics volume open interest" in query for query in round_two)
+
+
 def test_fake_research_worker_filters_off_topic_hits_for_market_query() -> None:
     persistence = create_in_memory_research_persistence()
     manager = ResearchJobManager(persistence)
@@ -136,9 +159,12 @@ def test_fake_research_worker_filters_off_topic_hits_for_market_query() -> None:
 
     assert result is not None
     assert result.stats.rounds == 2
-    assert len(result.sources) == 2
+    assert len(result.sources) == 3
     assert all("ethusdc" in source.title.lower() or "ethusdc" in source.url.lower() for source in result.sources)
     assert all("usdcad" not in source.title.lower() and "usdcad" not in source.url.lower() for source in result.sources)
+    tradingview_sources = [source for source in result.sources if "tradingview.com" in source.url]
+    assert len(tradingview_sources) == 2
+    assert any("example.test" in source.url for source in result.sources)
     assert "physics" not in result.result.lower()
     assert "sociology" not in result.result.lower()
     assert "usdcad" not in result.result.lower()

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from urllib.error import URLError
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from sourcetrace.application.research import (
@@ -57,15 +58,17 @@ class StubQueryGenerator:
         objective = plan.objective.strip()
         normalized = objective.lower()
         if _looks_like_market_query(normalized):
+            symbol = _extract_market_symbol(objective) or objective
             if round_number == 1:
                 return (
                     objective,
-                    f"{objective} price last 7 days",
-                    f"{objective} weekly analysis tradingview",
+                    f"{symbol} price last 7 days",
+                    f"{symbol} technical analysis tradingview",
                 )
             return (
-                f"{objective} OHLCV last week",
-                f"{objective} support resistance last 7 days",
+                f"{symbol} historical data",
+                f"{symbol} exchange market",
+                f"{symbol} analytics volume open interest",
             )
         if round_number == 1:
             return (
@@ -388,6 +391,23 @@ def _pair_aliases(symbol: str) -> tuple[str, ...]:
                 f"{base} {quote}",
             )
     return (symbol,)
+
+
+def _normalized_domain(url: str) -> str:
+    host = urlparse(url).netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if host.startswith("pl."):
+        host = host[3:]
+    return host
+
+
+def _max_hits_per_domain(query: str, domain: str) -> int:
+    if not _looks_like_market_query(query.lower()):
+        return 99
+    if domain == "tradingview.com":
+        return 2
+    return 1
 
 
 def _query_keywords(query: str) -> tuple[str, ...]:
@@ -823,13 +843,22 @@ Partial salvage preserved.""",
         query: str,
     ) -> list[SearchHit]:
         seen = {hit.url for hit in existing_hits}
+        domain_counts: dict[str, int] = {}
+        for hit in existing_hits:
+            domain = _normalized_domain(hit.url)
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
         deduped: list[SearchHit] = []
         for hit in candidate_hits:
             if hit.url in seen:
                 continue
             if not _is_relevant_hit(query=query, hit=hit):
                 continue
+            domain = _normalized_domain(hit.url)
+            limit = _max_hits_per_domain(query, domain)
+            if domain_counts.get(domain, 0) >= limit:
+                continue
             seen.add(hit.url)
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
             deduped.append(hit)
         return deduped
 
