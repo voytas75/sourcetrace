@@ -86,6 +86,32 @@ def test_wsgi_research_cancel_flow() -> None:
     assert json.loads(status_body)["job"]["status"] == "cancelled"
 
 
+def test_wsgi_research_owner_id_is_normalized_to_lowercase() -> None:
+    app = SourceTraceWSGIApp(delivery=create_default_delivery())
+
+    start_status, _, start_body = _call_wsgi(
+        app,
+        method="POST",
+        path="/api/research/start",
+        payload={"owner_id": "Wojtek", "query": "deep research architecture"},
+    )
+    start_payload = json.loads(start_body)
+
+    list_status, _, list_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/research/jobs?owner_id=wojtek",
+    )
+    list_payload = json.loads(list_body)
+
+    assert start_status == "201 Created"
+    assert start_payload["job"]["owner_id"] == "wojtek"
+    assert list_status == "200 OK"
+    assert list_payload["owner_id"] == "wojtek"
+    assert len(list_payload["jobs"]) == 1
+    assert list_payload["jobs"][0]["owner_id"] == "wojtek"
+
+
 def _call_wsgi(
     app: SourceTraceWSGIApp,
     *,

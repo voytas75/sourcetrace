@@ -282,7 +282,7 @@ class SourceTraceWSGIApp:
         start_response: StartResponse,
     ) -> Iterable[bytes]:
         payload = _read_json(environ)
-        owner_id = _required_str(payload, "owner_id")
+        owner_id = _required_str(payload, "owner_id").strip().lower()
         query = _required_str(payload, "query")
         outcome = self.delivery.start_research_job(owner_id=owner_id, query=query)
         if outcome is None:
@@ -301,7 +301,7 @@ class SourceTraceWSGIApp:
         environ: WsgiEnviron,
         start_response: StartResponse,
     ) -> Iterable[bytes]:
-        owner_id = _required_query_param(environ, "owner_id")
+        owner_id = _required_query_param(environ, "owner_id").strip().lower()
         outcome = self.delivery.list_research_jobs(owner_id)
         if outcome is None:
             return _json_response(start_response, "503 Service Unavailable", {"error": "research_unavailable", "status": "unavailable"})
@@ -1680,7 +1680,7 @@ def _render_research_console_html() -> str:
 
       async function startJob() {
         try {
-          const ownerId = ownerInput.value.trim();
+          const ownerId = ownerInput.value.trim().toLowerCase();
           const query = queryInput.value.trim();
           if (!ownerId) {
             showUiError('Start failed', 'owner_id is required');
@@ -1690,6 +1690,7 @@ def _render_research_console_html() -> str:
             showUiError('Start failed', 'query is required');
             return;
           }
+          ownerInput.value = ownerId;
           const { payload } = await jsonRequest('/api/research/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1753,8 +1754,9 @@ def _render_research_console_html() -> str:
       }
 
       async function listJobs() {
-        const ownerId = ownerInput.value.trim();
+        const ownerId = ownerInput.value.trim().toLowerCase();
         if (!ownerId) return;
+        ownerInput.value = ownerId;
         const { payload } = await jsonRequest(`/api/research/jobs?owner_id=${encodeURIComponent(ownerId)}`);
         setBox(jobsBox, JSON.stringify(payload, null, 2));
         renderJobsList(payload);
