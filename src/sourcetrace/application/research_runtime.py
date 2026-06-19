@@ -214,16 +214,28 @@ class LlmResearchSynthesizer:
         findings: tuple[ExtractedFinding, ...],
         previous_report: str | None,
     ) -> SynthesisResult:
+        top_findings = _top_findings(findings)
         evidence = "\n".join(
-            f"- {finding.title}: {finding.summary}" for finding in _top_findings(findings)
+            f"- {finding.title}: {finding.summary}" for finding in top_findings
         ) or "- No useful findings in this round."
+        previous_answer = _extract_section_body(previous_report, "Current answer") or "NONE"
         prompt = (
-            f"Write a concise Deep Research report update.\n"
+            "You are writing an operator-facing Deep Research update.\n"
+            "Be concrete, compact, and evidence-first. Avoid vague meta commentary.\n"
+            "Lead with the best current answer to the query, not with discussion of process.\n\n"
             f"Query: {query}\n"
             f"Round: {round_number}\n"
-            f"Previous report: {previous_report or 'NONE'}\n"
+            f"Previous answer: {previous_answer}\n"
             f"Evidence:\n{evidence}\n\n"
-            "Return plain markdown with sections: Current answer, Evidence, Next step. Keep it compact and operator-facing."
+            "Return plain markdown with exactly these sections in this order:\n"
+            "## Current answer\n"
+            "- 2 to 4 sentences answering the query directly\n\n"
+            "## Key findings\n"
+            "- 3 to 5 bullet points using only the strongest findings\n\n"
+            "## Uncertainty\n"
+            "- 1 to 3 bullet points describing what is still weak, ambiguous, or missing\n\n"
+            "## Next checks\n"
+            "- 1 to 3 bullet points for the next most useful verification steps\n"
         )
         result = self.synthesize_text(prompt)
         text = getattr(result, 'text', '') if result is not None else ''
@@ -233,7 +245,10 @@ class LlmResearchSynthesizer:
             findings=findings,
             previous_report=previous_report,
         ).report_markdown
-        answer_summary = report.splitlines()[2] if len(report.splitlines()) >= 3 else _summary_line(query=query, findings=_top_findings(findings))
+        answer_summary = (
+            _extract_section_body(report, "Current answer")
+            or _summary_line(query=query, findings=top_findings)
+        )
         return SynthesisResult(
             report_markdown=report,
             answer_summary=answer_summary,
@@ -297,19 +312,21 @@ class StubSynthesizer:
         findings: tuple[ExtractedFinding, ...],
         previous_report: str | None,
     ) -> SynthesisResult:
+        del previous_report
         top_findings = _top_findings(findings)
-        bullets = "\n".join(
-            f"- {finding.title}: {finding.summary}" for finding in top_findings
+        key_findings = "\n".join(
+            f"- {finding.title}: {finding.summary}" for finding in top_findings[:4]
         ) or "- No useful findings in this round."
         summary_line = _summary_line(query=query, findings=top_findings)
-        if previous_report:
-            report = previous_report + f"\n\n## Round {round_number}\n{summary_line}\n\n### Evidence\n{bullets}"
-        else:
-            report = (
-                f"# Deep Research: {query}\n\n"
-                f"## Current answer\n{summary_line}\n\n"
-                f"## Round {round_number}\n### Evidence\n{bullets}"
-            )
+        uncertainty = _uncertainty_lines(query=query, findings=top_findings)
+        next_checks = _next_check_lines(query=query, findings=top_findings)
+        report = (
+            f"# Deep Research: {query}\n\n"
+            f"## Current answer\n{summary_line}\n\n"
+            f"## Key findings\n{key_findings}\n\n"
+            f"## Uncertainty\n{uncertainty}\n\n"
+            f"## Next checks\n{next_checks}"
+        )
         return SynthesisResult(
             report_markdown=report,
             answer_summary=summary_line,
@@ -339,11 +356,55 @@ def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5) -> tup
 def _summary_line(*, query: str, findings: tuple[ExtractedFinding, ...]) -> str:
     if not findings:
         return f"No strong evidence gathered yet for: {query}."
-    titles = ", ".join(finding.title for finding in findings[:3])
+    lead = findings[0]
+    if len(findings) == 1:
+        return f"Current evidence points to {lead.title} as the clearest answer path for '{query}'."
+    supporting_titles = ", ".join(finding.title for finding in findings[1:3])
     return (
-        f"Current evidence suggests the research topic '{query}' is best explained through "
-        f"{titles}."
+        f"Current evidence suggests {lead.title} is the strongest answer frame for '{query}', "
+        f"supported by {supporting_titles}."
     )
+
+
+def _uncertainty_lines(*, query: str, findings: tuple[ExtractedFinding, ...]) -> str:
+    if not findings:
+        return f"- Evidence is still too thin to answer '{query}' confidently."
+    if len(findings) == 1:
+        return "- The answer currently depends on a narrow evidence base and needs cross-checking."
+    return (
+        "- The current answer is based on a bounded set of sources and may miss contradictory material.\n"
+        "- Some findings are still descriptive rather than directly decisive for the query."
+    )
+
+
+def _next_check_lines(*, query: str, findings: tuple[ExtractedFinding, ...]) -> str:
+    if not findings:
+        return f"- Gather at least two strong sources directly addressing '{query}'."
+    return (
+        f"- Verify the current answer against a fresh source class for '{query}'.\n"
+        "- Check whether any recent source materially contradicts the top finding."
+    )
+
+
+def _extract_section_body(markdown: str | None, heading: str) -> str:
+    if not markdown:
+        return ""
+    lines = markdown.splitlines()
+    capture = False
+    body: list[str] = []
+    target = f"## {heading}".strip()
+    for line in lines:
+        stripped = line.strip()
+        if stripped == target:
+            capture = True
+            continue
+        if capture and stripped.startswith("## "):
+            break
+        if capture:
+            body.append(line)
+    text = " ".join(part.strip() for part in body if part.strip()).strip()
+    return text
+
 
 class DeterministicStopRails:
     """Bounded stop-rail evaluator for the first engine-loop slice."""

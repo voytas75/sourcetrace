@@ -80,6 +80,10 @@ def test_fake_research_worker_runs_two_round_engine_loop() -> None:
     assert result.stats.rounds == 2
     assert result.stats.urls == 3
     assert len(result.raw_findings) == 3
+    assert "## Current answer" in result.result
+    assert "## Key findings" in result.result
+    assert "## Uncertainty" in result.result
+    assert "## Next checks" in result.result
     assert status is not None
     assert any(event.phase.value == "reading" for event in status.progress)
     assert any(event.phase.value == "analyzing" for event in status.progress)
