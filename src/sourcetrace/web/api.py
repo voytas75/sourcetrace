@@ -45,7 +45,7 @@ from sourcetrace.web.delivery import (
     _escape_html,
 )
 from sourcetrace.application import SourceIngestionRequest
-from sourcetrace.domain.research import ResearchJob, ResearchProgressEvent, ResearchResultArtifact, ResearchSettings
+from sourcetrace.domain.research import CompiledResearchArtifact, CompiledResearchArtifactLint, ResearchJob, ResearchProgressEvent, ResearchResultArtifact, ResearchSettings
 
 
 StartResponse = Callable[[str, list[tuple[str, str]]], None]
@@ -225,6 +225,12 @@ class SourceTraceWSGIApp:
                 return self._run_research_job(parts[3], start_response)
             if len(parts) == 4 and parts[2] == "cancel" and method == "POST":
                 return self._cancel_research_job(parts[3], start_response)
+            if len(parts) == 5 and parts[2] == "compiled" and parts[4] == "lint" and method == "GET":
+                return self._get_compiled_research_artifact_lint(parts[3], start_response)
+            if len(parts) == 4 and parts[2] == "compiled" and method == "GET":
+                return self._get_compiled_research_artifact(parts[3], start_response)
+            if len(parts) == 3 and parts[2] == "compiled" and method == "GET":
+                return self._list_compiled_research_artifacts(environ, start_response)
         if method == "POST" and path == "/api/verify":
             return self._verify_claim(environ, start_response)
         if method == "POST" and path == "/api/dev/documents":
@@ -395,6 +401,47 @@ class SourceTraceWSGIApp:
         if job is None:
             return _missing_response(start_response, "research_job", job_id)
         return _json_response(start_response, "200 OK", {"job": _research_job_to_payload(job)})
+
+    def _get_compiled_research_artifact(
+        self,
+        artifact_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        artifact = self.delivery.research.persistence.compiled.get_artifact(artifact_id)
+        if artifact is None:
+            return _missing_response(start_response, "compiled_research_artifact", artifact_id)
+        return _json_response(
+            start_response,
+            "200 OK",
+            {"status": "ready", "artifact": _compiled_research_artifact_to_payload(artifact)},
+        )
+
+    def _list_compiled_research_artifacts(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        owner_id = _required_query_param(environ, "owner_id").strip().lower()
+        artifacts = self.delivery.research.persistence.compiled.list_artifacts_for_owner(owner_id)
+        return _json_response(
+            start_response,
+            "200 OK",
+            {"owner_id": owner_id, "artifacts": [_compiled_research_artifact_to_payload(item) for item in artifacts]},
+        )
+
+    def _get_compiled_research_artifact_lint(
+        self,
+        artifact_id: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        lint = self.delivery.research.persistence.compiled_lint.get_lint_for_artifact(artifact_id)
+        if lint is None:
+            return _missing_response(start_response, "compiled_research_artifact_lint", artifact_id)
+        return _json_response(
+            start_response,
+            "200 OK",
+            {"status": "ready", "lint": _compiled_research_artifact_lint_to_payload(lint)},
+        )
 
     def _verify_claim(
         self,
@@ -1250,6 +1297,63 @@ def _research_progress_to_payload(event: ResearchProgressEvent) -> dict[str, obj
     }
 
 
+def _compiled_research_artifact_lint_to_payload(lint: CompiledResearchArtifactLint) -> dict[str, object]:
+    return {
+        "lint_id": lint.lint_id,
+        "artifact_id": lint.artifact_id,
+        "owner_id": lint.owner_id,
+        "status": lint.status.value,
+        "completeness_verdict": lint.completeness_verdict.value,
+        "evidence_verdict": lint.evidence_verdict.value,
+        "followup_verdict": lint.followup_verdict.value,
+        "risk_flags": list(lint.risk_flags),
+        "missing_sections": list(lint.missing_sections),
+        "recommended_repairs": list(lint.recommended_repairs),
+        "recommended_next_action": lint.recommended_next_action,
+        "created_at": lint.created_at,
+    }
+
+
+def _compiled_research_artifact_to_payload(artifact: CompiledResearchArtifact) -> dict[str, object]:
+    return {
+        "artifact_id": artifact.artifact_id,
+        "source_job_id": artifact.source_job_id,
+        "owner_id": artifact.owner_id,
+        "query": artifact.query,
+        "query_class": artifact.query_class.value,
+        "title": artifact.title,
+        "summary": artifact.summary,
+        "current_answer": artifact.current_answer,
+        "key_claims": [
+            {"text": claim.text, "evidence_refs": list(claim.evidence_refs)}
+            for claim in artifact.key_claims
+        ],
+        "supporting_evidence": [
+            {"url": ref.url, "title": ref.title, "summary": ref.summary}
+            for ref in artifact.supporting_evidence
+        ],
+        "open_questions": list(artifact.open_questions),
+        "next_checks": list(artifact.next_checks),
+        "source_refs": [
+            {"url": source.url, "title": source.title, "image": source.image}
+            for source in artifact.source_refs
+        ],
+        "evaluation_snapshot": {
+            "query_class": artifact.evaluation_snapshot.query_class.value,
+            "source_quality_verdict": artifact.evaluation_snapshot.source_quality_verdict.value,
+            "source_quality_reasons": list(artifact.evaluation_snapshot.source_quality_reasons),
+            "relevance_verdict": artifact.evaluation_snapshot.relevance_verdict.value,
+            "relevance_risks": list(artifact.evaluation_snapshot.relevance_risks),
+            "truthfulness_verdict": artifact.evaluation_snapshot.truthfulness_verdict.value,
+            "overclaim_risks": list(artifact.evaluation_snapshot.overclaim_risks),
+            "missing_checks": list(artifact.evaluation_snapshot.missing_checks),
+            "recommended_next_check": artifact.evaluation_snapshot.recommended_next_check,
+            "should_revise_report": artifact.evaluation_snapshot.should_revise_report,
+        } if artifact.evaluation_snapshot is not None else None,
+        "created_at": artifact.created_at,
+    }
+
+
 def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, object]:
     return {
         "job_id": result.job_id,
@@ -1276,6 +1380,18 @@ def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, obj
             {"url": finding.url, "title": finding.title, "summary": finding.summary}
             for finding in result.raw_findings
         ],
+        "evaluation": {
+            "query_class": result.evaluation.query_class.value,
+            "source_quality_verdict": result.evaluation.source_quality_verdict.value,
+            "source_quality_reasons": list(result.evaluation.source_quality_reasons),
+            "relevance_verdict": result.evaluation.relevance_verdict.value,
+            "relevance_risks": list(result.evaluation.relevance_risks),
+            "truthfulness_verdict": result.evaluation.truthfulness_verdict.value,
+            "overclaim_risks": list(result.evaluation.overclaim_risks),
+            "missing_checks": list(result.evaluation.missing_checks),
+            "recommended_next_check": result.evaluation.recommended_next_check,
+            "should_revise_report": result.evaluation.should_revise_report,
+        } if result.evaluation is not None else None,
         "created_at": result.created_at,
         "completed_at": result.completed_at,
     }
@@ -1528,104 +1644,548 @@ def _render_home_html() -> str:
 
 
 def _render_research_console_html() -> str:
-    return """<!doctype html>
+    return r"""<!doctype html>
 <html>
   <head>
     <title>SourceTrace Research Console</title>
     <style>
-      body { font-family: sans-serif; margin: 2rem; max-width: 1100px; }
-      label { display: block; margin-top: 0.75rem; font-weight: 600; }
-      input, textarea, button { font: inherit; }
-      input, textarea { width: 100%; max-width: 920px; }
-      textarea { min-height: 8rem; }
-      .row { margin-top: 1rem; }
-      .mono { font-family: monospace; white-space: pre-wrap; background: #f6f6f6; padding: 0.75rem; border-radius: 6px; }
-      .warn { background: #fff7e6; }
-      .ok { background: #eefbf1; }
-      .muted { color: #555; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-      .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
-      button { margin-right: 0.5rem; margin-top: 0.5rem; }
-      ul.clean { padding-left: 1rem; }
-      .job-link { display: inline-block; margin-top: 0.25rem; cursor: pointer; color: #0b57d0; text-decoration: underline; }
+      :root {
+        color-scheme: dark;
+        --bg: #08111f;
+        --panel: rgba(10, 22, 41, 0.88);
+        --panel-strong: rgba(12, 26, 49, 0.98);
+        --panel-soft: rgba(15, 32, 58, 0.72);
+        --text: #e8eefc;
+        --muted: #94a8c9;
+        --line: rgba(148, 168, 201, 0.18);
+        --accent: #67b7ff;
+        --accent-2: #8a7dff;
+        --ok: #21c47b;
+        --warn: #ffb648;
+        --danger: #ff6b7a;
+        --shadow: 0 22px 60px rgba(0, 0, 0, 0.35);
+        --radius: 20px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(103, 183, 255, 0.16), transparent 32%),
+          radial-gradient(circle at top right, rgba(138, 125, 255, 0.18), transparent 28%),
+          linear-gradient(180deg, #0a1221 0%, #08111f 58%, #060d18 100%);
+        color: var(--text);
+      }
+      a { color: var(--accent); }
+      .shell {
+        width: min(1440px, calc(100vw - 32px));
+        margin: 28px auto;
+        display: grid;
+        gap: 20px;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: 1.5fr 0.9fr;
+        gap: 20px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+      .hero-main {
+        padding: 28px;
+      }
+      .hero-side {
+        padding: 24px;
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(103, 183, 255, 0.12);
+        border: 1px solid rgba(103, 183, 255, 0.18);
+        color: #cfe5ff;
+        font-size: 13px;
+        letter-spacing: 0.02em;
+      }
+      h1, h2, h3 { margin: 0; }
+      h1 {
+        font-size: clamp(30px, 4vw, 48px);
+        line-height: 1.05;
+        margin-top: 18px;
+        letter-spacing: -0.03em;
+      }
+      .lede {
+        margin-top: 14px;
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.6;
+      }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 22px;
+      }
+      .metric {
+        padding: 16px;
+        border-radius: 16px;
+        background: var(--panel-soft);
+        border: 1px solid var(--line);
+      }
+      .metric-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+      .metric-value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+      .metric-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+      .stack { display: grid; gap: 20px; }
+      .controls { padding: 24px; }
+      .section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      .muted { color: var(--muted); }
+      .field-grid {
+        display: grid;
+        grid-template-columns: 0.85fr 1.15fr;
+        gap: 16px;
+      }
+      label {
+        display: block;
+        margin-bottom: 8px;
+        color: #d8e3fb;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      input, textarea, button {
+        font: inherit;
+      }
+      input, textarea {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 168, 201, 0.16);
+        background: rgba(5, 13, 24, 0.58);
+        color: var(--text);
+        padding: 14px 15px;
+        outline: none;
+        transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+      }
+      textarea { min-height: 144px; resize: vertical; }
+      input:focus, textarea:focus {
+        border-color: rgba(103, 183, 255, 0.55);
+        box-shadow: 0 0 0 4px rgba(103, 183, 255, 0.12);
+      }
+      .action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      button {
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 16px;
+        cursor: pointer;
+        color: #08111f;
+        background: linear-gradient(135deg, #8ed0ff 0%, #67b7ff 100%);
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+        box-shadow: 0 12px 30px rgba(103, 183, 255, 0.25);
+      }
+      button:hover { transform: translateY(-1px); }
+      button.secondary {
+        background: rgba(148, 168, 201, 0.12);
+        color: var(--text);
+        box-shadow: none;
+        border: 1px solid rgba(148, 168, 201, 0.14);
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: 1.35fr 0.95fr;
+        gap: 20px;
+      }
+      .result-shell {
+        display: grid;
+        gap: 18px;
+        padding: 24px;
+      }
+      .status-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .surface {
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .surface-head {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .surface-head h3 { font-size: 15px; }
+      .surface-body {
+        padding: 16px;
+      }
+      .mono {
+        font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.5;
+        font-size: 13px;
+      }
+      .console {
+        min-height: 220px;
+        max-height: 420px;
+        overflow: auto;
+        background: rgba(3, 10, 20, 0.58);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      .report {
+        min-height: 280px;
+        max-height: 760px;
+        overflow: auto;
+        background: linear-gradient(180deg, rgba(4, 10, 19, 0.92), rgba(7, 16, 30, 0.8));
+        border-radius: 18px;
+        border: 1px solid rgba(148, 168, 201, 0.12);
+        padding: 20px;
+        line-height: 1.7;
+      }
+      .report h2 { margin-top: 0; font-size: 20px; }
+      .report h3 { margin: 18px 0 10px; font-size: 16px; }
+      .report p, .report li { color: #d9e4fa; }
+      .report ul { padding-left: 20px; }
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(148, 168, 201, 0.08);
+        font-size: 13px;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 88px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .badge.ok { color: #082516; background: rgba(33, 196, 123, 0.92); }
+      .badge.warn { color: #2d1800; background: rgba(255, 182, 72, 0.92); }
+      .badge.danger { color: #390a12; background: rgba(255, 107, 122, 0.95); }
+      .eval-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+      .eval-card {
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(148, 168, 201, 0.08);
+        border: 1px solid var(--line);
+      }
+      .eval-card h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+      .eval-card .verdict { font-size: 18px; font-weight: 800; margin-bottom: 8px; }
+      .list-card {
+        padding: 18px;
+        display: grid;
+        gap: 12px;
+      }
+      .job-list {
+        display: grid;
+        gap: 10px;
+        max-height: 420px;
+        overflow: auto;
+      }
+      .job-item {
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(148, 168, 201, 0.06);
+        cursor: pointer;
+        transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+      }
+      .job-item:hover { transform: translateY(-1px); border-color: rgba(103, 183, 255, 0.35); }
+      .job-item strong { display: block; margin-bottom: 6px; }
+      .job-meta { font-size: 12px; color: var(--muted); }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .helper {
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(103, 183, 255, 0.08);
+        border: 1px solid rgba(103, 183, 255, 0.18);
+        color: #dcecff;
+      }
+      .hidden { display: none !important; }
+      @media (max-width: 1180px) {
+        .hero, .workspace, .field-grid, .status-grid, .eval-grid, .split { grid-template-columns: 1fr; }
+        .summary-grid { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
-    <h1>Research console v3</h1>
-    <p class="muted">Interactive operator console with polling fallback and readable stream/result views.</p>
-
-    <div class="card">
-      <div class="row">
-        <label for="owner_id">Owner id</label>
-        <input id="owner_id" value="user-1" />
-      </div>
-
-      <div class="row">
-        <label for="query">Query</label>
-        <textarea id="query">deep research architecture</textarea>
-      </div>
-
-      <div class="row">
-        <button id="start_btn">Start job</button>
-        <button id="run_btn">Run job</button>
-        <button id="refresh_btn">Refresh status</button>
-        <button id="result_btn">Load result</button>
-        <button id="jobs_btn">List jobs</button>
-      </div>
-
-      <div class="row">
-        <label for="job_id">Job id</label>
-        <input id="job_id" placeholder="job id appears here after start" />
-      </div>
-    </div>
-
-    <div class="grid row">
-      <div class="card">
-        <h2>Status</h2>
-        <div id="status_box" class="mono">No job yet.</div>
-      </div>
-      <div class="card">
-        <h2>Stream</h2>
-        <div id="stream_box" class="mono">No stream yet.</div>
-      </div>
-    </div>
-
-    <div class="grid row">
-      <div class="card">
-        <h2>Result</h2>
-        <div id="result_banner" class="mono">No result yet.</div>
-        <div class="row">
-          <button id="preview_btn">Markdown preview</button>
-          <button id="raw_btn">Raw JSON</button>
+    <div class="shell">
+      <section class="hero">
+        <div class="card hero-main">
+          <div class="eyebrow">Deep Research · operator console</div>
+          <h1>Research UI — modern operator view</h1>
+          <p class="lede">Run jobs, inspect evidence flow, read the result, and now review the post-result evaluator without falling back to raw JSON unless you want to.</p>
+          <div class="summary-grid">
+            <div class="metric">
+              <div class="metric-label">Mode</div>
+              <div class="metric-value">Live API</div>
+              <div class="metric-sub">Start, run, status, stream, result</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Evaluator</div>
+              <div class="metric-value">v1</div>
+              <div class="metric-sub">Structured quality diagnostics</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Flow</div>
+              <div class="metric-value">Operator-first</div>
+              <div class="metric-sub">Readable by default, raw on demand</div>
+            </div>
+          </div>
         </div>
-        <div id="result_preview" class="mono">No result yet.</div>
-        <div id="result_box" class="mono" style="display:none;">No result yet.</div>
-      </div>
-      <div class="card">
-        <h2>Jobs</h2>
-        <div id="jobs_box" class="mono">No jobs loaded.</div>
-        <div id="jobs_list"></div>
-      </div>
-    </div>
+        <aside class="card hero-side">
+          <div>
+            <div class="metric-label">What changed</div>
+            <div class="metric-value" style="font-size: 20px;">Evaluation-aware results</div>
+            <div class="metric-sub">Source quality, relevance, truthfulness, risks, next check.</div>
+          </div>
+          <div class="helper">
+            Tip: use one owner id per benchmark slice so you can compare runs without losing the job history.
+          </div>
+          <div class="pill-row">
+            <span class="pill">/research</span>
+            <span class="pill">Readable status</span>
+            <span class="pill">Evaluator summary</span>
+          </div>
+        </aside>
+      </section>
 
-    <p><a href="/">Back to home</a></p>
+      <section class="card controls">
+        <div class="section-title">
+          <div>
+            <h2>Run a research job</h2>
+            <div class="muted">Start from a query, then inspect stream, result, and evaluator output in one place.</div>
+          </div>
+          <div class="pill-row">
+            <span id="connection_pill" class="pill">idle</span>
+            <span id="job_state_pill" class="pill">no job selected</span>
+          </div>
+        </div>
+        <div class="field-grid">
+          <div>
+            <label for="owner_id">Owner id</label>
+            <input id="owner_id" value="user-1" />
+          </div>
+          <div>
+            <label for="job_id">Job id</label>
+            <input id="job_id" placeholder="job id appears here after start" />
+          </div>
+        </div>
+        <div style="margin-top: 16px;">
+          <label for="query">Query</label>
+          <textarea id="query">deep research architecture</textarea>
+        </div>
+        <div class="action-row">
+          <button id="start_btn">Start job</button>
+          <button id="run_btn">Run job</button>
+          <button id="refresh_btn" class="secondary">Refresh status</button>
+          <button id="result_btn" class="secondary">Load result</button>
+          <button id="jobs_btn" class="secondary">List jobs</button>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="stack">
+          <div class="status-grid">
+            <div class="surface">
+              <div class="surface-head">
+                <h3>Status snapshot</h3>
+                <span class="muted">Readable + raw</span>
+              </div>
+              <div class="surface-body">
+                <div id="status_summary" class="helper">No job yet.</div>
+                <div id="status_box" class="console mono" style="margin-top: 12px;">No job yet.</div>
+              </div>
+            </div>
+            <div class="surface">
+              <div class="surface-head">
+                <h3>Progress stream</h3>
+                <span class="muted">Polling fallback</span>
+              </div>
+              <div class="surface-body">
+                <div id="stream_box" class="console mono">No stream yet.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card result-shell">
+            <div class="section-title">
+              <div>
+                <h2>Result + evaluator</h2>
+                <div class="muted">Readable report first. Diagnostics beside it. Raw JSON only when needed.</div>
+              </div>
+              <div class="pill-row">
+                <span id="result_banner" class="pill">No result yet</span>
+                <span id="query_class_pill" class="pill">query class: n/a</span>
+              </div>
+            </div>
+            <div class="split">
+              <div class="surface">
+                <div class="surface-head">
+                  <h3>Markdown result</h3>
+                  <div class="pill-row">
+                    <button id="preview_btn" class="secondary">Readable view</button>
+                    <button id="raw_btn" class="secondary">Raw JSON</button>
+                  </div>
+                </div>
+                <div class="surface-body">
+                  <div id="result_preview" class="report">No result yet.</div>
+                  <div id="result_box" class="console mono hidden">No result yet.</div>
+                </div>
+              </div>
+              <div class="surface">
+                <div class="surface-head">
+                  <h3>Evaluator output</h3>
+                  <span class="muted">Diagnostic first</span>
+                </div>
+                <div class="surface-body stack">
+                  <div class="eval-grid">
+                    <div class="eval-card">
+                      <h4>Source quality</h4>
+                      <div id="eval_source_verdict" class="verdict">n/a</div>
+                      <div id="eval_source_reasons" class="muted">No evaluation yet.</div>
+                    </div>
+                    <div class="eval-card">
+                      <h4>Relevance</h4>
+                      <div id="eval_relevance_verdict" class="verdict">n/a</div>
+                      <div id="eval_relevance_risks" class="muted">No evaluation yet.</div>
+                    </div>
+                    <div class="eval-card">
+                      <h4>Truthfulness</h4>
+                      <div id="eval_truth_verdict" class="verdict">n/a</div>
+                      <div id="eval_truth_risks" class="muted">No evaluation yet.</div>
+                    </div>
+                  </div>
+                  <div class="split">
+                    <div class="eval-card">
+                      <h4>Missing checks</h4>
+                      <div id="eval_missing_checks" class="muted">No evaluation yet.</div>
+                    </div>
+                    <div class="eval-card">
+                      <h4>Recommended next check</h4>
+                      <div id="eval_next_check">No evaluation yet.</div>
+                      <div id="eval_revise" class="muted" style="margin-top: 10px;">should_revise_report: n/a</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="card list-card">
+          <div class="section-title">
+            <div>
+              <h2>Jobs</h2>
+              <div class="muted">Click a job to load status and result.</div>
+            </div>
+          </div>
+          <div id="jobs_box" class="console mono">No jobs loaded.</div>
+          <div id="jobs_list" class="job-list"></div>
+          <div class="helper">The list is owner-scoped. Reuse the same owner id when running benchmark comparisons.</div>
+          <p class="muted"><a href="/">Back to home</a></p>
+        </aside>
+      </section>
+    </div>
 
     <script>
       const ownerInput = document.getElementById('owner_id');
       const queryInput = document.getElementById('query');
       const jobInput = document.getElementById('job_id');
+      const statusSummary = document.getElementById('status_summary');
       const statusBox = document.getElementById('status_box');
       const streamBox = document.getElementById('stream_box');
       const resultBox = document.getElementById('result_box');
       const resultPreview = document.getElementById('result_preview');
       const resultBanner = document.getElementById('result_banner');
+      const queryClassPill = document.getElementById('query_class_pill');
       const jobsBox = document.getElementById('jobs_box');
       const jobsList = document.getElementById('jobs_list');
+      const connectionPill = document.getElementById('connection_pill');
+      const jobStatePill = document.getElementById('job_state_pill');
+      const evalSourceVerdict = document.getElementById('eval_source_verdict');
+      const evalSourceReasons = document.getElementById('eval_source_reasons');
+      const evalRelevanceVerdict = document.getElementById('eval_relevance_verdict');
+      const evalRelevanceRisks = document.getElementById('eval_relevance_risks');
+      const evalTruthVerdict = document.getElementById('eval_truth_verdict');
+      const evalTruthRisks = document.getElementById('eval_truth_risks');
+      const evalMissingChecks = document.getElementById('eval_missing_checks');
+      const evalNextCheck = document.getElementById('eval_next_check');
+      const evalRevise = document.getElementById('eval_revise');
       let refreshTimer = null;
 
-      function setBox(el, value, cls='mono') {
+      function setText(el, value) {
+        el.textContent = value;
+      }
+
+      function setBox(el, value, cls='console mono') {
         el.className = cls;
         el.textContent = value;
+      }
+
+      function verdictTone(value) {
+        if (value === 'strong') return 'ok';
+        if (value === 'weak') return 'danger';
+        return 'warn';
+      }
+
+      function renderVerdict(el, value) {
+        el.textContent = value ? value.toUpperCase() : 'N/A';
+        el.style.color = value === 'strong' ? 'var(--ok)' : value === 'weak' ? 'var(--danger)' : 'var(--warn)';
+      }
+
+      function renderLines(lines, fallback='None') {
+        if (!Array.isArray(lines) || !lines.length) return fallback;
+        return lines.map((line) => `• ${line}`).join(String.fromCharCode(10));
       }
 
       function renderStreamText(payload) {
@@ -1641,41 +2201,105 @@ def _render_research_console_html() -> str:
         }).join(String.fromCharCode(10));
       }
 
+      function markdownToHtml(markdown) {
+        const escaped = String(markdown || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return escaped
+          .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+          .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+          .replace(/^# (.*)$/gm, '<h1>$1</h1>')
+          .replace(/[*][*](.*?)[*][*]/g, '<strong>$1</strong>')
+          .replace(/^- (.*)$/gm, '<li>$1</li>')
+          .replace(/(<li>.*[<]\/li>)/gs, '<ul>$1</ul>')
+          .replace(/\n\n/g, '</p><p>')
+          .replace(/^/, '<p>')
+          .replace(/$/, '</p>')
+          .replace(/<p><\/p>/g, '')
+          .replace(/<p>(<h[1-3]>)/g, '$1')
+          .replace(/(<\/h[1-3]>)<\/p>/g, '$1')
+          .replace(/<p>(<ul>)/g, '$1')
+          .replace(/(<\/ul>)<\/p>/g, '$1');
+      }
+
+      function renderStatusSummary(payload) {
+        const job = payload.job || {};
+        const lines = [
+          `job_id: ${job.job_id || 'n/a'}`,
+          `status: ${job.status || 'n/a'}`,
+          `query: ${job.query || 'n/a'}`,
+        ];
+        if (job.completed_at) lines.push(`completed_at: ${job.completed_at}`);
+        statusSummary.textContent = lines.join(String.fromCharCode(10));
+        jobStatePill.textContent = job.status ? `job: ${job.status}` : 'no job selected';
+      }
+
       function renderJobsList(payload) {
         const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
         jobsList.innerHTML = '';
         for (const job of jobs) {
-          const item = document.createElement('div');
-          const link = document.createElement('span');
-          link.className = 'job-link';
-          link.textContent = `${job.job_id} — ${job.status}`;
-          link.onclick = async () => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'job-item';
+          item.innerHTML = `<strong>${job.job_id}</strong><div>${job.query || 'no query'}</div><div class="job-meta">${job.status} · ${job.created_at || 'n/a'}</div>`;
+          item.onclick = async () => {
             jobInput.value = job.job_id;
             await refreshStatus();
             await loadResult();
           };
-          item.appendChild(link);
           jobsList.appendChild(item);
         }
       }
 
       async function jsonRequest(url, options={}) {
+        connectionPill.textContent = 'loading';
         const response = await fetch(url, options);
         const text = await response.text();
         let payload;
         try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
         if (!response.ok) {
+          connectionPill.textContent = 'error';
           const message = payload && (payload.error || payload.status || payload.raw)
             ? String(payload.error || payload.status || payload.raw)
             : `HTTP ${response.status}`;
           throw new Error(`${response.status} ${response.statusText}: ${message}`);
         }
+        connectionPill.textContent = 'ok';
         return { response, payload };
       }
 
       function showUiError(prefix, error) {
         const message = error instanceof Error ? error.message : String(error);
-        setBox(statusBox, `${prefix}: ${message}`, 'mono warn');
+        setBox(statusSummary, `${prefix}: ${message}`, 'helper');
+        setBox(statusBox, `${prefix}: ${message}`, 'console mono');
+        connectionPill.textContent = 'error';
+      }
+
+      function renderEvaluation(evaluation) {
+        if (!evaluation) {
+          queryClassPill.textContent = 'query class: n/a';
+          renderVerdict(evalSourceVerdict, '');
+          renderVerdict(evalRelevanceVerdict, '');
+          renderVerdict(evalTruthVerdict, '');
+          setText(evalSourceReasons, 'No evaluation yet.');
+          setText(evalRelevanceRisks, 'No evaluation yet.');
+          setText(evalTruthRisks, 'No evaluation yet.');
+          setText(evalMissingChecks, 'No evaluation yet.');
+          setText(evalNextCheck, 'No evaluation yet.');
+          setText(evalRevise, 'should_revise_report: n/a');
+          return;
+        }
+        queryClassPill.textContent = `query class: ${evaluation.query_class}`;
+        renderVerdict(evalSourceVerdict, evaluation.source_quality_verdict);
+        renderVerdict(evalRelevanceVerdict, evaluation.relevance_verdict);
+        renderVerdict(evalTruthVerdict, evaluation.truthfulness_verdict);
+        setText(evalSourceReasons, renderLines(evaluation.source_quality_reasons, 'No specific source-quality notes.'));
+        setText(evalRelevanceRisks, renderLines(evaluation.relevance_risks, 'No specific relevance risks.'));
+        setText(evalTruthRisks, renderLines(evaluation.overclaim_risks, 'No explicit overclaim risks flagged.'));
+        setText(evalMissingChecks, renderLines(evaluation.missing_checks, 'No missing checks flagged.'));
+        setText(evalNextCheck, evaluation.recommended_next_check || 'No recommended next check.');
+        setText(evalRevise, `should_revise_report: ${evaluation.should_revise_report ? 'yes' : 'no'}`);
       }
 
       async function startJob() {
@@ -1698,7 +2322,7 @@ def _render_research_console_html() -> str:
           });
           if (payload.job && payload.job.job_id) {
             jobInput.value = payload.job.job_id;
-            setBox(statusBox, `Job created: ${payload.job.job_id}`, 'mono ok');
+            setBox(statusSummary, `Job created: ${payload.job.job_id}`, 'helper');
             await refreshStatus();
             await listJobs();
             startAutoRefresh();
@@ -1718,7 +2342,7 @@ def _render_research_console_html() -> str:
             return;
           }
           await jsonRequest(`/api/research/run/${jobId}`, { method: 'POST' });
-          setBox(statusBox, `Job started: ${jobId}`, 'mono ok');
+          setBox(statusSummary, `Job started: ${jobId}`, 'helper');
           await refreshStatus();
           await readStream();
           await loadResult();
@@ -1733,8 +2357,9 @@ def _render_research_console_html() -> str:
         const jobId = jobInput.value.trim();
         if (!jobId) return;
         const { payload } = await jsonRequest(`/api/research/status/${jobId}`);
-        setBox(statusBox, JSON.stringify(payload, null, 2));
-        setBox(streamBox, renderStreamText(payload));
+        renderStatusSummary(payload);
+        setBox(statusBox, JSON.stringify(payload, null, 2), 'console mono');
+        setBox(streamBox, renderStreamText(payload), 'console mono');
         const status = payload.job && payload.job.status ? payload.job.status : '';
         if (['done', 'error', 'cancelled'].includes(status)) {
           stopAutoRefresh();
@@ -1746,11 +2371,12 @@ def _render_research_console_html() -> str:
         if (!jobId) return;
         const { payload } = await jsonRequest(`/api/research/result/${jobId}`);
         const completion = payload.result && payload.result.completion_mode ? payload.result.completion_mode : 'pending';
-        const bannerClass = completion === 'partial_error' ? 'mono warn' : 'mono ok';
-        setBox(resultBanner, `completion_mode: ${completion}`, bannerClass);
+        resultBanner.textContent = `completion_mode: ${completion}`;
+        resultBanner.className = `badge ${completion === 'partial_error' ? 'warn' : completion === 'fallback' ? 'warn' : 'ok'}`;
         const markdown = payload.result && payload.result.result ? payload.result.result : 'No result yet.';
-        setBox(resultPreview, markdown);
-        setBox(resultBox, JSON.stringify(payload, null, 2));
+        resultPreview.innerHTML = markdownToHtml(markdown);
+        setBox(resultBox, JSON.stringify(payload, null, 2), 'console mono');
+        renderEvaluation(payload.result ? payload.result.evaluation : null);
       }
 
       async function listJobs() {
@@ -1758,7 +2384,7 @@ def _render_research_console_html() -> str:
         if (!ownerId) return;
         ownerInput.value = ownerId;
         const { payload } = await jsonRequest(`/api/research/jobs?owner_id=${encodeURIComponent(ownerId)}`);
-        setBox(jobsBox, JSON.stringify(payload, null, 2));
+        setBox(jobsBox, JSON.stringify(payload, null, 2), 'console mono');
         renderJobsList(payload);
       }
 
@@ -1768,7 +2394,7 @@ def _render_research_console_html() -> str:
         try {
           const response = await fetch(`/api/research/stream/${jobId}`);
           const text = await response.text();
-          setBox(streamBox, text);
+          setBox(streamBox, text, 'console mono');
         } catch {
           await refreshStatus();
         }
@@ -1794,12 +2420,12 @@ def _render_research_console_html() -> str:
       document.getElementById('result_btn').addEventListener('click', loadResult);
       document.getElementById('jobs_btn').addEventListener('click', listJobs);
       document.getElementById('preview_btn').addEventListener('click', () => {
-        resultPreview.style.display = 'block';
-        resultBox.style.display = 'none';
+        resultPreview.classList.remove('hidden');
+        resultBox.classList.add('hidden');
       });
       document.getElementById('raw_btn').addEventListener('click', () => {
-        resultPreview.style.display = 'none';
-        resultBox.style.display = 'block';
+        resultPreview.classList.add('hidden');
+        resultBox.classList.remove('hidden');
       });
     </script>
   </body>

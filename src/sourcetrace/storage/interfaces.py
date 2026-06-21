@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sourcetrace.application.continuity import ContinuityPackOutcome
 from sourcetrace.domain.documents import Document
-from sourcetrace.domain.research import ResearchJob, ResearchProgressEvent, ResearchResultArtifact
+from sourcetrace.domain.research import CompiledResearchArtifact, CompiledResearchArtifactLint, ResearchJob, ResearchProgressEvent, ResearchResultArtifact
 from sourcetrace.domain.documents import DocumentCredibilityAssessment
 
 
@@ -180,6 +180,35 @@ class ResearchProgressEventStore(Protocol):
         ...
 
 
+class CompiledResearchArtifactRepository(Protocol):
+    """Persistence seam for compiled research artifacts."""
+
+    def save_artifact(self, artifact: CompiledResearchArtifact) -> CompiledResearchArtifact:
+        ...
+
+    def get_artifact(self, artifact_id: str) -> CompiledResearchArtifact | None:
+        ...
+
+    def list_artifacts_for_owner(self, owner_id: str) -> tuple[CompiledResearchArtifact, ...]:
+        ...
+
+
+class CompiledResearchArtifactLintRepository(Protocol):
+    """Persistence seam for compiled research artifact lint outputs."""
+
+    def save_lint(self, lint: CompiledResearchArtifactLint) -> CompiledResearchArtifactLint:
+        ...
+
+    def get_lint(self, lint_id: str) -> CompiledResearchArtifactLint | None:
+        ...
+
+    def get_lint_for_artifact(self, artifact_id: str) -> CompiledResearchArtifactLint | None:
+        ...
+
+    def list_lints_for_owner(self, owner_id: str) -> tuple[CompiledResearchArtifactLint, ...]:
+        ...
+
+
 @dataclass(frozen=True)
 class ResearchPersistence:
     """Deep Research persistence seam bundle for explicit dependency wiring."""
@@ -187,11 +216,15 @@ class ResearchPersistence:
     jobs: ResearchJobRepository
     results: ResearchResultRepository
     progress: ResearchProgressEventStore
+    compiled: CompiledResearchArtifactRepository
+    compiled_lint: CompiledResearchArtifactLintRepository
 
 
 __all__ = [
     "CaseRepository",
     "ClaimRepository",
+    "CompiledResearchArtifactLintRepository",
+    "CompiledResearchArtifactRepository",
     "CorePersistence",
     "DocumentRepository",
     "ResearchJobRepository",

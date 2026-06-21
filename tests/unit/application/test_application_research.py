@@ -8,8 +8,35 @@ from sourcetrace.application import (
     SearchHit,
     build_research_execution,
 )
-from sourcetrace.application.research_runtime import _is_relevant_hit, _looks_like_listing_page, _top_findings
-from sourcetrace.domain import ResearchCompletionMode, ResearchJobStatus
+from sourcetrace.application.research_runtime import (
+    StubQueryGenerator,
+    _authority_signal_score,
+    _classify_query,
+    _compile_research_artifact,
+    _evaluate_research_result,
+    _filter_hits_for_extraction,
+    _is_relevant_hit,
+    _lint_compiled_research_artifact,
+    _looks_like_listing_page,
+    _pack_evidence_for_synthesis,
+    _procedural_query_variants,
+    _top_findings,
+    build_procedural_admin_unified_search_adapter,
+    build_search_adapter,
+)
+from sourcetrace.domain import (
+    CompiledResearchArtifact,
+    CompiledResearchArtifactLintStatus,
+    ResearchCompletionMode,
+    ResearchEvaluationArtifact,
+    ResearchEvaluationVerdict,
+    ResearchFinding,
+    ResearchJobStatus,
+    ResearchQueryClass,
+    ResearchResultArtifact,
+    ResearchSource,
+    ResearchStats,
+)
 from sourcetrace.storage import create_in_memory_research_persistence
 
 
@@ -86,6 +113,13 @@ def test_fake_research_worker_completes_job_and_persists_artifact() -> None:
     assert status is not None
     assert status.job.status is ResearchJobStatus.DONE
     assert status.progress[-1].final is True
+    compiled = persistence.compiled.get_artifact(f"cra-{outcome.job.job_id}")
+    assert compiled is not None
+    assert compiled.source_job_id == outcome.job.job_id
+    assert compiled.owner_id == "user-1"
+    lint = persistence.compiled_lint.get_lint_for_artifact(compiled.artifact_id)
+    assert lint is not None
+    assert lint.artifact_id == compiled.artifact_id
 
 
 def test_fake_research_worker_can_save_partial_salvage_result() -> None:
@@ -188,6 +222,137 @@ def test_top_findings_prefers_source_type_diversity() -> None:
     assert any(title in titles for title in ("Architecture Guide", "Operator Notes"))
 
 
+def test_compile_research_artifact_projects_result_into_compiled_shape() -> None:
+    persistence = create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+    worker = FakeResearchWorker(persistence)
+    outcome = manager.start_job(
+        ResearchJobStartRequest(owner_id="user-1", query="how to deploy configuration baselines in sccm")
+    )
+    result = worker(outcome.job.job_id)
+
+    assert result is not None
+    compiled = _compile_research_artifact(result)
+    assert compiled.title
+    assert compiled.current_answer
+    assert compiled.query == result.query
+    assert compiled.evaluation_snapshot is not None
+    assert compiled.source_refs or compiled.supporting_evidence
+    assert compiled.next_checks or compiled.open_questions
+
+
+def test_lint_compiled_research_artifact_flags_open_questions_without_next_checks() -> None:
+    artifact = CompiledResearchArtifact(
+        artifact_id="cra-1",
+        source_job_id="rj-1",
+        owner_id="user-1",
+        query="test query",
+        query_class=ResearchQueryClass.BROAD_CONCEPT,
+        title="Test",
+        summary="Summary",
+        current_answer="Answer",
+        supporting_evidence=(),
+        open_questions=("What changed?",),
+        next_checks=(),
+        source_refs=(ResearchSource(url="https://example.test", title="Example"),),
+        evaluation_snapshot=ResearchEvaluationArtifact(
+            query_class=ResearchQueryClass.BROAD_CONCEPT,
+            source_quality_verdict=ResearchEvaluationVerdict.MIXED,
+            truthfulness_verdict=ResearchEvaluationVerdict.MIXED,
+        ),
+        created_at="2026-06-21T00:00:00+00:00",
+    )
+
+    lint = _lint_compiled_research_artifact(artifact)
+
+    assert lint.status is CompiledResearchArtifactLintStatus.WEAK
+    assert "open_questions_without_next_checks" in lint.risk_flags
+    assert lint.recommended_next_action == "revise_artifact"
+
+
+def test_enriched_compiled_artifact_improves_lint_surface() -> None:
+    persistence = create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+    worker = FakeResearchWorker(persistence)
+    outcome = manager.start_job(
+        ResearchJobStartRequest(owner_id="user-1", query="how to deploy configuration baselines in sccm")
+    )
+    result = worker(outcome.job.job_id)
+
+    assert result is not None
+    compiled = _compile_research_artifact(result)
+    lint = _lint_compiled_research_artifact(compiled)
+
+    assert compiled.source_refs
+    assert compiled.next_checks or compiled.open_questions
+    assert lint.recommended_next_action in {"review_artifact", "artifact_ready", "revise_artifact"}
+
+
+def test_project_supporting_evidence_falls_back_to_report_key_findings() -> None:
+    result = type("Result", (), {
+        "job_id": "rj-1",
+        "raw_findings": (),
+        "sources": (),
+        "result": "## Current answer\nUseful answer\n\n## Key findings\n- First report finding\n- Second report finding\n",
+    })()
+
+    evidence = _compile_research_artifact(
+        ResearchResultArtifact(
+            job_id="rj-1",
+            owner_id="user-1",
+            query="test query",
+            status=ResearchJobStatus.DONE,
+            completion_mode=ResearchCompletionMode.FULL,
+            result=result.result,
+            raw_report=result.result,
+            created_at="2026-06-21T00:00:00+00:00",
+        )
+    ).supporting_evidence
+
+    assert evidence
+    assert evidence[0].url.startswith("about:report/rj-1#key-findings-")
+
+
+def test_procedural_admin_unified_search_adapter_prefers_unified_hits_for_procedural_queries() -> None:
+    current = build_search_adapter(search_web=lambda query, count=3: [
+        {'url': 'https://example.test/blog', 'title': 'Blog', 'snippet': 'Generic result'}
+    ])
+    unified = build_procedural_admin_unified_search_adapter(
+        current_search=current,
+        unified_search_web=lambda query, count=10: [
+            {
+                'url': 'https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines',
+                'title': 'Create configuration baselines - Configuration Manager | Microsoft Learn',
+                'snippet': 'Official Microsoft Learn documentation.',
+            }
+        ],
+    )
+
+    hits = unified(("How do I create configuration baselines in SCCM?",), round_number=1)
+
+    assert hits
+    assert hits[0].url.startswith('https://learn.microsoft.com/')
+
+
+def test_procedural_admin_unified_search_adapter_falls_back_when_unified_hits_lack_official_docs() -> None:
+    current = build_search_adapter(search_web=lambda query, count=3: [
+        {'url': 'https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines', 'title': 'Create configuration baselines - Configuration Manager | Microsoft Learn', 'snippet': 'Official docs'}
+    ])
+    unified = build_procedural_admin_unified_search_adapter(
+        current_search=current,
+        unified_search_web=lambda query, count=10: [
+            {'url': 'https://www.youtube.com/watch?v=123', 'title': 'YouTube tutorial', 'snippet': 'Video result'},
+            {'url': 'https://www.reddit.com/r/SCCM/comments/x', 'title': 'Reddit thread', 'snippet': 'Forum result'},
+        ],
+    )
+
+    hits = unified(("How do I create configuration baselines in SCCM?",), round_number=1)
+
+    assert hits
+    assert hits[0].url.startswith('https://learn.microsoft.com/')
+
+
+
 def test_general_relevance_prefers_procedural_docs_over_loose_noise() -> None:
     query = "jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów"
     strong_hit = SearchHit(
@@ -227,6 +392,73 @@ def test_fake_research_worker_filters_off_topic_hits_for_market_query() -> None:
     assert "physics" not in result.result.lower()
     assert "sociology" not in result.result.lower()
     assert "usdcad" not in result.result.lower()
+
+
+def test_evidence_packing_prefers_official_docs_as_core_for_procedural_query() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
+            title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+            summary="Official procedural documentation.",
+        ),
+        ExtractedFinding(
+            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/deploy-configuration-baselines",
+            title="Deploy configuration baselines - Configuration Manager | Microsoft Learn",
+            summary="Deployment guidance for baselines.",
+        ),
+        ExtractedFinding(
+            url="https://www.velessoftware.com/blog/deploy-a-sccm-configuration-baseline",
+            title="Deploy a SCCM Configuration Baseline",
+            summary="Community blog walkthrough.",
+        ),
+        ExtractedFinding(
+            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/get-started/get-started-with-compliance-settings",
+            title="Get started with compliance settings",
+            summary="Broader compliance settings overview.",
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query='How do I create configuration baselines in SCCM?',
+        findings=findings,
+    )
+
+    assert len(packed.core) >= 1
+    assert all('learn.microsoft.com' in finding.url for finding in packed.core)
+    assert all('velessoftware.com' not in finding.url for finding in packed.core)
+    assert len(packed.background) >= 1
+
+
+def test_query_classification_and_post_result_evaluator_for_procedural_query() -> None:
+    query = "How do I create configuration baselines in SCCM?"
+    findings = (
+        ResearchFinding(
+            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
+            title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+            summary="Official procedural documentation.",
+        ),
+        ResearchFinding(
+            url="https://www.velessoftware.com/blog/deploy-a-sccm-configuration-baseline",
+            title="Deploy a SCCM Configuration Baseline",
+            summary="Community blog walkthrough.",
+        ),
+    )
+    report = "## Current answer\nUse Microsoft Learn guidance.\n\n## Key findings\n- Official docs are present.\n\n## Uncertainty\n- Community material still appears.\n\n## Next checks\n- Verify exact wizard options on Microsoft Learn."
+
+    assert _classify_query(query) is ResearchQueryClass.PROCEDURAL_ADMIN
+    evaluation = _evaluate_research_result(
+        query=query,
+        findings=findings,
+        report=report,
+        stats=ResearchStats(search_providers=("searxng",)),
+    )
+
+    assert evaluation.query_class is ResearchQueryClass.PROCEDURAL_ADMIN
+    assert evaluation.source_quality_verdict is ResearchEvaluationVerdict.MIXED
+    assert evaluation.relevance_verdict is ResearchEvaluationVerdict.STRONG
+    assert evaluation.truthfulness_verdict is ResearchEvaluationVerdict.MIXED
+    assert evaluation.should_revise_report is False
+    assert any("Official documentation" in reason for reason in evaluation.source_quality_reasons)
 
 
 def test_chained_search_adapter_falls_back_after_empty_or_soft_failure() -> None:
@@ -274,6 +506,42 @@ def test_chained_search_adapter_falls_back_after_empty_or_soft_failure() -> None
     assert isinstance(adapter, ChainedSearchAdapter)
 
 
+def test_stub_query_generator_shapes_procedural_query_toward_official_docs() -> None:
+    generator = StubQueryGenerator()
+    plan = type('Plan', (), {'objective': 'How do I create configuration baselines in SCCM?'})()
+
+    queries = generator(plan, round_number=1)
+
+    assert any('site:learn.microsoft.com' in query for query in queries)
+    assert any('Microsoft Learn' in query for query in queries)
+    assert any('configuration baselines' in query.lower() for query in queries)
+
+
+def test_procedural_query_variants_include_authority_seeking_forms() -> None:
+    variants = _procedural_query_variants('How do I create configuration baselines in SCCM?')
+
+    assert any('site:learn.microsoft.com' in variant for variant in variants)
+    assert any('official documentation' in variant.lower() for variant in variants)
+    assert any('Microsoft Learn create configuration baselines in Configuration Manager' in variant for variant in variants)
+
+
+def test_authority_signal_prefers_microsoft_learn_for_procedural_query() -> None:
+    query = "How do I create configuration baselines in SCCM?"
+    official = SearchHit(
+        url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
+        title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+        snippet="Official Microsoft Learn documentation.",
+    )
+    blog = SearchHit(
+        url="https://www.anoopcnair.com/how-create-sccm-configuration-items-baselines/",
+        title="How to Create SCCM Configuration Items Configuration Baselines",
+        snippet="Community blog walkthrough.",
+    )
+
+    assert _authority_signal_score(query=query, hit=official) > _authority_signal_score(query=query, hit=blog)
+    assert _authority_signal_score(query=query, hit=official) >= 10
+
+
 def test_general_relevance_rejects_weak_blog_root_and_generic_pdf_for_procedural_query() -> None:
     query = "jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów"
     weak_blog = SearchHit(
@@ -294,10 +562,127 @@ def test_general_relevance_rejects_weak_blog_root_and_generic_pdf_for_procedural
 
     assert _is_relevant_hit(query=query, hit=weak_blog) is False
     assert _is_relevant_hit(query=query, hit=weak_pdf) is False
+    assert _is_relevant_hit(
+        query=query,
+        hit=SearchHit(
+            url="https://www.reddit.com/r/SCCM/comments/example/baselines/",
+            title="Need help with SCCM baselines",
+            snippet="Reddit thread with community opinions.",
+        ),
+    ) is False
+    assert _is_relevant_hit(
+        query=query,
+        hit=SearchHit(
+            url="https://stackoverflow.com/questions/39803370/sccm-configuration-baseline-name-table",
+            title="SCCM Configuration Baseline Name table - Stack Overflow",
+            snippet="Community Q&A about SCCM baseline internals.",
+        ),
+    ) is False
+    assert _is_relevant_hit(
+        query=query,
+        hit=SearchHit(
+            url="https://gist.github.com/Ioan-Popovici/4a5f932f1a7a0c6c7bc69c092f0b9969",
+            title="SCCM Configuration Baseline Script",
+            snippet="Community gist with a baseline-related script.",
+        ),
+    ) is False
     assert _is_relevant_hit(query=query, hit=strong_doc) is True
 
 
-def test_top_findings_prefers_official_docs_over_blog_and_video_for_procedural_query() -> None:
+def test_pre_extraction_filter_prefers_official_docs_and_drops_forum_video_snippet() -> None:
+    hits = (
+        SearchHit(
+            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
+            title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+            snippet="Official procedural documentation.",
+        ),
+        SearchHit(
+            url="https://www.youtube.com/watch?v=oKk2K_omk7c",
+            title="Configuring SCCM Configuration Items and Baselines",
+            snippet="Video walkthrough of SCCM baseline setup.",
+        ),
+        SearchHit(
+            url="https://www.reddit.com/r/SCCM/comments/jb1z19/can_i_just_say_how_much_i_love_configuration/",
+            title="Can I just say how much I love Configuration Items/Baselines?",
+            snippet="Forum discussion about SCCM baselines.",
+        ),
+        SearchHit(
+            url="https://gist.github.com/Ioan-Popovici/4a5f932f1a7a0c6c7bc69c092f0b9969",
+            title="SCCM Configuration Baseline Script",
+            snippet="Community gist with a baseline-related script.",
+        ),
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query='How do I create configuration baselines in SCCM?',
+        hits=hits,
+    )
+
+    kept_urls = [hit.url for hit in outcome.kept_hits]
+    assert any(url.startswith('https://learn.microsoft.com/') for url in kept_urls)
+    assert all('youtube.com' not in url for url in kept_urls)
+    assert all('reddit.com' not in url for url in kept_urls)
+    assert all('gist.github.com' not in url for url in kept_urls)
+    assert outcome.authority_policy_applied is True
+    assert outcome.dropped_count >= 2
+
+
+def test_pre_extraction_filter_caps_secondary_when_two_official_docs_exist() -> None:
+    hits = (
+        SearchHit(
+            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
+            title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+            snippet="Official procedural documentation.",
+        ),
+        SearchHit(
+            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/deploy-configuration-baselines",
+            title="Deploy configuration baselines - Configuration Manager | Microsoft Learn",
+            snippet="Official deployment documentation.",
+        ),
+        SearchHit(
+            url="https://www.anoopcnair.com/how-create-sccm-configuration-items-baselines/",
+            title="How to Create SCCM Configuration Items Configuration Baselines",
+            snippet="Community tutorial.",
+        ),
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query='How do I create configuration baselines in SCCM?',
+        hits=hits,
+    )
+
+    kept_urls = tuple(hit.url for hit in outcome.kept_hits)
+    assert kept_urls == (
+        'https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines',
+        'https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/deploy-configuration-baselines',
+    )
+
+
+def test_pre_extraction_filter_uses_fallback_when_only_secondary_sources_exist() -> None:
+    hits = (
+        SearchHit(
+            url="https://www.velessoftware.com/blog/deploy-a-sccm-configuration-baseline",
+            title="Deploy a SCCM Configuration Baseline",
+            snippet="Community blog walkthrough with procedural details.",
+        ),
+        SearchHit(
+            url="https://msendpointmgr.com/2017/04/09/configmgr-configuration-baselines-a-beginners-guide/",
+            title="ConfigMgr Configuration Baselines - A Beginners Guide",
+            snippet="Secondary technical guide for configuration baselines.",
+        ),
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query='How do I create configuration baselines in SCCM?',
+        hits=hits,
+    )
+
+    assert len(outcome.kept_hits) >= 1
+    assert outcome.fallback_used is True
+    assert outcome.authority_policy_applied is True
+
+
+def test_top_findings_prefers_official_docs_over_blog_video_and_forum_for_procedural_query() -> None:
     findings = (
         ExtractedFinding(
             url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
@@ -314,6 +699,21 @@ def test_top_findings_prefers_official_docs_over_blog_and_video_for_procedural_q
             title="Configuring SCCM Configuration Items and Baselines",
             summary="Video walkthrough of SCCM baseline setup.",
         ),
+        ExtractedFinding(
+            url="https://www.reddit.com/r/SCCM/comments/jb1z19/can_i_just_say_how_much_i_love_configuration/",
+            title="Can I just say how much I love Configuration Items/Baselines?",
+            summary="Forum discussion about SCCM baselines.",
+        ),
+        ExtractedFinding(
+            url="https://stackoverflow.com/questions/39803370/sccm-configuration-baseline-name-table",
+            title="SCCM Configuration Baseline Name table - Stack Overflow",
+            summary="Community Q&A about SCCM baseline internals.",
+        ),
+        ExtractedFinding(
+            url="https://gist.github.com/Ioan-Popovici/4a5f932f1a7a0c6c7bc69c092f0b9969",
+            title="SCCM Configuration Baseline Script",
+            summary="Community gist with a baseline-related script.",
+        ),
     )
 
     top = _top_findings(
@@ -325,3 +725,6 @@ def test_top_findings_prefers_official_docs_over_blog_and_video_for_procedural_q
     assert len(top) == 2
     assert top[0].url.startswith("https://learn.microsoft.com/")
     assert all("youtube.com" not in finding.url for finding in top)
+    assert all("reddit.com" not in finding.url for finding in top)
+    assert all("stackoverflow.com" not in finding.url for finding in top)
+    assert all("gist.github.com" not in finding.url for finding in top)

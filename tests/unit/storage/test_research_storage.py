@@ -1,5 +1,7 @@
 from sourcetrace.domain import ResearchJob, ResearchJobStatus, ResearchSettings
 from sourcetrace.storage import (
+    InMemoryCompiledResearchArtifactLintRepository,
+    InMemoryCompiledResearchArtifactRepository,
     InMemoryResearchJobRepository,
     InMemoryResearchProgressEventStore,
     InMemoryResearchResultRepository,
@@ -13,6 +15,8 @@ def test_research_storage_package_re_exports_are_available() -> None:
     assert isinstance(persistence.jobs, InMemoryResearchJobRepository)
     assert isinstance(persistence.results, InMemoryResearchResultRepository)
     assert isinstance(persistence.progress, InMemoryResearchProgressEventStore)
+    assert isinstance(persistence.compiled, InMemoryCompiledResearchArtifactRepository)
+    assert isinstance(persistence.compiled_lint, InMemoryCompiledResearchArtifactLintRepository)
 
 
 def test_research_persistence_container_shape() -> None:
@@ -21,6 +25,8 @@ def test_research_persistence_container_shape() -> None:
         jobs=persistence.jobs,
         results=persistence.results,
         progress=persistence.progress,
+        compiled=persistence.compiled,
+        compiled_lint=persistence.compiled_lint,
     )
     assert bundle.jobs is persistence.jobs
 

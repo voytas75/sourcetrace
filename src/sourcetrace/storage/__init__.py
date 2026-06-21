@@ -3,6 +3,8 @@
 from sourcetrace.storage.interfaces import (
     CaseRepository,
     ClaimRepository,
+    CompiledResearchArtifactLintRepository,
+    CompiledResearchArtifactRepository,
     CorePersistence,
     DocumentRepository,
     ResearchJobRepository,
@@ -18,6 +20,8 @@ from sourcetrace.storage.memory import (
 )
 from sourcetrace.storage.filesystem import ContinuityPackPersistenceStatus, FileBackedCaseRepository
 from sourcetrace.storage.research_filesystem import (
+    FileBackedCompiledResearchArtifactLintRepository,
+    FileBackedCompiledResearchArtifactRepository,
     FileBackedResearchJobRepository,
     FileBackedResearchProgressEventStore,
     FileBackedResearchResultRepository,
@@ -28,6 +32,8 @@ from sourcetrace.storage.research_filesystem import (
 __all__ = [
     "CaseRepository",
     "ClaimRepository",
+    "CompiledResearchArtifactLintRepository",
+    "CompiledResearchArtifactRepository",
     "CorePersistence",
     "DocumentRepository",
     "ResearchJobRepository",
@@ -36,11 +42,15 @@ __all__ = [
     "ResearchResultRepository",
     "ContinuityPackPersistenceStatus",
     "FileBackedCaseRepository",
+    "FileBackedCompiledResearchArtifactLintRepository",
+    "FileBackedCompiledResearchArtifactRepository",
     "FileBackedResearchJobRepository",
     "FileBackedResearchProgressEventStore",
     "FileBackedResearchResultRepository",
     "InMemoryCaseRepository",
     "InMemoryClaimRepository",
+    "InMemoryCompiledResearchArtifactLintRepository",
+    "InMemoryCompiledResearchArtifactRepository",
     "InMemoryDocumentRepository",
     "InMemoryResearchJobRepository",
     "InMemoryResearchProgressEventStore",
@@ -52,6 +62,8 @@ __all__ = [
 ]
 
 from sourcetrace.storage.research import (
+    InMemoryCompiledResearchArtifactLintRepository,
+    InMemoryCompiledResearchArtifactRepository,
     InMemoryResearchJobRepository,
     InMemoryResearchProgressEventStore,
     InMemoryResearchResultRepository,

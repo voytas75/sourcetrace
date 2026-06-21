@@ -25,6 +25,7 @@ from sourcetrace.web.delivery import create_default_delivery
 
 _DEFAULT_WWW_HOST = "127.0.0.1"
 _DEFAULT_WWW_PORT = 8000
+_DEFAULT_RESEARCH_SYNTHESIS_FALLBACK = "## Current answer\nNo research synthesis content was generated.\n\n## Key findings\n- No structured research findings were returned.\n\n## Uncertainty\n- The synthesis backend returned an underspecified response.\n\n## Next checks\n- Re-run the research check with a markdown-shaped synthesis backend."
 
 
 def _missing_litellm_completion(**_: Any) -> dict[str, Any]:
@@ -201,6 +202,20 @@ def _build_smoke_credibility_assessment_execution() -> CredibilityAssessmentExec
     return CredibilityAssessmentExecution(assess_credibility=assess_credibility)
 
 
+def _research_synthesis_with_markdown_fallback(
+    synthesize_text: Callable[[str], object],
+) -> Callable[[str], object]:
+    def wrapped(prompt: str) -> object:
+        result = synthesize_text(prompt)
+        text = str(getattr(result, "text", "") or "").strip()
+        if text.startswith("## Current answer") and "## Next checks" in text:
+            return result
+        from types import SimpleNamespace
+        return SimpleNamespace(text=_DEFAULT_RESEARCH_SYNTHESIS_FALLBACK)
+
+    return wrapped
+
+
 def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
@@ -248,7 +263,9 @@ def build_local_server_runtime(
             recover_interrupted_research_jobs(research_root)
             research_persistence = create_file_backed_research_persistence(research_root)
         research_manager = ResearchJobManager(research_persistence)
-        research_synthesizer = LlmResearchSynthesizer(llm_runtime.research_synthesis)
+        research_synthesizer = LlmResearchSynthesizer(
+            _research_synthesis_with_markdown_fallback(llm_runtime.research_synthesis)
+        )
         provider_search = research_search_web
         research_worker = FakeResearchWorker(
             research_persistence,

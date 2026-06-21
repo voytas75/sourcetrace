@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from urllib.error import URLError
 from dataclasses import dataclass, replace
+from collections import Counter
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -25,12 +26,20 @@ from sourcetrace.application.research import (
     SynthesisResult,
 )
 from sourcetrace.domain.research import (
+    CompiledResearchArtifact,
+    CompiledResearchArtifactLint,
+    CompiledResearchArtifactLintStatus,
+    CompiledResearchClaim,
+    CompiledResearchEvidenceRef,
     ResearchCompletionMode,
+    ResearchEvaluationArtifact,
+    ResearchEvaluationVerdict,
     ResearchFinding,
     ResearchJob,
     ResearchJobStatus,
     ResearchPhase,
     ResearchProgressEvent,
+    ResearchQueryClass,
     ResearchResultArtifact,
     ResearchSource,
     ResearchStats,
@@ -70,6 +79,14 @@ class StubQueryGenerator:
                 f"{symbol} exchange market",
                 f"{symbol} analytics volume open interest",
             )
+        if _procedural_query_bias(normalized):
+            if round_number == 1:
+                return _procedural_query_variants(objective)
+            return (
+                f'site:learn.microsoft.com {objective}',
+                f'{objective} Microsoft Learn official documentation',
+                f'{objective} Configuration Manager documentation',
+            )
         if round_number == 1:
             return (
                 objective,
@@ -94,6 +111,8 @@ class ResearchSearchError(RuntimeError):
 
 class SearxNGSearchAdapter:
     """HTTP-backed SearxNG adapter normalized to ResearchSearchAdapter output."""
+
+    provider_name = "searxng"
 
     def __init__(
         self,
@@ -146,6 +165,8 @@ class SearxNGSearchAdapter:
 class WebSearchBackedSearchAdapter:
     """Small real search adapter using a caller-supplied web search function."""
 
+    provider_name = "web_search"
+
     def __init__(
         self,
         search_web: Callable[..., list[dict[str, object]]],
@@ -174,8 +195,19 @@ class WebSearchBackedSearchAdapter:
 class ChainedSearchAdapter:
     """Try multiple search adapters in order until one returns usable hits."""
 
+    provider_name = "chained"
+
     def __init__(self, *adapters: ResearchSearchAdapter) -> None:
         self.adapters = tuple(adapter for adapter in adapters if adapter is not None)
+
+    @property
+    def active_provider_names(self) -> tuple[str, ...]:
+        names: list[str] = []
+        for adapter in self.adapters:
+            name = getattr(adapter, "provider_name", None)
+            if isinstance(name, str) and name and name not in names:
+                names.append(name)
+        return tuple(names)
 
     def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
         if not self.adapters:
@@ -205,6 +237,40 @@ def build_search_adapter(
         search_web=search_web,
         searxng_base_url=searxng_base_url,
     )
+
+
+
+def build_procedural_admin_unified_search_adapter(
+    *,
+    current_search: ResearchSearchAdapter,
+    unified_search_web: Callable[..., list[dict[str, object]]] | None = None,
+) -> ResearchSearchAdapter:
+    """Procedural/admin Unified Search path with safe fallback to current search."""
+
+    if unified_search_web is None:
+        return current_search
+
+    def _looks_official_enough(hits: tuple[SearchHit, ...]) -> bool:
+        top_hits = hits[:5]
+        return any(
+            _source_type(hit.url, hit.title) == 'official_docs' or _authority_signal_score(query='how to', hit=hit) >= 10
+            for hit in top_hits
+        )
+
+    class _ProceduralAdminUnifiedAdapter:
+        provider_name = "procedural_admin_unified_search"
+
+        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+            objective = queries[0] if queries else ""
+            if not _procedural_query_bias(objective.lower()):
+                return current_search(queries, round_number=round_number)
+            unified_adapter = WebSearchBackedSearchAdapter(unified_search_web, count=10)
+            hits = unified_adapter(queries, round_number=round_number)
+            if hits and _looks_official_enough(hits):
+                return hits
+            return current_search(queries, round_number=round_number)
+
+    return _ProceduralAdminUnifiedAdapter()
 
 
 
@@ -361,24 +427,29 @@ class StubSynthesizer:
         previous_report: str | None,
     ) -> SynthesisResult:
         del previous_report
-        top_findings = _top_findings(findings, query=query)
+        packed = _pack_evidence_for_synthesis(query=query, findings=findings)
+        driving_findings = packed.core or packed.supporting or packed.background
         key_findings = "\n".join(
-            f"- {finding.title}: {finding.summary}" for finding in top_findings[:4]
+            f"- {finding.title}: {finding.summary}" for finding in (*packed.core, *packed.supporting)[:4]
         ) or "- No useful findings in this round."
-        summary_line = _summary_line(query=query, findings=top_findings)
-        uncertainty = _uncertainty_lines(query=query, findings=top_findings)
-        next_checks = _next_check_lines(query=query, findings=top_findings)
+        background_note = ""
+        if packed.background:
+            background_titles = ", ".join(finding.title for finding in packed.background[:2])
+            background_note = f"\n\n### Background context\n- Secondary/background evidence kept out of the core answer path includes: {background_titles}."
+        summary_line = _summary_line(query=query, findings=driving_findings)
+        uncertainty = _uncertainty_lines(query=query, findings=driving_findings)
+        next_checks = _next_check_lines(query=query, findings=driving_findings)
         report = (
             f"# Deep Research: {query}\n\n"
             f"## Current answer\n{summary_line}\n\n"
-            f"## Key findings\n{key_findings}\n\n"
+            f"## Key findings\n{key_findings}{background_note}\n\n"
             f"## Uncertainty\n{uncertainty}\n\n"
             f"## Next checks\n{next_checks}"
         )
         return SynthesisResult(
             report_markdown=report,
             answer_summary=summary_line,
-            should_continue=round_number < 2 and len(top_findings) > 0,
+            should_continue=round_number < 2 and len(driving_findings) > 0,
         )
 
 
@@ -502,6 +573,56 @@ def _procedural_query_bias(query: str) -> bool:
     return any(token in lowered for token in ("jak ", "how ", "wdroż", "wdroze", "deploy", "configuration", "baseline", "sccm", "kiedy", "when "))
 
 
+def _procedural_query_variants(query: str) -> tuple[str, ...]:
+    compact = ' '.join(query.split())
+    variants = [
+        compact,
+        f'site:learn.microsoft.com {compact}',
+        f'{compact} Microsoft Learn',
+        f'{compact} official documentation',
+    ]
+    lowered = compact.lower()
+    if 'sccm' in lowered or 'configuration manager' in lowered or 'baseline' in lowered:
+        variants.extend([
+            'site:learn.microsoft.com create configuration baselines configuration manager',
+            'site:learn.microsoft.com configuration manager compliance settings configuration baselines',
+            'Microsoft Learn create configuration baselines in Configuration Manager',
+        ])
+    deduped: list[str] = []
+    for item in variants:
+        if item not in deduped:
+            deduped.append(item)
+    return tuple(deduped)
+
+
+def _authority_signal_score(*, query: str, hit: SearchHit) -> int:
+    if not _procedural_query_bias(query):
+        return 0
+    haystack = f"{hit.title} {hit.snippet} {hit.url}".lower()
+    domain = _normalized_domain(hit.url)
+    score = 0
+    if domain == 'learn.microsoft.com':
+        score += 10
+    if any(token in haystack for token in (
+        'microsoft learn',
+        'learn.microsoft.com',
+        'configuration manager | microsoft learn',
+        'create configuration baselines',
+        'compliance settings',
+    )):
+        score += 6
+    if any(token in haystack for token in (
+        'docs.microsoft.com',
+        'learn.microsoft',
+        '/intune/configmgr/',
+        '/mem/configmgr/',
+    )):
+        score += 4
+    if any(token in haystack for token in ('reddit', 'stack overflow', 'youtube', 'gist.github', 'blog')):
+        score -= 5
+    return score
+
+
 def _looks_like_listing_page(hit: SearchHit) -> bool:
     haystack = f"{hit.title} {hit.url}".lower()
     return any(token in haystack for token in ("/category/", "/tag/", "/archive/", " category ", "| category", "– category", "archive"))
@@ -511,14 +632,22 @@ def _looks_like_weak_general_source(hit: SearchHit) -> bool:
     domain = _normalized_domain(hit.url)
     path = urlparse(hit.url).path.lower()
     title = hit.title.lower()
-    weak_domains = {"quora.com"}
-    if domain in weak_domains:
+    haystack = f"{title} {hit.snippet} {hit.url}".lower()
+    weak_domains = {"quora.com", "stackoverflow.com", "gist.github.com"}
+    weak_suffixes = ("reddit.com",)
+    if domain in weak_domains or domain.endswith(weak_suffixes):
+        return True
+    if 'youtube.com' in haystack or 'youtu.be' in haystack:
         return True
     if domain.endswith("blogspot.com") and path in {"", "/", "/index.html"}:
         return True
+    if any(token in domain for token in ("blog", "wordpress", "substack", "medium.com")):
+        return True
+    if '/questions/' in path or '/answers/' in path or '/comments/' in path:
+        return True
     if path in {"", "/", "/index.html"} and not any(token in title for token in ("configuration baseline", "sccm", "configuration manager", "microsoft learn")):
         return True
-    if path.endswith('.pdf') and not any(token in f"{title} {hit.snippet}".lower() for token in ("configuration baseline", "sccm", "configuration manager", "compliance baseline")):
+    if path.endswith('.pdf') and not any(token in haystack for token in ("configuration baseline", "sccm", "configuration manager", "compliance baseline")):
         return True
     return False
 
@@ -529,6 +658,7 @@ def _general_relevance_score(*, query: str, hit: SearchHit) -> int:
     keywords = _query_keywords(query)
     score += sum(2 for keyword in keywords if keyword in hit.title.lower())
     score += sum(1 for keyword in keywords if keyword in haystack)
+    score += _authority_signal_score(query=query, hit=hit)
     if _procedural_query_bias(query):
         if any(token in haystack for token in ("learn.microsoft.com", "docs", "documentation", "how to", "how-to", "guide", "baseline", "configuration manager")):
             score += 3
@@ -570,13 +700,17 @@ def _source_type(url: str, title: str) -> str:
     haystack = f"{url} {title}".lower()
     if 'learn.microsoft.com' in haystack or any(token in haystack for token in ('/docs/', 'documentation', 'configuration manager | microsoft learn')):
         return 'official_docs'
+    if any(token in haystack for token in ('reddit.com', 'stackoverflow.com', 'stack overflow')):
+        return 'forum'
+    if 'gist.github.com' in haystack:
+        return 'snippet_repo'
     if any(token in haystack for token in ("technical", "technicals", "analysis", "chart")):
         return "analysis"
     if any(token in haystack for token in ("historical", "ohlcv", "price", "quotes", "markets", "market")):
         return "data"
     if 'youtube.com' in haystack or 'youtu.be' in haystack:
         return 'video'
-    if any(token in haystack for token in ('blog', 'blogspot', 'anoopcnair')):
+    if any(token in haystack for token in ('blog', 'blogspot', 'anoopcnair', 'substack', 'medium.com', 'wordpress')):
         return 'blog'
     if any(token in haystack for token in ("docs", "architecture", "design", "guide")):
         return "docs"
@@ -586,16 +720,25 @@ def _source_type(url: str, title: str) -> str:
 def _source_rank_for_query(*, query: str, url: str, title: str) -> int:
     source_type = _source_type(url, title)
     if _procedural_query_bias(query):
+        authority_bonus = 0
+        pseudo_hit = SearchHit(url=url, title=title, snippet='')
+        authority = _authority_signal_score(query=query, hit=pseudo_hit)
+        if authority >= 10:
+            authority_bonus = -2
+        elif authority >= 6:
+            authority_bonus = -1
         order = {
             'official_docs': 0,
             'docs': 1,
             'generic': 2,
-            'blog': 3,
-            'video': 4,
-            'analysis': 5,
-            'data': 6,
+            'snippet_repo': 5,
+            'forum': 6,
+            'blog': 7,
+            'video': 8,
+            'analysis': 9,
+            'data': 10,
         }
-        return order.get(source_type, 9)
+        return order.get(source_type, 9) + authority_bonus
     order = {
         'official_docs': 0,
         'analysis': 1,
@@ -608,19 +751,148 @@ def _source_rank_for_query(*, query: str, url: str, title: str) -> int:
     return order.get(source_type, 9)
 
 
+@dataclass(frozen=True)
+class PreExtractionFilterOutcome:
+    kept_hits: tuple[SearchHit, ...]
+    seen_count: int
+    kept_count: int
+    dropped_count: int
+    authority_policy_applied: bool
+    fallback_used: bool
+    dropped_source_types: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PackedEvidence:
+    core: tuple[ExtractedFinding, ...]
+    supporting: tuple[ExtractedFinding, ...]
+    background: tuple[ExtractedFinding, ...]
+
+
+def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> PreExtractionFilterOutcome:
+    if not _procedural_query_bias(query):
+        return PreExtractionFilterOutcome(
+            kept_hits=hits,
+            seen_count=len(hits),
+            kept_count=len(hits),
+            dropped_count=0,
+            authority_policy_applied=False,
+            fallback_used=False,
+            dropped_source_types=(),
+        )
+    strong: list[SearchHit] = []
+    secondary: list[SearchHit] = []
+    dropped: list[SearchHit] = []
+    for hit in hits:
+        source_type = _source_type(hit.url, hit.title)
+        authority = _authority_signal_score(query=query, hit=hit)
+        relevance = _general_relevance_score(query=query, hit=hit)
+        if source_type in {'forum', 'video', 'snippet_repo'}:
+            dropped.append(hit)
+            continue
+        if source_type == 'official_docs' or authority >= 10:
+            strong.append(hit)
+            continue
+        if source_type in {'docs', 'generic'} and authority >= 4 and relevance >= 6:
+            strong.append(hit)
+            continue
+        if source_type == 'blog' and authority < 0:
+            dropped.append(hit)
+            continue
+        if relevance >= 5:
+            secondary.append(hit)
+            continue
+        dropped.append(hit)
+
+    fallback_used = False
+    kept: list[SearchHit] = []
+    strong_official_count = sum(1 for hit in strong if _source_type(hit.url, hit.title) == 'official_docs')
+    if strong:
+        kept.extend(strong)
+        if strong_official_count < 2:
+            kept.extend(secondary[:1])
+    else:
+        fallback_used = True
+        kept.extend(secondary[:2])
+    if not kept and hits:
+        fallback_used = True
+        kept.append(hits[0])
+
+    counter = Counter(_source_type(hit.url, hit.title) for hit in dropped)
+    dropped_source_types = tuple(f"{source_type}:{count}" for source_type, count in sorted(counter.items()))
+    return PreExtractionFilterOutcome(
+        kept_hits=tuple(kept),
+        seen_count=len(hits),
+        kept_count=len(kept),
+        dropped_count=max(0, len(hits) - len(kept)),
+        authority_policy_applied=True,
+        fallback_used=fallback_used,
+        dropped_source_types=dropped_source_types,
+    )
+
+
+def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding, ...]) -> PackedEvidence:
+    ranked = _top_findings(findings, limit=max(6, len(findings)), query=query)
+    query_class = _classify_query(query)
+    core_limit = 2 if query_class is ResearchQueryClass.PROCEDURAL_ADMIN else 2
+    supporting_limit = 2 if query_class is ResearchQueryClass.PROCEDURAL_ADMIN else 2
+    core: list[ExtractedFinding] = []
+    supporting: list[ExtractedFinding] = []
+    background: list[ExtractedFinding] = []
+
+    for finding in ranked:
+        source_type = _source_type(finding.url, finding.title)
+        if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+            official_core_present = any(_source_type(item.url, item.title) == 'official_docs' for item in core)
+            if source_type == 'official_docs' and len(core) < core_limit:
+                core.append(finding)
+                continue
+            if source_type in {'docs', 'generic'} and len(supporting) < supporting_limit and not official_core_present:
+                supporting.append(finding)
+                continue
+            background.append(finding)
+            continue
+        if query_class is ResearchQueryClass.MARKET_SYMBOL:
+            haystack = f"{finding.url} {finding.title} {finding.summary}".lower()
+            if any(token in haystack for token in ('ethusdc', 'ohlcv', 'price', 'technical')) and len(core) < core_limit:
+                core.append(finding)
+                continue
+            if len(supporting) < supporting_limit:
+                supporting.append(finding)
+                continue
+            background.append(finding)
+            continue
+        if len(core) < core_limit:
+            core.append(finding)
+        elif len(supporting) < supporting_limit:
+            supporting.append(finding)
+        else:
+            background.append(finding)
+
+    if not core and supporting:
+        core.append(supporting.pop(0))
+    if not core and background:
+        core.append(background.pop(0))
+    return PackedEvidence(core=tuple(core), supporting=tuple(supporting), background=tuple(background))
+
+
 def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query: str | None = None) -> tuple[ExtractedFinding, ...]:
+    normalized_query = query or ''
     ranked = sorted(
         findings,
         key=lambda finding: (
-            _source_rank_for_query(query=query or '', url=finding.url, title=finding.title),
+            _source_rank_for_query(query=normalized_query, url=finding.url, title=finding.title),
             -len(finding.summary),
             -len(finding.title),
         ),
     )
     selected: list[ExtractedFinding] = []
     seen_types: set[str] = set()
+    blocked_types = {'forum', 'video', 'snippet_repo'} if _procedural_query_bias(normalized_query) else set()
     for finding in ranked:
         source_type = _source_type(finding.url, finding.title)
+        if source_type in blocked_types:
+            continue
         if source_type in seen_types:
             continue
         selected.append(finding)
@@ -630,10 +902,141 @@ def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query:
     for finding in ranked:
         if finding in selected:
             continue
+        source_type = _source_type(finding.url, finding.title)
+        if source_type in blocked_types:
+            continue
         selected.append(finding)
         if len(selected) >= limit:
             break
     return tuple(selected)
+
+
+def _resolve_search_provider_names(search: ResearchSearchAdapter, configured_provider: str | None) -> tuple[str, ...]:
+    if configured_provider:
+        return (configured_provider,)
+    active = getattr(search, "active_provider_names", None)
+    if isinstance(active, tuple) and active:
+        return active
+    provider_name = getattr(search, "provider_name", None)
+    if isinstance(provider_name, str) and provider_name and provider_name != "chained":
+        return (provider_name,)
+    return ("stub-search",)
+
+
+def _classify_query(query: str) -> ResearchQueryClass:
+    lowered = query.lower().strip()
+    if _looks_like_market_query(lowered):
+        return ResearchQueryClass.MARKET_SYMBOL
+    if _procedural_query_bias(lowered):
+        return ResearchQueryClass.PROCEDURAL_ADMIN
+    if any(token in lowered for token in ("latest", "breaking", "today", "this week", "news", "developments", "rollout")):
+        return ResearchQueryClass.CURRENT_NEWS
+    if any(token in lowered for token in ("architecture", "design", "how it works", "workflow", "system shape")):
+        return ResearchQueryClass.BROAD_CONCEPT
+    return ResearchQueryClass.UNKNOWN
+
+
+def _evaluate_research_result(*, query: str, findings: tuple[ResearchFinding, ...], report: str, stats: ResearchStats) -> ResearchEvaluationArtifact:
+    query_class = _classify_query(query)
+    urls = tuple(finding.url for finding in findings)
+    source_types = tuple(_source_type(finding.url, finding.title) for finding in findings)
+    source_quality_reasons: list[str] = []
+    relevance_risks: list[str] = []
+    overclaim_risks: list[str] = []
+    missing_checks: list[str] = []
+
+    official_count = sum(1 for source_type in source_types if source_type == 'official_docs')
+    weak_count = sum(1 for source_type in source_types if source_type in {'blog', 'video', 'forum', 'snippet_repo'})
+
+    if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+        if official_count >= 1:
+            source_quality_verdict = ResearchEvaluationVerdict.MIXED if weak_count else ResearchEvaluationVerdict.STRONG
+            source_quality_reasons.append('Official documentation is present in the evidence set.')
+            if weak_count:
+                source_quality_reasons.append('Community or weak procedural sources are still mixed into the result set.')
+        else:
+            source_quality_verdict = ResearchEvaluationVerdict.WEAK
+            source_quality_reasons.append('No official procedural documentation was found in the evidence set.')
+        if stats.authority_policy_applied:
+            source_quality_reasons.append('Authority-first filtering was applied before extraction.')
+        if stats.authority_filter_fallback_used:
+            source_quality_reasons.append('Fallback admitted secondary sources because too few strong procedural sources survived filtering.')
+        if weak_count:
+            relevance_risks.append('Some findings still come from community, forum, video, or snippet-style sources.')
+        if 'microsoft learn' not in report.lower() and official_count < 1:
+            missing_checks.append('Verify the answer directly against current Microsoft Learn documentation.')
+    elif query_class is ResearchQueryClass.MARKET_SYMBOL:
+        source_quality_verdict = ResearchEvaluationVerdict.STRONG if all(source_type in {'analysis', 'data', 'generic'} for source_type in source_types[:4]) else ResearchEvaluationVerdict.MIXED
+        if any('perpetual' in (finding.title + ' ' + finding.summary).lower() for finding in findings) and any('spot' in (finding.title + ' ' + finding.summary).lower() for finding in findings):
+            overclaim_risks.append('The evidence may mix spot and derivatives markets.')
+        if 'ohlcv' not in report.lower() and '7-dniowe ohlcv' not in report.lower() and '7-day ohlcv' not in report.lower():
+            missing_checks.append('Add one exact-market OHLCV check for the requested time window.')
+        source_quality_reasons.append('Top findings are mostly market or chart-oriented sources.')
+    elif query_class is ResearchQueryClass.BROAD_CONCEPT:
+        source_quality_verdict = ResearchEvaluationVerdict.MIXED if weak_count else ResearchEvaluationVerdict.STRONG
+        if weak_count:
+            source_quality_reasons.append('The source mix includes blog-like or secondary commentary.')
+        else:
+            source_quality_reasons.append('The source mix is reasonably documentation/research oriented.')
+        if any('irrelevant' in (finding.summary).lower() for finding in findings):
+            relevance_risks.append('Some findings may be semantically noisy.')
+        if 'uncertainty' not in report.lower():
+            overclaim_risks.append('Broad concept answer may be too confident for a mixed evidence set.')
+    elif query_class is ResearchQueryClass.CURRENT_NEWS:
+        source_quality_verdict = ResearchEvaluationVerdict.MIXED
+        source_quality_reasons.append('Current-news queries need stronger recency and attribution handling.')
+        missing_checks.append('Verify recency and attribution across at least two attributable sources.')
+    else:
+        source_quality_verdict = ResearchEvaluationVerdict.MIXED
+        source_quality_reasons.append('Query class is unknown, so source-quality expectations are broad.')
+
+    if not findings:
+        source_quality_verdict = ResearchEvaluationVerdict.WEAK
+        relevance_verdict = ResearchEvaluationVerdict.WEAK
+        truthfulness_verdict = ResearchEvaluationVerdict.MIXED
+        relevance_risks.append('No findings were persisted for this result.')
+        missing_checks.append('Collect at least one attributable source before trusting the result.')
+    else:
+        relevance_verdict = ResearchEvaluationVerdict.WEAK if any('irs.gov' in url for url in urls) and query_class is ResearchQueryClass.PROCEDURAL_ADMIN else ResearchEvaluationVerdict.MIXED
+        if query_class is ResearchQueryClass.PROCEDURAL_ADMIN and official_count >= 1 and not any('irs.gov' in url for url in urls[:2]):
+            relevance_verdict = ResearchEvaluationVerdict.STRONG
+        elif query_class is ResearchQueryClass.MARKET_SYMBOL:
+            relevance_verdict = ResearchEvaluationVerdict.STRONG if any('ethusdc' in url.lower() or 'eth/usdc' in url.lower() for url in urls) else ResearchEvaluationVerdict.MIXED
+        elif query_class is ResearchQueryClass.BROAD_CONCEPT:
+            relevance_verdict = ResearchEvaluationVerdict.MIXED
+
+        uncertainty_present = '## uncertainty' in report.lower()
+        next_checks_present = '## next checks' in report.lower()
+        if not uncertainty_present:
+            overclaim_risks.append('The report does not expose an explicit uncertainty section.')
+        if not next_checks_present:
+            missing_checks.append('Add explicit next checks for follow-up verification.')
+        truthfulness_verdict = ResearchEvaluationVerdict.STRONG if uncertainty_present and next_checks_present else ResearchEvaluationVerdict.MIXED
+        if query_class is ResearchQueryClass.PROCEDURAL_ADMIN and weak_count >= official_count and weak_count > 0:
+            truthfulness_verdict = ResearchEvaluationVerdict.MIXED
+            overclaim_risks.append('The answer may lean on community material more than procedural authority warrants.')
+
+    recommended_next_check = missing_checks[0] if missing_checks else (
+        'Tighten source authority and rerun the same query for comparison.' if weak_count else 'No immediate corrective check required.'
+    )
+    should_revise_report = (
+        source_quality_verdict is ResearchEvaluationVerdict.WEAK
+        or relevance_verdict is ResearchEvaluationVerdict.WEAK
+        or truthfulness_verdict is ResearchEvaluationVerdict.WEAK
+    )
+
+    return ResearchEvaluationArtifact(
+        query_class=query_class,
+        source_quality_verdict=source_quality_verdict,
+        source_quality_reasons=tuple(dict.fromkeys(source_quality_reasons)),
+        relevance_verdict=relevance_verdict,
+        relevance_risks=tuple(dict.fromkeys(relevance_risks)),
+        truthfulness_verdict=truthfulness_verdict,
+        overclaim_risks=tuple(dict.fromkeys(overclaim_risks)),
+        missing_checks=tuple(dict.fromkeys(missing_checks)),
+        recommended_next_check=recommended_next_check,
+        should_revise_report=should_revise_report,
+    )
 
 
 def _summary_line(*, query: str, findings: tuple[ExtractedFinding, ...]) -> str:
@@ -687,6 +1090,305 @@ def _extract_section_body(markdown: str | None, heading: str) -> str:
             body.append(line)
     text = " ".join(part.strip() for part in body if part.strip()).strip()
     return text
+
+
+
+def _extract_section_lines(markdown: str | None, heading: str) -> tuple[str, ...]:
+    body = _extract_section_body(markdown, heading)
+    if not body:
+        return ()
+    parts = [part.strip(' -') for part in body.split('- ') if part.strip()]
+    if len(parts) > 1:
+        return tuple(part.strip() for part in parts if part.strip())
+    return tuple(line.strip(' -') for line in body.splitlines() if line.strip())
+
+
+
+def _unique_text_items(items: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for item in items:
+        normalized = ' '.join(item.split()).strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(normalized)
+    return tuple(output)
+
+
+
+def _project_supporting_evidence(result: ResearchResultArtifact, *, limit: int = 5) -> tuple[CompiledResearchEvidenceRef, ...]:
+    refs: list[CompiledResearchEvidenceRef] = []
+    seen_urls: set[str] = set()
+    for finding in result.raw_findings:
+        url = finding.url.strip()
+        if not url or url in seen_urls:
+            continue
+        summary = ' '.join(finding.summary.split()).strip()
+        title = finding.title.strip() or url
+        if not summary:
+            summary = title
+        refs.append(CompiledResearchEvidenceRef(url=url, title=title, summary=summary))
+        seen_urls.add(url)
+        if len(refs) >= limit:
+            break
+    if refs:
+        return tuple(refs)
+    for source in result.sources:
+        url = source.url.strip()
+        if not url or url in seen_urls:
+            continue
+        title = source.title.strip() or url
+        refs.append(CompiledResearchEvidenceRef(url=url, title=title, summary=title))
+        seen_urls.add(url)
+        if len(refs) >= limit:
+            break
+    if refs:
+        return tuple(refs)
+    key_findings = _extract_section_lines(result.result, 'Key findings')
+    for index, item in enumerate(key_findings, start=1):
+        summary = ' '.join(item.split()).strip()
+        if not summary:
+            continue
+        url = f"about:report/{result.job_id}#key-findings-{index}"
+        refs.append(
+            CompiledResearchEvidenceRef(
+                url=url,
+                title=f"Report-derived key finding {index}",
+                summary=summary,
+            )
+        )
+        if len(refs) >= limit:
+            return tuple(refs)
+    current_answer = _extract_section_body(result.result, 'Current answer').strip()
+    if current_answer and len(refs) < limit:
+        refs.append(
+            CompiledResearchEvidenceRef(
+                url=f"about:report/{result.job_id}#current-answer",
+                title="Report-derived current answer",
+                summary=current_answer[:280],
+            )
+        )
+    return tuple(refs)
+
+
+
+def _project_source_refs(
+    result: ResearchResultArtifact,
+    supporting_evidence: tuple[CompiledResearchEvidenceRef, ...],
+    *,
+    limit: int = 8,
+) -> tuple[ResearchSource, ...]:
+    refs: list[ResearchSource] = []
+    seen_urls: set[str] = set()
+    for source in result.sources:
+        url = source.url.strip()
+        if not url or url in seen_urls:
+            continue
+        refs.append(ResearchSource(url=url, title=source.title.strip() or url, image=source.image))
+        seen_urls.add(url)
+        if len(refs) >= limit:
+            return tuple(refs)
+    for evidence in supporting_evidence:
+        url = evidence.url.strip()
+        if not url or url in seen_urls:
+            continue
+        refs.append(ResearchSource(url=url, title=evidence.title.strip() or url))
+        seen_urls.add(url)
+        if len(refs) >= limit:
+            return tuple(refs)
+    fallback_title = result.query.strip() or 'Compiled research artifact source'
+    if not refs:
+        refs.append(ResearchSource(url=f"about:compiled/{result.job_id}", title=fallback_title))
+    return tuple(refs)
+
+
+
+def _project_claims(
+    result: ResearchResultArtifact,
+    supporting_evidence: tuple[CompiledResearchEvidenceRef, ...],
+    *,
+    limit: int = 4,
+) -> tuple[CompiledResearchClaim, ...]:
+    claims: list[CompiledResearchClaim] = []
+    seen_texts: set[str] = set()
+    evidence_by_url = {ref.url: ref for ref in supporting_evidence}
+    for finding in result.raw_findings:
+        text = ' '.join(finding.summary.split()).strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen_texts:
+            continue
+        seen_texts.add(key)
+        evidence_refs = (finding.url,) if finding.url in evidence_by_url else ()
+        claims.append(CompiledResearchClaim(text=text, evidence_refs=evidence_refs))
+        if len(claims) >= limit:
+            break
+    if claims:
+        return tuple(claims)
+    current_answer = _extract_section_body(result.result, 'Current answer').strip()
+    if current_answer:
+        return (CompiledResearchClaim(text=current_answer[:280], evidence_refs=tuple(ref.url for ref in supporting_evidence[:1])),)
+    return ()
+
+
+
+def _project_followup(result: ResearchResultArtifact) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    open_questions = list(result.evaluation.missing_checks if result.evaluation is not None else ())
+    open_questions.extend(_extract_section_lines(result.result, 'Uncertainty'))
+    next_checks = list(_extract_section_lines(result.result, 'Next checks'))
+    if result.evaluation is not None and result.evaluation.recommended_next_check:
+        next_checks.append(result.evaluation.recommended_next_check)
+    return _unique_text_items(open_questions), _unique_text_items(next_checks)
+
+
+
+def _compiled_artifact_projection_diagnostics(result: ResearchResultArtifact) -> dict[str, object]:
+    return {
+        'job_id': result.job_id,
+        'raw_findings_count': len(result.raw_findings),
+        'sources_count': len(result.sources),
+        'result_excerpt': result.result[:240],
+        'raw_report_excerpt': result.raw_report[:240],
+        'current_answer': _extract_section_body(result.result, 'Current answer'),
+        'key_findings': _extract_section_lines(result.result, 'Key findings'),
+        'next_checks': _extract_section_lines(result.result, 'Next checks'),
+    }
+
+
+
+def _compile_research_artifact(result: ResearchResultArtifact) -> CompiledResearchArtifact:
+    query_class = result.evaluation.query_class if result.evaluation is not None else _classify_query(result.query)
+    current_answer = _extract_section_body(result.result, 'Current answer') or result.result[:400]
+    summary = current_answer[:320].strip()
+    supporting_evidence = _project_supporting_evidence(result)
+    source_refs = _project_source_refs(result, supporting_evidence)
+    key_claims = _project_claims(result, supporting_evidence)
+    open_questions, next_checks = _project_followup(result)
+    title = result.query.strip() or 'Compiled research artifact'
+    return CompiledResearchArtifact(
+        artifact_id=f"cra-{result.job_id}",
+        source_job_id=result.job_id,
+        owner_id=result.owner_id,
+        query=result.query,
+        query_class=query_class,
+        title=title,
+        summary=summary,
+        current_answer=current_answer,
+        key_claims=key_claims,
+        supporting_evidence=supporting_evidence,
+        open_questions=open_questions,
+        next_checks=next_checks,
+        source_refs=source_refs,
+        evaluation_snapshot=result.evaluation,
+        created_at=result.completed_at or result.created_at,
+    )
+
+
+
+def _lint_compiled_research_artifact(artifact: CompiledResearchArtifact) -> CompiledResearchArtifactLint:
+    missing_sections: list[str] = []
+    risk_flags: list[str] = []
+    recommended_repairs: list[str] = []
+
+    if not artifact.title.strip():
+        missing_sections.append('title')
+        risk_flags.append('missing_title')
+    if not artifact.summary.strip():
+        missing_sections.append('summary')
+        risk_flags.append('missing_summary')
+    if not artifact.current_answer.strip():
+        missing_sections.append('current_answer')
+        risk_flags.append('missing_current_answer')
+    if not artifact.key_claims and not artifact.supporting_evidence:
+        missing_sections.append('evidence')
+        risk_flags.append('missing_evidence')
+    if not artifact.source_refs:
+        missing_sections.append('source_refs')
+        risk_flags.append('missing_sources')
+    if artifact.evaluation_snapshot is None:
+        missing_sections.append('evaluation_snapshot')
+        risk_flags.append('missing_evaluation_snapshot')
+
+    completeness_verdict = ResearchEvaluationVerdict.STRONG
+    if len(missing_sections) >= 2:
+        completeness_verdict = ResearchEvaluationVerdict.WEAK
+    elif missing_sections:
+        completeness_verdict = ResearchEvaluationVerdict.MIXED
+
+    evidence_verdict = ResearchEvaluationVerdict.STRONG
+    if not artifact.supporting_evidence:
+        risk_flags.append('missing_evidence') if 'missing_evidence' not in risk_flags else None
+        recommended_repairs.append('Add at least one supporting evidence reference.')
+        evidence_verdict = ResearchEvaluationVerdict.MIXED
+    if not artifact.source_refs:
+        recommended_repairs.append('Attach source references to the compiled artifact.')
+        evidence_verdict = ResearchEvaluationVerdict.WEAK if evidence_verdict is ResearchEvaluationVerdict.MIXED else ResearchEvaluationVerdict.MIXED
+    if artifact.evaluation_snapshot is not None:
+        if artifact.evaluation_snapshot.source_quality_verdict is ResearchEvaluationVerdict.WEAK:
+            risk_flags.append('weak_source_quality')
+            evidence_verdict = ResearchEvaluationVerdict.WEAK
+        elif artifact.evaluation_snapshot.source_quality_verdict is ResearchEvaluationVerdict.MIXED and evidence_verdict is ResearchEvaluationVerdict.STRONG:
+            evidence_verdict = ResearchEvaluationVerdict.MIXED
+        if artifact.evaluation_snapshot.truthfulness_verdict is ResearchEvaluationVerdict.WEAK:
+            risk_flags.append('weak_truthfulness')
+            evidence_verdict = ResearchEvaluationVerdict.WEAK
+        if artifact.evaluation_snapshot.should_revise_report:
+            risk_flags.append('needs_revision')
+            recommended_repairs.append('Review and tighten the compiled artifact against evaluator findings.')
+            if evidence_verdict is ResearchEvaluationVerdict.STRONG:
+                evidence_verdict = ResearchEvaluationVerdict.MIXED
+
+    followup_verdict = ResearchEvaluationVerdict.STRONG
+    if artifact.open_questions and not artifact.next_checks:
+        risk_flags.append('open_questions_without_next_checks')
+        recommended_repairs.append('Add next checks for the open questions.')
+        followup_verdict = ResearchEvaluationVerdict.WEAK
+    elif not artifact.open_questions and not artifact.next_checks:
+        followup_verdict = ResearchEvaluationVerdict.WEAK
+        recommended_repairs.append('Add at least one next check or open question.')
+    elif not artifact.open_questions or not artifact.next_checks:
+        followup_verdict = ResearchEvaluationVerdict.MIXED
+
+    status = CompiledResearchArtifactLintStatus.HEALTHY
+    if (
+        completeness_verdict is ResearchEvaluationVerdict.WEAK
+        or evidence_verdict is ResearchEvaluationVerdict.WEAK
+        or followup_verdict is ResearchEvaluationVerdict.WEAK
+    ):
+        status = CompiledResearchArtifactLintStatus.WEAK
+    elif (
+        completeness_verdict is ResearchEvaluationVerdict.MIXED
+        or evidence_verdict is ResearchEvaluationVerdict.MIXED
+        or followup_verdict is ResearchEvaluationVerdict.MIXED
+        or risk_flags
+    ):
+        status = CompiledResearchArtifactLintStatus.NEEDS_REVIEW
+
+    recommended_next_action = 'artifact_ready'
+    if status is CompiledResearchArtifactLintStatus.WEAK:
+        recommended_next_action = 'revise_artifact'
+    elif status is CompiledResearchArtifactLintStatus.NEEDS_REVIEW:
+        recommended_next_action = 'review_artifact'
+
+    return CompiledResearchArtifactLint(
+        lint_id=f"crl-{artifact.artifact_id}",
+        artifact_id=artifact.artifact_id,
+        owner_id=artifact.owner_id,
+        status=status,
+        completeness_verdict=completeness_verdict,
+        evidence_verdict=evidence_verdict,
+        followup_verdict=followup_verdict,
+        risk_flags=tuple(dict.fromkeys(risk_flags)),
+        missing_sections=tuple(dict.fromkeys(missing_sections)),
+        recommended_repairs=tuple(dict.fromkeys(recommended_repairs)),
+        recommended_next_action=recommended_next_action,
+        created_at=artifact.created_at,
+    )
 
 
 class DeterministicStopRails:
@@ -825,6 +1527,15 @@ class FakeResearchWorker:
         all_hits: list[SearchHit] = []
         all_findings: list[ExtractedFinding] = []
         evolving_report: str | None = None
+        pre_extraction_seen = 0
+        pre_extraction_kept = 0
+        pre_extraction_dropped = 0
+        authority_policy_applied = False
+        authority_filter_fallback_used = False
+        dropped_source_types_seen: list[str] = []
+        packed_core_count = 0
+        packed_supporting_count = 0
+        packed_background_count = 0
 
         while True:
             round_number += 1
@@ -878,19 +1589,28 @@ class FakeResearchWorker:
             else:
                 consecutive_empty_rounds += 1
 
+            filter_outcome = _filter_hits_for_extraction(query=running.query, hits=tuple(new_hits))
+            filtered_hits = list(filter_outcome.kept_hits)
+            pre_extraction_seen += filter_outcome.seen_count
+            pre_extraction_kept += filter_outcome.kept_count
+            pre_extraction_dropped += filter_outcome.dropped_count
+            authority_policy_applied = authority_policy_applied or filter_outcome.authority_policy_applied
+            authority_filter_fallback_used = authority_filter_fallback_used or filter_outcome.fallback_used
+            dropped_source_types_seen.extend(filter_outcome.dropped_source_types)
+
             self._emit(
                 job_id,
                 ResearchJobStatus.RUNNING,
                 ResearchPhase.READING,
                 round=round_number,
                 total_sources=total_urls,
-                new_sources=len(new_hits),
-                url=new_hits[0].url if new_hits else None,
-                title=new_hits[0].title if new_hits else None,
-                message=f"Normalized {len(new_hits)} new source(s).",
+                new_sources=len(filtered_hits),
+                url=filtered_hits[0].url if filtered_hits else (new_hits[0].url if new_hits else None),
+                title=filtered_hits[0].title if filtered_hits else (new_hits[0].title if new_hits else None),
+                message=f"Normalized {len(new_hits)} new source(s); kept {len(filtered_hits)} after authority filtering.",
             )
 
-            findings = self.extract(tuple(new_hits))
+            findings = self.extract(tuple(filtered_hits))
             all_findings.extend(findings)
             self._emit(
                 job_id,
@@ -902,6 +1622,10 @@ class FakeResearchWorker:
                 message=f"Extracted {len(findings)} finding(s) this round.",
             )
 
+            packed = _pack_evidence_for_synthesis(query=running.query, findings=findings)
+            packed_core_count = len(packed.core)
+            packed_supporting_count = len(packed.supporting)
+            packed_background_count = len(packed.background)
             synthesis = self.synthesize(
                 query=running.query,
                 round_number=round_number,
@@ -928,31 +1652,52 @@ class FakeResearchWorker:
                 break
 
         completed_at = _utcnow()
+        stats = ResearchStats(
+            duration_seconds=1,
+            rounds=round_number,
+            queries=2 * round_number,
+            urls=len(all_hits),
+            model=running.settings.model,
+            search_providers=_resolve_search_provider_names(self.search, running.settings.search_provider),
+            pre_extraction_sources_seen=pre_extraction_seen,
+            pre_extraction_sources_kept=pre_extraction_kept,
+            pre_extraction_sources_dropped=pre_extraction_dropped,
+            authority_policy_applied=authority_policy_applied,
+            authority_filter_fallback_used=authority_filter_fallback_used,
+            dropped_source_types=tuple(sorted(set(dropped_source_types_seen))),
+            packed_core_count=packed_core_count,
+            packed_supporting_count=packed_supporting_count,
+            packed_background_count=packed_background_count,
+        )
+        raw_findings = tuple(ResearchFinding(url=finding.url, title=finding.title, summary=finding.summary) for finding in all_findings)
+        final_report = evolving_report or """# Deep Research
+
+No report was produced."""
         result = ResearchResultArtifact(
             job_id=job_id,
             owner_id=running.owner_id,
             query=running.query,
             status=ResearchJobStatus.DONE,
             completion_mode=ResearchCompletionMode.FULL,
-            result=evolving_report or """# Deep Research
-
-No report was produced.""",
+            result=final_report,
             raw_report=evolving_report or "",
             category=running.settings.category,
-            stats=ResearchStats(
-                duration_seconds=1,
-                rounds=round_number,
-                queries=2 * round_number,
-                urls=len(all_hits),
-                model=running.settings.model,
-                search_providers=((running.settings.search_provider,) if running.settings.search_provider else ("stub-search",)),
-            ),
+            stats=stats,
             sources=tuple(ResearchSource(url=hit.url, title=hit.title) for hit in all_hits),
-            raw_findings=tuple(ResearchFinding(url=finding.url, title=finding.title, summary=finding.summary) for finding in all_findings),
+            raw_findings=raw_findings,
+            evaluation=_evaluate_research_result(
+                query=running.query,
+                findings=raw_findings,
+                report=final_report,
+                stats=stats,
+            ),
             created_at=running.created_at,
             completed_at=completed_at,
         )
         self.persistence.results.save_result(result)
+        compiled_artifact = _compile_research_artifact(result)
+        self.persistence.compiled.save_artifact(compiled_artifact)
+        self.persistence.compiled_lint.save_lint(_lint_compiled_research_artifact(compiled_artifact))
         done = replace(running, status=ResearchJobStatus.DONE, completed_at=completed_at)
         self.persistence.jobs.save_job(done)
         self._emit(
@@ -977,24 +1722,51 @@ No report was produced.""",
         if job is None:
             return None
         completed_at = _utcnow()
+        stats = ResearchStats(
+            duration_seconds=1,
+            rounds=1,
+            queries=1,
+            urls=1,
+            model=job.settings.model,
+            pre_extraction_sources_seen=1,
+            pre_extraction_sources_kept=1,
+            pre_extraction_sources_dropped=0,
+            authority_policy_applied=_procedural_query_bias(job.query),
+            authority_filter_fallback_used=False,
+            dropped_source_types=(),
+            packed_core_count=1,
+            packed_supporting_count=0,
+            packed_background_count=0,
+        )
+        raw_findings = (ResearchFinding(url="https://example.test/partial", title="Partial source", summary="One useful finding survived."),)
+        report = """# Partial Deep Research result
+
+Partial salvage preserved."""
         result = ResearchResultArtifact(
             job_id=job_id,
             owner_id=job.owner_id,
             query=job.query,
             status=ResearchJobStatus.DONE,
             completion_mode=mode,
-            result="""# Partial Deep Research result
-
-Partial salvage preserved.""",
+            result=report,
             raw_report="Partial synthesis was available before failure.",
             category=job.settings.category,
-            stats=ResearchStats(duration_seconds=1, rounds=1, queries=1, urls=1, model=job.settings.model),
+            stats=stats,
             sources=(ResearchSource(url="https://example.test/partial", title="Partial source"),),
-            raw_findings=(ResearchFinding(url="https://example.test/partial", title="Partial source", summary="One useful finding survived."),),
+            raw_findings=raw_findings,
+            evaluation=_evaluate_research_result(
+                query=job.query,
+                findings=raw_findings,
+                report=report,
+                stats=stats,
+            ),
             created_at=job.created_at,
             completed_at=completed_at,
         )
         self.persistence.results.save_result(result)
+        compiled_artifact = _compile_research_artifact(result)
+        self.persistence.compiled.save_artifact(compiled_artifact)
+        self.persistence.compiled_lint.save_lint(_lint_compiled_research_artifact(compiled_artifact))
         done = replace(job, status=ResearchJobStatus.DONE, completed_at=completed_at)
         self.persistence.jobs.save_job(done)
         self._emit(

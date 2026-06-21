@@ -914,3 +914,40 @@ def test_build_local_server_runtime_accepts_explicit_research_search_callable(
     assert isinstance(delivery, SourceTraceDelivery)
     assert delivery.research is not None
     assert search_calls == []
+
+
+def test_build_local_server_runtime_wraps_research_synthesis_with_markdown_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def completion_fn(**_: object) -> dict[str, object]:
+        return {
+            "model": "gpt-5.4",
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+        }
+
+    def fake_run_local_server(*, host: str = "127.0.0.1", port: int = 8000, delivery=None, announce=print):
+        captured["delivery"] = delivery
+        return _FakeRuntime(server=_FakeServer(events=[]))
+
+    def fake_build_llm_runtime(*, completion_fn=None, config=None):
+        return SimpleNamespace(
+            credibility_draft=lambda text: SimpleNamespace(text="draft"),
+            claim_extraction=lambda text: None,
+            claim_normalization=lambda text: SimpleNamespace(text="normalized"),
+            research_synthesis=lambda text: SimpleNamespace(text="ok"),
+        )
+
+    monkeypatch.setattr("sourcetrace.local_launcher.run_local_server", fake_run_local_server)
+    monkeypatch.setattr("sourcetrace.local_launcher.build_llm_runtime", fake_build_llm_runtime)
+    monkeypatch.setenv("SOURCETRACE_LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("SOURCETRACE_LLM_BASE_URL", "https://llm.example.test")
+    monkeypatch.setenv("SOURCETRACE_LLM_API_VERSION", "preview")
+    monkeypatch.setenv("SOURCETRACE_SEARXNG_BASE_URL", "http://127.0.0.1:18080")
+
+    build_local_server_runtime(completion_fn=completion_fn, research_search_web=lambda query, count=3: [])
+
+    delivery = captured["delivery"]
+    assert isinstance(delivery, SourceTraceDelivery)
+    assert delivery.research is not None
