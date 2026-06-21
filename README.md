@@ -86,6 +86,8 @@ PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher
 - manage continuity-pack state with active and latest-previous views
 - run a bounded Deep Research flow with persisted progress and result artifacts
 - expose a local operator console for research at `/research`
+- persist compiled research artifacts and artifact lint/health outputs above run results
+- use a query-class-specific upstream path for `procedural_admin` to improve official-doc recall, with safe fallback to the default search path
 
 ## What you can currently verify locally
 - local API health/readiness/runtime/capabilities routes
@@ -98,6 +100,8 @@ PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher
 - `GET /api/research/result/{job_id}`
 - `POST /api/research/run/{job_id}`
 - `POST /api/research/cancel/{job_id}`
+- `GET /api/research/compiled/{artifact_id}`
+- `GET /api/research/compiled/{artifact_id}/lint`
 
 ## Minimal smoke checklist
 ```bash
@@ -124,6 +128,9 @@ That file covers local runtime variants, environment variables, deeper command r
 - `docs/architecture-ssot.md`
 - `docs/execution-blueprint.md`
 - `docs/deep-research-implementation-slice-v1.md`
+- `docs/deep-research-status-checkpoint-2026-06-22.md`
+
+For the current Deep Research restart point, prefer `docs/deep-research-status-checkpoint-2026-06-22.md` over older slice-by-slice notes.
 
 Everything else that is not needed for first project understanding belongs in `notes/` as local working material rather than public-facing docs.
 

@@ -56,7 +56,9 @@ Optional runtime variables:
 Notes:
 - when `SOURCETRACE_SEARXNG_BASE_URL` is set, local launcher mode can run live Deep Research search against the configured SearxNG instance
 - research runtime state is persisted under `data/research` by default, or under `SOURCETRACE_RESEARCH_DATA_DIR` when set
+- Deep Research now persists run results, compiled artifacts, and compiled-artifact lint outputs in separate filesystem namespaces under the research data root
 - the current Deep Research synthesis task uses repo task routing from `src/sourcetrace/runtime_config.py`
+- local launcher runtime verification hardens underspecified synthetic research synthesis into a markdown-shaped fallback so spot-checks stay representative
 
 Installed console scripts declared in `pyproject.toml`:
 ```bash
@@ -86,7 +88,9 @@ When local launcher mode is configured for research, the operator flow is:
 2. start a job with `owner_id` and `query`
 3. run the job
 4. inspect status and progress stream
-5. inspect the final result artifact\n
+5. inspect the final result artifact
+6. inspect compiled artifact and artifact lint output when needed
+
 Current Deep Research endpoints:
 - `GET /research`
 - `POST /api/research/start`
@@ -96,6 +100,13 @@ Current Deep Research endpoints:
 - `GET /api/research/result/{job_id}`
 - `POST /api/research/run/{job_id}`
 - `POST /api/research/cancel/{job_id}`
+- `GET /api/research/compiled/{artifact_id}`
+- `GET /api/research/compiled/{artifact_id}/lint`
+
+### Current quality posture
+- `procedural_admin` now uses a query-class-specific Unified Search-backed upstream path with fallback to the default search path when official-doc-like signal is missing
+- downstream authority-first filtering, evidence packing, evaluator, compiled artifact, and lint layers remain shared across query classes
+- the current Deep Research restart point is `docs/deep-research-status-checkpoint-2026-06-22.md`
 
 ## Local verification
 ### Minimal smoke checklist
@@ -141,7 +152,8 @@ Start from:
 - `README.md` for public repo framing
 - `docs/architecture-ssot.md` for architecture baseline
 - `docs/execution-blueprint.md` for implementation blueprint
-- `docs/deep-research-implementation-slice-v1.md` for the delivered Deep Research slice
+- `docs/deep-research-implementation-slice-v1.md` for the original delivered Deep Research slice
+- `docs/deep-research-status-checkpoint-2026-06-22.md` for the current Deep Research restart point after the 2026-06-21/22 improvement chain
 
 Use tracked docs for durable product truth.
 Keep transient working notes and local process artifacts outside public-facing repo surfaces.
