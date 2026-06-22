@@ -89,6 +89,41 @@ def test_build_litellm_text_generator_keeps_bootstrap_outside_request_surface() 
     assert not hasattr(request, "api_key")
 
 
+def test_build_litellm_text_generator_rewrites_azure_v1_base_url_to_deployment_path() -> None:
+    request = LlmGenerationRequest(
+        messages=(LlmMessage(role="user", content="hello"),),
+        model="azure/gpt-5.4",
+    )
+    captured_kwargs: dict[str, object] = {}
+
+    def completion_fn(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return {
+            "model": "azure/gpt-5.4",
+            "choices": [
+                {
+                    "message": {"content": "normalized answer"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    generator = build_litellm_text_generator(
+        completion_fn=completion_fn,
+        bootstrap=ResolvedLlmBootstrapConfig(
+            api_key="test-api-key",
+            base_url="https://example.openai.azure.com/openai/v1",
+            api_version="2025-04-01-preview",
+        ),
+    )
+    result = generator(request)
+
+    assert result.text == "normalized answer"
+    assert captured_kwargs["base_url"] == "https://example.openai.azure.com/openai/deployments/gpt-5.4"
+    assert captured_kwargs["api_version"] == "2025-04-01-preview"
+    assert captured_kwargs["model"] == "azure/gpt-5.4"
+
+
 def test_call_structured_generation_prefers_parsed_payload_when_present() -> None:
     request = LlmStructuredGenerationRequest(
         messages=(LlmMessage(role="user", content="extract claims"),),

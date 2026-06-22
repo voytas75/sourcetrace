@@ -12,6 +12,7 @@ from sourcetrace.application import (
     CredibilityAssessmentExecution,
     CredibilityAssessmentOutcome,
     CredibilityAssessmentRequest,
+    build_procedural_admin_unified_search_adapter,
     build_research_execution,
     build_search_adapter,
 )
@@ -216,6 +217,38 @@ def _research_synthesis_with_markdown_fallback(
     return wrapped
 
 
+def _load_mycrewhelper_unified_search_web() -> Callable[..., list[dict[str, object]]] | None:
+    try:
+        from mycrewhelper.unified_search import UnifiedSearch
+    except ImportError:
+        return None
+
+    search = UnifiedSearch(
+        execution_mode="stepped",
+        fallback_min_results=8,
+        step_shuffle=False,
+    )
+
+    def unified_search_web(query: str, count: int = 10) -> list[dict[str, object]]:
+        response = search.search(query, limit=count)
+        payload = response.to_dict() if hasattr(response, "to_dict") else response
+        results = payload.get("results", []) if isinstance(payload, dict) else []
+        normalized: list[dict[str, object]] = []
+        for item in results[:count]:
+            if not isinstance(item, dict):
+                continue
+            normalized.append(
+                {
+                    "url": str(item.get("url", "") or ""),
+                    "title": str(item.get("title", "") or ""),
+                    "snippet": str(item.get("snippet", "") or ""),
+                }
+            )
+        return normalized
+
+    return unified_search_web
+
+
 def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
@@ -267,11 +300,16 @@ def build_local_server_runtime(
             _research_synthesis_with_markdown_fallback(llm_runtime.research_synthesis)
         )
         provider_search = research_search_web
+        base_search = build_search_adapter(
+            searxng_base_url=searxng_base_url,
+            search_web=provider_search,
+        )
+        unified_search_web = _load_mycrewhelper_unified_search_web()
         research_worker = FakeResearchWorker(
             research_persistence,
-            search=build_search_adapter(
-                searxng_base_url=searxng_base_url,
-                search_web=provider_search,
+            search=build_procedural_admin_unified_search_adapter(
+                current_search=base_search,
+                unified_search_web=unified_search_web,
             ),
             synthesize=research_synthesizer,
         )

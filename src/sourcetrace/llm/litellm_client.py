@@ -186,6 +186,18 @@ def _first_non_blank_string(*values: Any) -> str | None:
     return None
 
 
+def _azure_deployment_base_url(base_url: str, model: str) -> str | None:
+    normalized_model = model.removeprefix("azure/").strip()
+    normalized_base_url = base_url.rstrip("/")
+    if not normalized_model:
+        return None
+    if "/openai/deployments/" in normalized_base_url:
+        return normalized_base_url
+    if normalized_base_url.endswith("/openai/v1"):
+        return f"{normalized_base_url[:-len('/openai/v1')]}/openai/deployments/{normalized_model}"
+    return None
+
+
 def build_litellm_completion_caller(
     *,
     completion_fn: Callable[..., dict[str, Any]],
@@ -197,7 +209,16 @@ def build_litellm_completion_caller(
         if bootstrap.api_key is not None:
             kwargs["api_key"] = bootstrap.api_key
         if bootstrap.base_url is not None:
-            kwargs["base_url"] = bootstrap.base_url
+            base_url = bootstrap.base_url
+            model = kwargs.get("model")
+            if isinstance(model, str) and model.startswith("azure/"):
+                deployment_base_url = _azure_deployment_base_url(base_url, model)
+                if deployment_base_url is not None:
+                    kwargs["base_url"] = deployment_base_url
+                else:
+                    kwargs["base_url"] = base_url
+            else:
+                kwargs["base_url"] = base_url
         if bootstrap.api_version is not None:
             kwargs["api_version"] = bootstrap.api_version
         return completion_fn(**kwargs)
