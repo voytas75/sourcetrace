@@ -50,6 +50,7 @@ This sequence matters because the later wins depended on earlier instrumentation
 - compiled artifact layer exists
 - artifact lint / health layer exists
 - runtime spot-check harness is less misleading
+- current local launcher path is again wired to the bounded `procedural_admin` Unified Search path
 - `procedural_admin` path now reaches:
   - `source_quality = strong`
   - `relevance = strong`
@@ -78,6 +79,7 @@ The decisive improvements were:
 - authority-first retrieval/filtering,
 - better upstream acquisition for `procedural_admin`,
 - query-class-specific Unified Search path with fallback,
+- restored current-launcher wiring to the `mycrewhelper` Unified Search backend,
 - community-source cap once official docs are already sufficient.
 
 That is the real solution path that moved the benchmark.
@@ -150,5 +152,6 @@ Primary recent restart points / follow-ups:
 - `docs/deep-research-runtime-spot-check-harness-hardening-followup-2026-06-21.md`
 - `docs/deep-research-procedural-admin-unified-search-integration-v1-followup-2026-06-21.md`
 - `docs/deep-research-procedural-admin-community-cap-followup-2026-06-22.md`
+- `docs/deep-research-fresh-topic-quality-report-2026-06-22.md`
 
 This file is the shortest overall restart point.
