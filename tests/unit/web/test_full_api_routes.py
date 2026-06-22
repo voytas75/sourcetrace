@@ -304,6 +304,11 @@ def test_wsgi_app_report_route_counts_excluded_review_as_blocked() -> None:
         method="GET",
         path="/api/reports/case-1.md",
     )
+    report_html_status, report_html_headers, report_html_body = _call_wsgi(
+        app,
+        method="GET",
+        path="/api/reports/case-1.html",
+    )
     review_status, _, review_body = _call_wsgi(
         app,
         method="GET",
@@ -325,6 +330,10 @@ def test_wsgi_app_report_route_counts_excluded_review_as_blocked() -> None:
     assert "# SourceTrace Report: case-1" in report_md_body
     assert "0 claims included in this report." in report_md_body
     assert "- Publication gate: blocked" not in report_md_body
+    assert report_html_status == "200 OK"
+    assert ("Content-Type", "text/html; charset=utf-8") in report_html_headers
+    assert "<h1>SourceTrace Report: case-1</h1>" in report_html_body
+    assert "<strong>Blocked claims:</strong> 1" in report_html_body
 
 
 def test_wsgi_review_route_rejects_unknown_claim_id() -> None:

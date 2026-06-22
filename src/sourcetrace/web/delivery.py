@@ -702,6 +702,7 @@ class SourceTraceDelivery:
                     "/api/reports/{case_id}",
                     "/api/reports/{case_id}.json",
                     "/api/reports/{case_id}.md",
+                    "/api/reports/{case_id}.html",
                 ],
                 "dev": ["/api/dev/documents"],
                 "html": ["/", "/cases/{case_id}"],
@@ -1436,6 +1437,82 @@ def render_report_markdown(outcome: ReportAssemblyOutcome) -> str:
             ]
         )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_report_html(outcome: ReportAssemblyOutcome) -> str:
+    """Render a minimal HTML report artifact."""
+
+    verification_summary = _report_verification_summary(
+        outcome.entries,
+        outcome.request.review_decisions,
+    )
+    review_queue_signals = _report_review_queue_signals(
+        outcome.entries,
+        outcome.request.review_decisions,
+    )
+    publication_summary = verification_summary["publication_summary"]
+    report_summary = _escape_html(outcome.case_report.report_summary or "No report entries.")
+
+    entry_sections: list[str] = []
+    for entry in outcome.entries:
+        evidence_sufficiency, publication_gate, gate_reason = _verification_controls(
+            entry.final_verdict,
+            entry.human_review_status,
+            entry.final_verdict,
+        )
+        contradiction = _report_entry_contradiction_summary(entry)
+        entry_sections.append(
+            "".join(
+                [
+                    f"<section><h2>{_escape_html(entry.claim_id)}</h2>",
+                    "<ul>",
+                    f"<li><strong>Final verdict:</strong> {_escape_html(entry.final_verdict.value)}</li>",
+                    f"<li><strong>Human review:</strong> {_escape_html(entry.human_review_status.value)}</li>",
+                    f"<li><strong>Summary:</strong> {_escape_html(entry.summary_text)}</li>",
+                    f"<li><strong>Evidence sufficiency:</strong> {_escape_html(evidence_sufficiency)}</li>",
+                    f"<li><strong>Publication gate:</strong> {_escape_html(publication_gate)}</li>",
+                    f"<li><strong>Gate reason:</strong> {_escape_html(gate_reason or 'none')}</li>",
+                    f"<li><strong>Support signals present:</strong> {_escape_html('yes' if entry.supporting_chunk_ids else 'no')}</li>",
+                    f"<li><strong>Conflict signals present:</strong> {_escape_html('yes' if entry.contradicting_chunk_ids else 'no')}</li>",
+                    f"<li><strong>Evidence count:</strong> {len(entry.supporting_chunk_ids) + len(entry.contradicting_chunk_ids)}</li>",
+                    f"<li><strong>Sufficiency summary:</strong> {_escape_html(_verification_sufficiency_summary(entry.final_verdict, entry.supporting_chunk_ids, entry.contradicting_chunk_ids))}</li>",
+                    f"<li><strong>Support rationale:</strong> {_escape_html(_humanize_support_rationale(_report_entry_support_rationale(entry)))}</li>",
+                    f"<li><strong>Contradiction snippet:</strong> {_escape_html(str(contradiction['contradiction_snippet']))}</li>",
+                    f"<li><strong>Best evidence chunks:</strong> {_escape_html(_best_evidence_chunk_ids_markdown(entry.supporting_chunk_ids, entry.contradicting_chunk_ids))}</li>",
+                    f"<li><strong>Supporting chunks:</strong> {_escape_html(_format_chunk_ids(entry.supporting_chunk_ids))}</li>",
+                    f"<li><strong>Contradicting chunks:</strong> {_escape_html(_format_chunk_ids(entry.contradicting_chunk_ids))}</li>",
+                    "</ul></section>",
+                ]
+            )
+        )
+
+    if not entry_sections:
+        entry_sections.append("<p>No report entries.</p>")
+
+    return (
+        "<!doctype html>"
+        "<html><head><title>SourceTrace Report</title></head>"
+        "<body>"
+        f"<h1>SourceTrace Report: {_escape_html(outcome.case_report.case_id)}</h1>"
+        f"<p>{report_summary}</p>"
+        "<h2>Publication summary</h2>"
+        "<ul>"
+        f"<li><strong>Allowed claims:</strong> {publication_summary['allowed_claim_count']}</li>"
+        f"<li><strong>Review-required claims:</strong> {publication_summary['review_required_claim_count']}</li>"
+        f"<li><strong>Blocked claims:</strong> {publication_summary['blocked_claim_count']}</li>"
+        "</ul>"
+        "<h2>Verification summary</h2>"
+        "<ul>"
+        f"<li><strong>Evidence sufficiency:</strong> {_escape_html(_format_count_map_markdown(verification_summary['evidence_sufficiency']))}</li>"
+        f"<li><strong>Publication gate:</strong> {_escape_html(_format_count_map_markdown(verification_summary['publication_gate']))}</li>"
+        f"<li><strong>Gate reason:</strong> {_escape_html(_format_count_map_markdown(verification_summary['gate_reason']))}</li>"
+        f"<li><strong>Support rationale counts:</strong> {_escape_html(_format_support_rationale_summary_markdown(verification_summary['support_rationale_summary']))}</li>"
+        f"<li><strong>Contradiction diagnostics:</strong> {_escape_html(_format_count_map_markdown(verification_summary['contradiction_diagnostics']))}</li>"
+        "</ul>"
+        f"<h2>Review queue rationale</h2>{_review_queue_html_list(review_queue_signals)}"
+        f"{''.join(entry_sections)}"
+        "</body></html>"
+    )
 
 
 def render_continuity_pack_html(
@@ -2492,6 +2569,30 @@ def _review_queue_summary_html(review_queue_signals: dict[str, object]) -> str:
     )
     return (
         f"<p><strong>Priority rationale classes:</strong> {_escape_html(rationale_classes)}</p>"
+        f"{_review_queue_priority_rationale_html(review_queue_signals)}"
+    )
+
+
+def _review_queue_html_list(review_queue_signals: dict[str, object]) -> str:
+    review_required_count = review_queue_signals.get("review_required_claim_count")
+    review_required_claim_count = (
+        review_required_count if isinstance(review_required_count, int) else 0
+    )
+    if review_required_claim_count == 0:
+        return (
+            "<ul>"
+            "<li><strong>Review-required claims:</strong> 0</li>"
+            "<li><strong>Priority buckets:</strong> none</li>"
+            "<li><strong>Rationale classes:</strong> none</li>"
+            "<li><strong>Queue status:</strong> no review-required claims</li>"
+            "</ul>"
+        )
+    return (
+        "<ul>"
+        f"<li><strong>Review-required claims:</strong> {review_required_claim_count}</li>"
+        f"<li><strong>Priority buckets:</strong> {_escape_html(_format_count_map_markdown(_review_queue_priority_buckets(review_queue_signals)))}</li>"
+        f"<li><strong>Rationale classes:</strong> {_escape_html(_format_count_map_markdown(_humanize_review_queue_rationale_class_summary(_review_queue_rationale_class_summary(review_queue_signals))))}</li>"
+        "</ul>"
         f"{_review_queue_priority_rationale_html(review_queue_signals)}"
     )
 

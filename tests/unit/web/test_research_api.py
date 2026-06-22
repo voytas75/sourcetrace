@@ -38,6 +38,11 @@ def test_wsgi_research_job_flow() -> None:
         method="GET",
         path=f"/api/research/result/{job_id}",
     )
+    result_html_status, result_html_headers, result_html_body = _call_wsgi(
+        app,
+        method="GET",
+        path=f"/api/research/result/{job_id}.html",
+    )
     list_status, _, list_body = _call_wsgi(
         app,
         method="GET",
@@ -54,6 +59,10 @@ def test_wsgi_research_job_flow() -> None:
     assert json.loads(run_body)["job"]["status"] == "done"
     assert result_status == "200 OK"
     assert json.loads(result_body)["result"]["completion_mode"] == "full"
+    assert result_html_status == "200 OK"
+    assert ("Content-Type", "text/html; charset=utf-8") in result_html_headers
+    assert "<h1>Deep Research Report</h1>" in result_html_body
+    assert "<strong>Completion mode:</strong> full" in result_html_body
     assert list_status == "200 OK"
     assert len(json.loads(list_body)["jobs"]) == 1
 

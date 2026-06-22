@@ -37,6 +37,7 @@ from sourcetrace.web import (
     run_local_server,
     verification_inspection_to_payload,
     verification_to_payload,
+    render_report_html,
     render_report_markdown,
     report_outcome_to_payload,
 )
@@ -188,6 +189,7 @@ def test_delivery_service_assembles_json_and_markdown_report_output() -> None:
     outcome = delivery.assemble_case_report("case-1")
     payload = report_outcome_to_payload(outcome)
     markdown = render_report_markdown(outcome)
+    html = render_report_html(outcome)
 
     assert payload["case_report"]["case_id"] == "case-1"
     case_report = payload["case_report"]
@@ -240,6 +242,12 @@ def test_delivery_service_assembles_json_and_markdown_report_output() -> None:
         "publication_block_rate": 0.0,
     }
     assert "## Verification summary" in markdown
+    assert "<h1>SourceTrace Report: case-1</h1>" in html
+    assert "<h2>Publication summary</h2>" in html
+    assert "<strong>Allowed claims:</strong> 1" in html
+    assert "<h2>Verification summary</h2>" in html
+    assert "<strong>Evidence sufficiency:</strong> supported=1" in html
+    assert "<h2>Review queue rationale</h2>" in html
     assert "- Evidence sufficiency: supported=1" in markdown
     assert "- Gate counts: allowed=1" in markdown
     assert "- Gate reason: none=1" in markdown

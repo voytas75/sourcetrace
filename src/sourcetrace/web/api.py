@@ -34,6 +34,7 @@ from sourcetrace.web.delivery import (
     document_to_payload,
     render_case_review_html,
     render_continuity_pack_html,
+    render_report_html,
     render_report_markdown,
     report_outcome_to_payload,
     review_decision_from_payload,
@@ -219,6 +220,8 @@ class SourceTraceWSGIApp:
                 return self._get_research_status(parts[3], start_response)
             if len(parts) == 4 and parts[2] == "stream" and method == "GET":
                 return self._stream_research_progress(parts[3], start_response)
+            if len(parts) == 4 and parts[2] == "result" and parts[3].endswith('.html') and method == "GET":
+                return self._render_research_result_html(path, start_response)
             if len(parts) == 4 and parts[2] == "result" and method == "GET":
                 return self._get_research_result(parts[3], start_response)
             if len(parts) == 4 and parts[2] == "run" and method == "POST":
@@ -1158,14 +1161,37 @@ class SourceTraceWSGIApp:
             credibility_assessment_response_payload(assessment),
         )
 
+
+    def _render_research_result_html(
+        self,
+        path: str,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        job_id = path.removeprefix('/api/research/result/').removesuffix('.html').strip('/')
+        if not job_id:
+            return _json_response(start_response, '404 Not Found', {'error': 'not_found'})
+        outcome = self.delivery.get_research_result(job_id)
+        if outcome is None or outcome.result is None:
+            return _json_response(
+                start_response,
+                '404 Not Found',
+                {'error': 'research_result_not_found', 'status': 'missing'},
+            )
+        return _text_response(
+            start_response,
+            '200 OK',
+            'text/html; charset=utf-8',
+            _research_result_to_html(outcome.result),
+        )
+
     def _render_report(
         self,
         path: str,
         start_response: StartResponse,
     ) -> Iterable[bytes]:
         report_ref = path.removeprefix("/api/reports/").strip("/")
-        if report_ref and (not report_ref.endswith(".md")):
-            case_id = report_ref.removesuffix(".json")
+        if report_ref.endswith(".html"):
+            case_id = report_ref.removesuffix(".html")
             outcome = self.delivery.assemble_case_report(case_id)
             if not outcome.entries and not outcome.request.review_decisions:
                 return _json_response(
@@ -1173,10 +1199,11 @@ class SourceTraceWSGIApp:
                     "404 Not Found",
                     {"error": "report_not_found", "status": "missing"},
                 )
-            return _json_response(
+            return _text_response(
                 start_response,
                 "200 OK",
-                report_outcome_to_payload(outcome),
+                "text/html; charset=utf-8",
+                render_report_html(outcome),
             )
         if report_ref.endswith(".md"):
             case_id = report_ref.removesuffix(".md")
@@ -1192,6 +1219,20 @@ class SourceTraceWSGIApp:
                 "200 OK",
                 "text/markdown; charset=utf-8",
                 render_report_markdown(outcome),
+            )
+        if report_ref:
+            case_id = report_ref.removesuffix(".json")
+            outcome = self.delivery.assemble_case_report(case_id)
+            if not outcome.entries and not outcome.request.review_decisions:
+                return _json_response(
+                    start_response,
+                    "404 Not Found",
+                    {"error": "report_not_found", "status": "missing"},
+                )
+            return _json_response(
+                start_response,
+                "200 OK",
+                report_outcome_to_payload(outcome),
             )
         return _json_response(start_response, "404 Not Found", {"error": "not_found"})
 
@@ -1395,6 +1436,52 @@ def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, obj
         "created_at": result.created_at,
         "completed_at": result.completed_at,
     }
+
+
+def _research_result_to_html(result: ResearchResultArtifact) -> str:
+    def esc(value: object) -> str:
+        return _escape_html(str(value if value is not None else ''))
+
+    evaluation = result.evaluation
+    evaluation_html = (
+        "<p><strong>Query class:</strong> n/a</p>"
+        "<p><strong>Source quality:</strong> n/a</p>"
+        "<p><strong>Relevance:</strong> n/a</p>"
+        "<p><strong>Truthfulness:</strong> n/a</p>"
+        if evaluation is None
+        else (
+            f"<p><strong>Query class:</strong> {esc(evaluation.query_class.value)}</p>"
+            f"<p><strong>Source quality:</strong> {esc(evaluation.source_quality_verdict.value)}</p>"
+            f"<p><strong>Relevance:</strong> {esc(evaluation.relevance_verdict.value)}</p>"
+            f"<p><strong>Truthfulness:</strong> {esc(evaluation.truthfulness_verdict.value)}</p>"
+            f"<p><strong>Recommended next check:</strong> {esc(evaluation.recommended_next_check or 'none')}</p>"
+            f"<p><strong>Should revise report:</strong> {esc('yes' if evaluation.should_revise_report else 'no')}</p>"
+        )
+    )
+    findings = ''.join(
+        f'<li><a href="{esc(f.url)}">{esc(f.title)}</a><br><small>{esc(f.summary)}</small></li>'
+        for f in result.raw_findings[:10]
+    ) or '<li>No findings captured.</li>'
+    sources = ''.join(
+        f'<li><a href="{esc(s.url)}">{esc(s.title)}</a></li>'
+        for s in result.sources[:10]
+    ) or '<li>No sources captured.</li>'
+    return (
+        "<!doctype html>"
+        "<html><head><title>SourceTrace Deep Research Report</title></head>"
+        "<body>"
+        f"<h1>Deep Research Report</h1>"
+        f"<p><strong>Job ID:</strong> {esc(result.job_id)}</p>"
+        f"<p><strong>Query:</strong> {esc(result.query)}</p>"
+        f"<p><strong>Status:</strong> {esc(result.status.value)}</p>"
+        f"<p><strong>Completion mode:</strong> {esc(result.completion_mode.value)}</p>"
+        f"<p><strong>Providers:</strong> {esc(', '.join(result.stats.search_providers) if result.stats.search_providers else 'none')}</p>"
+        f"<h2>Current answer</h2><div>{esc(result.result).replace(chr(10), '<br>')}</div>"
+        f"<h2>Evaluation</h2>{evaluation_html}"
+        f"<h2>Findings</h2><ul>{findings}</ul>"
+        f"<h2>Sources</h2><ul>{sources}</ul>"
+        "</body></html>"
+    )
 
 def _read_json(environ: WsgiEnviron) -> dict[str, object]:
     try:
@@ -1604,6 +1691,7 @@ def _render_home_html() -> str:
         "<li><code>GET /api/research/status/{job_id}</code></li>"
         "<li><code>GET /api/research/stream/{job_id}</code></li>"
         "<li><code>GET /api/research/result/{job_id}</code></li>"
+        "<li><code>GET /api/research/result/{job_id}.html</code></li>"
         "<li><code>POST /api/research/run/{job_id}</code></li>"
         "<li><code>POST /api/research/cancel/{job_id}</code></li>"
         "</ul>"
@@ -2071,13 +2159,15 @@ def _render_research_console_html() -> str:
             <div class="split">
               <div class="surface">
                 <div class="surface-head">
-                  <h3>Markdown result</h3>
+                  <h3>Final report</h3>
                   <div class="pill-row">
-                    <button id="preview_btn" class="secondary">Readable view</button>
-                    <button id="raw_btn" class="secondary">Raw JSON</button>
+                    <button id="html_btn" class="secondary">HTML</button>
+                    <button id="preview_btn" class="secondary">Markdown</button>
+                    <button id="raw_btn" class="secondary">JSON</button>
                   </div>
                 </div>
                 <div class="surface-body">
+                  <iframe id="result_html" class="report hidden" title="HTML report preview"></iframe>
                   <div id="result_preview" class="report">No result yet.</div>
                   <div id="result_box" class="console mono hidden">No result yet.</div>
                 </div>
@@ -2146,6 +2236,7 @@ def _render_research_console_html() -> str:
       const streamBox = document.getElementById('stream_box');
       const resultBox = document.getElementById('result_box');
       const resultPreview = document.getElementById('result_preview');
+      const resultHtml = document.getElementById('result_html');
       const resultBanner = document.getElementById('result_banner');
       const queryClassPill = document.getElementById('query_class_pill');
       const jobsBox = document.getElementById('jobs_box');
@@ -2375,6 +2466,7 @@ def _render_research_console_html() -> str:
         resultBanner.className = `badge ${completion === 'partial_error' ? 'warn' : completion === 'fallback' ? 'warn' : 'ok'}`;
         const markdown = payload.result && payload.result.result ? payload.result.result : 'No result yet.';
         resultPreview.innerHTML = markdownToHtml(markdown);
+        resultHtml.src = `/api/research/result/${jobId}.html`;
         setBox(resultBox, JSON.stringify(payload, null, 2), 'console mono');
         renderEvaluation(payload.result ? payload.result.evaluation : null);
       }
@@ -2419,11 +2511,18 @@ def _render_research_console_html() -> str:
       document.getElementById('refresh_btn').addEventListener('click', refreshStatus);
       document.getElementById('result_btn').addEventListener('click', loadResult);
       document.getElementById('jobs_btn').addEventListener('click', listJobs);
+      document.getElementById('html_btn').addEventListener('click', () => {
+        resultHtml.classList.remove('hidden');
+        resultPreview.classList.add('hidden');
+        resultBox.classList.add('hidden');
+      });
       document.getElementById('preview_btn').addEventListener('click', () => {
+        resultHtml.classList.add('hidden');
         resultPreview.classList.remove('hidden');
         resultBox.classList.add('hidden');
       });
       document.getElementById('raw_btn').addEventListener('click', () => {
+        resultHtml.classList.add('hidden');
         resultPreview.classList.add('hidden');
         resultBox.classList.remove('hidden');
       });
