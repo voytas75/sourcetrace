@@ -7,7 +7,7 @@ import time
 from os import environ, getpgid, kill, makedirs
 from pathlib import Path
 from signal import SIGTERM
-from subprocess import DEVNULL, Popen
+from subprocess import DEVNULL, PIPE, Popen
 from sys import executable
 from typing import Final
 from urllib.error import HTTPError, URLError
@@ -21,7 +21,7 @@ DEFAULT_SYSTEMD_UNIT_PATH: Final[Path] = Path.home() / ".config" / "systemd" / "
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[3]
 
 
 def _default_pythonpath() -> str:
@@ -46,6 +46,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-file", default=str(DEFAULT_LOG_PATH))
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--width", type=int, default=1600)
+    parser.add_argument("--height", type=int, default=1100)
     return parser
 
 
@@ -93,6 +95,36 @@ def _status_line(pid: int | None, host: str, port: int) -> tuple[str, int]:
     return (f"Sourcetrace WWW running pid={pid} endpoint=http://{host}:{port} ready={'yes' if ready else 'no'}", 0)
 
 
+def _merge_shell_env(base_env: dict[str, str], *, shell_rc: Path | None = None) -> dict[str, str]:
+    rc_path = (shell_rc or Path.home() / '.bashrc').expanduser()
+    if not rc_path.exists():
+        return base_env
+    shell = environ.get('SHELL', '/bin/bash')
+    command = f"source {rc_path} >/dev/null 2>&1 && env"
+    try:
+        probe = Popen(
+            [shell, '-lc', command],
+            stdout=PIPE,
+            stderr=DEVNULL,
+            text=True,
+            env=base_env,
+        )
+        stdout, _ = probe.communicate(timeout=10)
+    except Exception:
+        return base_env
+    if probe.returncode != 0 or not stdout:
+        return base_env
+    merged = dict(base_env)
+    for line in stdout.splitlines():
+        if '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        if not key:
+            continue
+        merged[key] = value
+    return merged
+
+
 def start_main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -107,10 +139,13 @@ def start_main(argv: list[str] | None = None) -> int:
         return 0
 
     repo_root = _repo_root()
-    env = environ.copy()
+    env = _merge_shell_env(environ.copy())
     env["PYTHONPATH"] = _default_pythonpath()
     env["SOURCETRACE_WWW_HOST"] = args.host
     env["SOURCETRACE_WWW_PORT"] = str(args.port)
+    env["SOURCETRACE_RESEARCH_DATA_DIR"] = str(repo_root / "data" / "research")
+    env["SOURCETRACE_UI_SCREEN_WIDTH"] = str(args.width)
+    env["SOURCETRACE_UI_SCREEN_HEIGHT"] = str(args.height)
 
     with log_path.open("a", encoding="utf-8") as log_handle:
         process = Popen(

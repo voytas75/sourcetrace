@@ -16,6 +16,7 @@ from sourcetrace.application import (
     build_research_execution,
     build_search_adapter,
 )
+from sourcetrace.application.research_runtime import LlmQueryGenerator
 from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk, DocumentCredibilityAssessment
 from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance, VerificationVerdict
 from sourcetrace.llm import build_llm_runtime
@@ -95,8 +96,8 @@ def _resolve_searxng_base_url() -> str | None:
 def _resolve_research_persistence_root_dir() -> Path | None:
     raw = environ.get("SOURCETRACE_RESEARCH_DATA_DIR", "").strip()
     if raw:
-        return Path(raw).expanduser()
-    return Path("data/research").resolve()
+        return Path(raw).expanduser().resolve()
+    return Path(__file__).resolve().parents[2] / "data" / "research"
 
 
 def _resolve_continuity_pack_root_dir() -> Path | None:
@@ -272,7 +273,7 @@ def build_local_server_runtime(
         else None
     )
     searxng_base_url = _resolve_searxng_base_url()
-    research = build_research_execution()
+    research = None
     if searxng_base_url:
         from sourcetrace.application import (
             FakeResearchWorker,
@@ -305,12 +306,14 @@ def build_local_server_runtime(
             search_web=provider_search,
         )
         unified_search_web = _load_mycrewhelper_unified_search_web()
+        search_adapter = build_procedural_admin_unified_search_adapter(
+            current_search=base_search,
+            unified_search_web=unified_search_web,
+        )
         research_worker = FakeResearchWorker(
             research_persistence,
-            search=build_procedural_admin_unified_search_adapter(
-                current_search=base_search,
-                unified_search_web=unified_search_web,
-            ),
+            llm_query_generator=LlmQueryGenerator(llm_runtime.research_synthesis),
+            search=search_adapter,
             synthesize=research_synthesizer,
         )
         research = ResearchExecution(
@@ -329,8 +332,16 @@ def build_local_server_runtime(
         claim_extraction_runtime=claim_extraction_runtime,
         continuity_pack_root_dir=_resolve_continuity_pack_root_dir(),
         research=research,
-        research_search_backend=("searxng" if searxng_base_url else "stub"),
-        research_search_configured=bool(searxng_base_url),
+        research_search_backend=(
+            "procedural_admin_unified_search+searxng"
+            if 'unified_search_web' in locals() and unified_search_web and searxng_base_url
+            else "procedural_admin_unified_search"
+            if 'unified_search_web' in locals() and unified_search_web
+            else "searxng"
+            if searxng_base_url
+            else "unavailable"
+        ),
+        research_search_configured=bool((('unified_search_web' in locals()) and unified_search_web) or searxng_base_url),
     )
     host, port = _resolve_server_bind()
     return run_local_server(host=host, port=port, delivery=delivery)

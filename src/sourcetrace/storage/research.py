@@ -75,6 +75,9 @@ class InMemoryCompiledResearchArtifactRepository:
         items = [artifact for artifact in self._artifacts.values() if artifact.owner_id == owner_id]
         return tuple(sorted(items, key=lambda artifact: artifact.created_at))
 
+    def list_all_artifacts(self) -> tuple[CompiledResearchArtifact, ...]:
+        return tuple(sorted(self._artifacts.values(), key=lambda artifact: artifact.created_at))
+
 
 class InMemoryCompiledResearchArtifactLintRepository:
     """Compiled research artifact lint repository backed by process-local dictionaries."""
@@ -98,6 +101,9 @@ class InMemoryCompiledResearchArtifactLintRepository:
     def list_lints_for_owner(self, owner_id: str) -> tuple[CompiledResearchArtifactLint, ...]:
         items = [lint for lint in self._lints.values() if lint.owner_id == owner_id]
         return tuple(sorted(items, key=lambda lint: lint.created_at))
+
+    def list_all_lints(self) -> tuple[CompiledResearchArtifactLint, ...]:
+        return tuple(sorted(self._lints.values(), key=lambda lint: lint.created_at))
 
 
 def create_in_memory_research_persistence() -> ResearchPersistence:

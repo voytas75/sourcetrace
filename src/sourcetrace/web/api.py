@@ -1,6 +1,7 @@
 """Pure-stdlib WSGI API for the minimal delivery surface."""
 
 import json
+import re
 import traceback
 from os import environ
 from collections.abc import Callable, Iterable
@@ -47,6 +48,7 @@ from sourcetrace.web.delivery import (
 )
 from sourcetrace.application import SourceIngestionRequest
 from sourcetrace.domain.research import CompiledResearchArtifact, CompiledResearchArtifactLint, ResearchJob, ResearchProgressEvent, ResearchResultArtifact, ResearchSettings
+from sourcetrace.application.research import ResearchJobResultOutcome
 
 
 StartResponse = Callable[[str, list[tuple[str, str]]], None]
@@ -121,6 +123,8 @@ class SourceTraceWSGIApp:
             return self._render_home(start_response)
         if method == "GET" and path == "/research":
             return self._render_research_console(start_response)
+        if method == "GET" and path == "/research/debug":
+            return self._render_research_debug_console(start_response)
         if method == "GET" and path == "/api/health":
             return _json_response(start_response, "200 OK", {"status": "ok"})
         if method == "GET" and path == "/api/ready":
@@ -285,6 +289,16 @@ class SourceTraceWSGIApp:
             _render_research_console_html(),
         )
 
+    def _render_research_debug_console(
+        self,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        return _html_response(
+            start_response,
+            "200 OK",
+            _render_research_debug_console_html(),
+        )
+
     def _start_research_job(
         self,
         environ: WsgiEnviron,
@@ -410,7 +424,7 @@ class SourceTraceWSGIApp:
         artifact_id: str,
         start_response: StartResponse,
     ) -> Iterable[bytes]:
-        artifact = self.delivery.research.persistence.compiled.get_artifact(artifact_id)
+        artifact = self.delivery.research_persistence.compiled.get_artifact(artifact_id)
         if artifact is None:
             return _missing_response(start_response, "compiled_research_artifact", artifact_id)
         return _json_response(
@@ -425,7 +439,7 @@ class SourceTraceWSGIApp:
         start_response: StartResponse,
     ) -> Iterable[bytes]:
         owner_id = _required_query_param(environ, "owner_id").strip().lower()
-        artifacts = self.delivery.research.persistence.compiled.list_artifacts_for_owner(owner_id)
+        artifacts = self.delivery.research_persistence.compiled.list_artifacts_for_owner(owner_id)
         return _json_response(
             start_response,
             "200 OK",
@@ -437,7 +451,7 @@ class SourceTraceWSGIApp:
         artifact_id: str,
         start_response: StartResponse,
     ) -> Iterable[bytes]:
-        lint = self.delivery.research.persistence.compiled_lint.get_lint_for_artifact(artifact_id)
+        lint = self.delivery.research_persistence.compiled_lint.get_lint_for_artifact(artifact_id)
         if lint is None:
             return _missing_response(start_response, "compiled_research_artifact_lint", artifact_id)
         return _json_response(
@@ -1181,7 +1195,7 @@ class SourceTraceWSGIApp:
             start_response,
             '200 OK',
             'text/html; charset=utf-8',
-            _research_result_to_html(outcome.result),
+            _research_result_to_html(outcome),
         )
 
     def _render_report(
@@ -1438,26 +1452,46 @@ def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, obj
     }
 
 
-def _research_result_to_html(result: ResearchResultArtifact) -> str:
+def _research_result_to_html(outcome: ResearchJobResultOutcome) -> str:
     def esc(value: object) -> str:
         return _escape_html(str(value if value is not None else ''))
 
+    def lines(items: tuple[str, ...], fallback: str) -> str:
+        if not items:
+            return f'<li>{esc(fallback)}</li>'
+        return ''.join(f'<li>{esc(item)}</li>' for item in items)
+
+    def markdown_to_html(markdown: str) -> str:
+        escaped = esc(markdown)
+        html = escaped.replace(chr(13) + chr(10), chr(10))
+        html = re.sub(r'^### (.*)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+        html = re.sub(r'^## (.*)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+        html = re.sub(r'^# (.*)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+        html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html)
+        html = re.sub(r'^- (.*)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+        html = re.sub(r'(<li>.*?</li>)', r'<ul>\1</ul>', html, flags=re.DOTALL)
+        html = html.replace(chr(10) + chr(10), '</p><p>')
+        html = f'<p>{html}</p>'
+        html = html.replace('<p></p>', '')
+        html = re.sub(r'<p>(<h[1-3]>.*?</h[1-3]>)</p>', r'\1', html, flags=re.DOTALL)
+        html = re.sub(r'<p>(<ul>.*?</ul>)</p>', r'\1', html, flags=re.DOTALL)
+        return html
+
+    def build_title(result: ResearchResultArtifact) -> str:
+        top_titles = [finding.title.strip() for finding in result.raw_findings[:2] if finding.title.strip()]
+        if top_titles:
+            title_focus = ' · '.join(top_titles[:2])
+            return f'{result.query.strip()} — {title_focus}'[:180]
+        return result.query.strip() or 'Deep Research Report'
+
+    result = outcome.result
+    if result is None:
+        return "<!doctype html><html><body><p>Research result not found.</p></body></html>"
+
     evaluation = result.evaluation
-    evaluation_html = (
-        "<p><strong>Query class:</strong> n/a</p>"
-        "<p><strong>Source quality:</strong> n/a</p>"
-        "<p><strong>Relevance:</strong> n/a</p>"
-        "<p><strong>Truthfulness:</strong> n/a</p>"
-        if evaluation is None
-        else (
-            f"<p><strong>Query class:</strong> {esc(evaluation.query_class.value)}</p>"
-            f"<p><strong>Source quality:</strong> {esc(evaluation.source_quality_verdict.value)}</p>"
-            f"<p><strong>Relevance:</strong> {esc(evaluation.relevance_verdict.value)}</p>"
-            f"<p><strong>Truthfulness:</strong> {esc(evaluation.truthfulness_verdict.value)}</p>"
-            f"<p><strong>Recommended next check:</strong> {esc(evaluation.recommended_next_check or 'none')}</p>"
-            f"<p><strong>Should revise report:</strong> {esc('yes' if evaluation.should_revise_report else 'no')}</p>"
-        )
-    )
+    title = build_title(result)
+    providers = esc(', '.join(result.stats.search_providers) if result.stats.search_providers else 'none')
+    answer_html = markdown_to_html(result.result)
     findings = ''.join(
         f'<li><a href="{esc(f.url)}">{esc(f.title)}</a><br><small>{esc(f.summary)}</small></li>'
         for f in result.raw_findings[:10]
@@ -1466,22 +1500,83 @@ def _research_result_to_html(result: ResearchResultArtifact) -> str:
         f'<li><a href="{esc(s.url)}">{esc(s.title)}</a></li>'
         for s in result.sources[:10]
     ) or '<li>No sources captured.</li>'
-    return (
-        "<!doctype html>"
-        "<html><head><title>SourceTrace Deep Research Report</title></head>"
-        "<body>"
-        f"<h1>Deep Research Report</h1>"
-        f"<p><strong>Job ID:</strong> {esc(result.job_id)}</p>"
-        f"<p><strong>Query:</strong> {esc(result.query)}</p>"
-        f"<p><strong>Status:</strong> {esc(result.status.value)}</p>"
-        f"<p><strong>Completion mode:</strong> {esc(result.completion_mode.value)}</p>"
-        f"<p><strong>Providers:</strong> {esc(', '.join(result.stats.search_providers) if result.stats.search_providers else 'none')}</p>"
-        f"<h2>Current answer</h2><div>{esc(result.result).replace(chr(10), '<br>')}</div>"
-        f"<h2>Evaluation</h2>{evaluation_html}"
-        f"<h2>Findings</h2><ul>{findings}</ul>"
-        f"<h2>Sources</h2><ul>{sources}</ul>"
-        "</body></html>"
+    evaluation_summary = (
+        '<p class="muted">No structured evaluation yet.</p>'
+        if evaluation is None
+        else (
+            f'<div class="eval-summary"><strong>Query class:</strong> {esc(evaluation.query_class.value)} · '
+            f'<strong>Source quality:</strong> {esc(evaluation.source_quality_verdict.value)} · '
+            f'<strong>Relevance:</strong> {esc(evaluation.relevance_verdict.value)} · '
+            f'<strong>Truthfulness:</strong> {esc(evaluation.truthfulness_verdict.value)}</div>'
+        )
     )
+    evaluation_details = (
+        '<div class="grid"><section class="panel"><h3>Source quality</h3><p class="muted">n/a</p></section>'
+        '<section class="panel"><h3>Relevance</h3><p class="muted">n/a</p></section>'
+        '<section class="panel"><h3>Truthfulness</h3><p class="muted">n/a</p></section></div>'
+        if evaluation is None
+        else (
+            '<div class="grid">'
+            f'<section class="panel"><h3>Source quality</h3><div class="verdict">{esc(evaluation.source_quality_verdict.value)}</div><ul>{lines(evaluation.source_quality_reasons, "No specific source-quality notes.")}</ul></section>'
+            f'<section class="panel"><h3>Relevance</h3><div class="verdict">{esc(evaluation.relevance_verdict.value)}</div><ul>{lines(evaluation.relevance_risks, "No specific relevance risks.")}</ul></section>'
+            f'<section class="panel"><h3>Truthfulness</h3><div class="verdict">{esc(evaluation.truthfulness_verdict.value)}</div><ul>{lines(evaluation.overclaim_risks, "No explicit overclaim risks flagged.")}</ul></section>'
+            '</div>'
+            '<div class="grid">'
+            f'<section class="panel"><h3>Missing checks</h3><ul>{lines(evaluation.missing_checks, "No missing checks flagged.")}</ul></section>'
+            f'<section class="panel"><h3>Next step</h3><p>{esc(evaluation.recommended_next_check or "No recommended next check.")}</p><p class="muted">Should revise report: {esc("yes" if evaluation.should_revise_report else "no")}</p></section>'
+            '</div>'
+        )
+    )
+
+    return f"""<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{esc(title)}</title>
+    <style>
+      :root {{ color-scheme: dark; --panel: rgba(10, 22, 41, 0.88); --panel-strong: rgba(12, 26, 49, 0.98); --text: #e8eefc; --muted: #94a8c9; --line: rgba(148, 168, 201, 0.18); --accent: #67b7ff; --accent-2: #8a7dff; --shadow: 0 22px 60px rgba(0, 0, 0, 0.35); --radius: 22px; }}
+      * {{ box-sizing: border-box; }}
+      body {{ margin: 0; min-height: 100vh; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: radial-gradient(circle at top, rgba(103, 183, 255, 0.16), transparent 32%), linear-gradient(180deg, #091220 0%, #08111f 58%, #050b14 100%); color: var(--text); }}
+      .shell {{ width: min(1460px, calc(100vw - 32px)); margin: 28px auto 40px; display: grid; gap: 20px; }}
+      .hero, .card {{ background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }}
+      .hero {{ padding: 28px; display: grid; gap: 18px; }}
+      .eyebrow {{ font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }}
+      h1 {{ margin: 0; font-size: 34px; }} h2 {{ margin: 0 0 12px; font-size: 22px; }} h3 {{ margin: 0 0 10px; font-size: 16px; }}
+      p, li {{ line-height: 1.75; color: #d8e6ff; }} a {{ color: #8ed0ff; }} .lede {{ color: #dce9ff; font-size: 16px; margin: 0; }}
+      .meta {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }}
+      .meta-card {{ padding: 16px; border-radius: 18px; background: rgba(148, 168, 201, 0.08); border: 1px solid var(--line); }}
+      .meta-label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }} .meta-value {{ margin-top: 8px; font-size: 18px; font-weight: 800; }}
+      .card {{ padding: 22px; }} .report {{ background: linear-gradient(180deg, rgba(4, 10, 19, 0.92), rgba(7, 16, 30, 0.82)); border-radius: 18px; border: 1px solid rgba(148, 168, 201, 0.12); padding: 24px; }} .report h1, .report h2, .report h3 {{ margin-top: 0; }}
+      .muted {{ color: var(--muted); }} .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }} .panel {{ padding: 16px; border-radius: 18px; background: var(--panel-strong); border: 1px solid var(--line); }}
+      .eval-summary {{ padding: 14px 16px; border-radius: 16px; background: rgba(103, 183, 255, 0.08); border: 1px solid rgba(103, 183, 255, 0.18); color: #dcecff; }} .verdict {{ font-size: 18px; font-weight: 800; margin-bottom: 10px; color: var(--accent); text-transform: uppercase; }}
+      ul {{ margin: 0; padding-left: 20px; }} .sources li, .findings li {{ margin-bottom: 10px; }} .concept-note {{ padding: 14px 16px; border-radius: 16px; background: rgba(138, 125, 255, 0.12); border: 1px solid rgba(138, 125, 255, 0.18); color: #e7e2ff; }}
+      @media (max-width: 1100px) {{ .meta, .grid {{ grid-template-columns: 1fr; }} }}
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <div class="eyebrow">SourceTrace Deep Research · HTML report</div>
+        <h1>{esc(title)}</h1>
+        <p class="lede">Structured research report optimized for external reading. The operator console keeps runtime controls; HTML is now a dedicated output surface.</p>
+        <div class="concept-note"><strong>SourceTrace concept:</strong> keep the HTML view external and calm like a finished report, while the operator console remains operational. Trust/evaluation stays visible as a structural part of the report instead of hidden metadata.</div>
+        <div class="meta">
+          <div class="meta-card"><div class="meta-label">Job ID</div><div class="meta-value">{esc(result.job_id)}</div></div>
+          <div class="meta-card"><div class="meta-label">Status</div><div class="meta-value">{esc(result.status.value)}</div></div>
+          <div class="meta-card"><div class="meta-label">Completion</div><div class="meta-value">{esc(result.completion_mode.value)}</div></div>
+          <div class="meta-card"><div class="meta-label">Providers</div><div class="meta-value">{providers}</div></div>
+        </div>
+        <div class="card" style="padding:18px;"><strong>Research question:</strong> {esc(result.query)}</div>
+      </section>
+      <section class="card"><h2>Executive answer</h2><div class="report">{answer_html}</div></section>
+      <section class="card"><h2>Evaluation and confidence</h2>{evaluation_summary}{evaluation_details}</section>
+      <section class="card"><h2>Evidence highlights</h2><ul class="findings">{findings}</ul></section>
+      <section class="card"><h2>Sources reviewed</h2><ul class="sources">{sources}</ul></section>
+    </div>
+  </body>
+</html>"""
+
 
 def _read_json(environ: WsgiEnviron) -> dict[str, object]:
     try:
@@ -1731,6 +1826,82 @@ def _render_home_html() -> str:
     )
 
 
+def _render_research_debug_console_html() -> str:
+    return r"""<!doctype html>
+<html>
+  <head>
+    <title>SourceTrace Research Debug</title>
+    <style>
+      :root { color-scheme: dark; --panel: rgba(10, 22, 41, 0.88); --panel-strong: rgba(12, 26, 49, 0.98); --text: #e8eefc; --muted: #94a8c9; --line: rgba(148, 168, 201, 0.18); --shadow: 0 22px 60px rgba(0,0,0,0.35); --radius: 18px; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: linear-gradient(180deg, #0a1221 0%, #08111f 58%, #060d18 100%); color: var(--text); }
+      .shell { width: min(1500px, calc(100vw - 24px)); margin: 20px auto 28px; display: grid; gap: 18px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+      .header { padding: 22px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+      .workspace { display: grid; grid-template-columns: minmax(0,1fr) minmax(320px,0.8fr); gap: 18px; }
+      .stack { display: grid; gap: 18px; }
+      .surface { background: var(--panel-strong); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+      .surface-head { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; }
+      .surface-body { padding: 16px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; word-break: break-word; line-height: 1.6; font-size: 13px; }
+      .console { min-height: 300px; max-height: 620px; overflow: auto; background: rgba(3,10,20,0.58); border-radius: 14px; padding: 16px; }
+      .job-list { display: grid; gap: 10px; max-height: 520px; overflow: auto; }
+      .job-item { padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: rgba(148,168,201,0.06); cursor: pointer; }
+      .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(148,168,201,0.08); font-size: 13px; text-decoration:none; color:inherit; }
+      .muted { color: var(--muted); }
+      .action-row { display: flex; flex-wrap: wrap; gap: 10px; }
+      button, input { font: inherit; }
+      input { width: 100%; border-radius: 12px; border: 1px solid rgba(148,168,201,0.16); background: rgba(5,13,24,0.58); color: var(--text); padding: 12px 14px; }
+      button { border: 0; border-radius: 12px; padding: 10px 14px; cursor: pointer; color: #08111f; background: linear-gradient(135deg, #8ed0ff 0%, #67b7ff 100%); font-weight: 700; }
+      button.secondary { background: rgba(148,168,201,0.12); color: var(--text); border: 1px solid rgba(148,168,201,0.14); }
+      @media (max-width: 1180px) { .workspace { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="card header">
+        <div><h1 style="margin:0;font-size:32px;">Research debug view</h1><div class="muted" style="margin-top:8px;">Raw status, stream, jobs, and JSON result for debugging. Operator-facing reading stays on /research.</div></div>
+        <div class="action-row"><a href="/research" class="pill">Back to operator view</a></div>
+      </section>
+      <section class="card" style="padding:22px;">
+        <div style="display:grid; grid-template-columns:minmax(220px,0.8fr) minmax(360px,1.2fr); gap:16px;">
+          <div><label for="owner_id" style="display:block; margin-bottom:8px; font-weight:600;">Owner id</label><input id="owner_id" value="user-1" /></div>
+          <div><label for="job_id" style="display:block; margin-bottom:8px; font-weight:600;">Job id</label><input id="job_id" placeholder="job id appears here after start" /></div>
+        </div>
+        <div class="action-row" style="margin-top:16px;"><button id="refresh_btn">Refresh status + stream</button><button id="result_btn" class="secondary">Load raw result</button><button id="jobs_btn" class="secondary">List jobs</button></div>
+      </section>
+      <section class="workspace">
+        <div class="stack">
+          <div class="surface"><div class="surface-head"><h3 style="margin:0;">Status snapshot</h3><span class="muted">raw</span></div><div class="surface-body"><div id="status_box" class="console mono">No job yet.</div></div></div>
+          <div class="surface"><div class="surface-head"><h3 style="margin:0;">Progress stream</h3><span class="muted">raw</span></div><div class="surface-body"><div id="stream_box" class="console mono">No stream yet.</div></div></div>
+          <div class="surface"><div class="surface-head"><h3 style="margin:0;">Raw result JSON</h3><span class="muted">debug</span></div><div class="surface-body"><div id="result_box" class="console mono">No result yet.</div></div></div>
+        </div>
+        <aside class="stack"><div class="surface"><div class="surface-head"><h3 style="margin:0;">Jobs</h3><span class="muted">owner-scoped</span></div><div class="surface-body"><div id="jobs_box" class="console mono">No jobs loaded.</div><div id="jobs_list" class="job-list" style="margin-top:12px;"></div></div></div></aside>
+      </section>
+    </div>
+    <script>
+      const ownerInput = document.getElementById('owner_id');
+      const jobInput = document.getElementById('job_id');
+      const statusBox = document.getElementById('status_box');
+      const streamBox = document.getElementById('stream_box');
+      const resultBox = document.getElementById('result_box');
+      const jobsBox = document.getElementById('jobs_box');
+      const jobsList = document.getElementById('jobs_list');
+      function setBox(el, value) { el.textContent = value; }
+      async function jsonRequest(url, options={}) { const response = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options }); const text = await response.text(); const payload = text ? JSON.parse(text) : {}; if (!response.ok) throw new Error(payload.error || response.statusText || 'request failed'); return { payload }; }
+      function renderJobList(payload) { const jobs = payload.jobs || []; jobsList.innerHTML=''; for (const job of jobs) { const item=document.createElement('button'); item.className='job-item'; item.type='button'; item.innerHTML=`<strong>${job.query || job.job_id}</strong><div class="muted">${job.job_id} · ${job.status}</div>`; item.addEventListener('click', async () => { jobInput.value = job.job_id; await refreshStatus(); await loadResult(); }); jobsList.appendChild(item);} }
+      async function refreshStatus() { const jobId = jobInput.value.trim(); if (!jobId) { setBox(statusBox, 'job_id is required'); return; } const { payload } = await jsonRequest(`/api/research/status/${jobId}`); setBox(statusBox, JSON.stringify(payload, null, 2)); const response = await fetch(`/api/research/stream/${jobId}`); setBox(streamBox, await response.text()); }
+      async function loadResult() { const jobId = jobInput.value.trim(); if (!jobId) { setBox(resultBox, 'job_id is required'); return; } const { payload } = await jsonRequest(`/api/research/result/${jobId}`); setBox(resultBox, JSON.stringify(payload, null, 2)); }
+      async function listJobs() { const ownerId = ownerInput.value.trim(); if (!ownerId) { setBox(jobsBox, 'owner_id is required'); return; } const { payload } = await jsonRequest(`/api/research/jobs?owner_id=${encodeURIComponent(ownerId)}`); setBox(jobsBox, JSON.stringify(payload, null, 2)); renderJobList(payload); }
+      document.getElementById('refresh_btn').addEventListener('click', refreshStatus);
+      document.getElementById('result_btn').addEventListener('click', loadResult);
+      document.getElementById('jobs_btn').addEventListener('click', listJobs);
+      listJobs();
+    </script>
+  </body>
+</html>"""
+
+
 def _render_research_console_html() -> str:
     return r"""<!doctype html>
 <html>
@@ -1753,6 +1924,8 @@ def _render_research_console_html() -> str:
         --danger: #ff6b7a;
         --shadow: 0 22px 60px rgba(0, 0, 0, 0.35);
         --radius: 20px;
+        --console-min: 300px;
+        --report-min: 520px;
       }
       * { box-sizing: border-box; }
       body {
@@ -1766,283 +1939,78 @@ def _render_research_console_html() -> str:
         color: var(--text);
       }
       a { color: var(--accent); }
-      .shell {
-        width: min(1440px, calc(100vw - 32px));
-        margin: 28px auto;
-        display: grid;
-        gap: 20px;
-      }
-      .hero {
-        display: grid;
-        grid-template-columns: 1.5fr 0.9fr;
-        gap: 20px;
-      }
-      .card {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius);
-        box-shadow: var(--shadow);
-        backdrop-filter: blur(18px);
-      }
-      .hero-main {
-        padding: 28px;
-      }
-      .hero-side {
-        padding: 24px;
-        display: grid;
-        gap: 14px;
-        align-content: start;
-      }
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: rgba(103, 183, 255, 0.12);
-        border: 1px solid rgba(103, 183, 255, 0.18);
-        color: #cfe5ff;
-        font-size: 13px;
-        letter-spacing: 0.02em;
-      }
+      .shell { width: min(1680px, calc(100vw - 24px)); margin: 20px auto 28px; display: grid; gap: 20px; }
+      .hero { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.85fr); gap: 20px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(18px); }
+      .hero-main { padding: 28px; }
+      .hero-side { padding: 24px; display: grid; gap: 14px; align-content: start; }
+      .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: rgba(103, 183, 255, 0.12); border: 1px solid rgba(103, 183, 255, 0.18); color: #cfe5ff; font-size: 13px; letter-spacing: 0.02em; }
       h1, h2, h3 { margin: 0; }
-      h1 {
-        font-size: clamp(30px, 4vw, 48px);
-        line-height: 1.05;
-        margin-top: 18px;
-        letter-spacing: -0.03em;
-      }
-      .lede {
-        margin-top: 14px;
-        max-width: 760px;
-        color: var(--muted);
-        font-size: 16px;
-        line-height: 1.6;
-      }
-      .summary-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-        margin-top: 22px;
-      }
-      .metric {
-        padding: 16px;
-        border-radius: 16px;
-        background: var(--panel-soft);
-        border: 1px solid var(--line);
-      }
+      h1 { font-size: clamp(30px, 4vw, 48px); line-height: 1.05; margin-top: 18px; letter-spacing: -0.03em; }
+      .lede { margin-top: 14px; max-width: 760px; color: var(--muted); font-size: 16px; line-height: 1.6; }
+      .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; }
+      .metric { padding: 16px; border-radius: 16px; background: var(--panel-soft); border: 1px solid var(--line); }
       .metric-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
       .metric-value { font-size: 24px; font-weight: 700; margin-top: 6px; }
       .metric-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
       .stack { display: grid; gap: 20px; }
       .controls { padding: 24px; }
-      .section-title {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 16px;
-      }
+      .section-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
       .muted { color: var(--muted); }
-      .field-grid {
-        display: grid;
-        grid-template-columns: 0.85fr 1.15fr;
-        gap: 16px;
-      }
-      label {
-        display: block;
-        margin-bottom: 8px;
-        color: #d8e3fb;
-        font-weight: 600;
-        font-size: 14px;
-      }
-      input, textarea, button {
-        font: inherit;
-      }
-      input, textarea {
-        width: 100%;
-        border-radius: 14px;
-        border: 1px solid rgba(148, 168, 201, 0.16);
-        background: rgba(5, 13, 24, 0.58);
-        color: var(--text);
-        padding: 14px 15px;
-        outline: none;
-        transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
-      }
-      textarea { min-height: 144px; resize: vertical; }
-      input:focus, textarea:focus {
-        border-color: rgba(103, 183, 255, 0.55);
-        box-shadow: 0 0 0 4px rgba(103, 183, 255, 0.12);
-      }
-      .action-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 18px;
-      }
-      button {
-        border: 0;
-        border-radius: 12px;
-        padding: 12px 16px;
-        cursor: pointer;
-        color: #08111f;
-        background: linear-gradient(135deg, #8ed0ff 0%, #67b7ff 100%);
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
-        box-shadow: 0 12px 30px rgba(103, 183, 255, 0.25);
-      }
+      .field-grid { display: grid; grid-template-columns: minmax(220px, 0.8fr) minmax(360px, 1.2fr); gap: 16px; }
+      label { display: block; margin-bottom: 8px; color: #d8e3fb; font-weight: 600; font-size: 14px; }
+      input, textarea, button { font: inherit; }
+      input, textarea { width: 100%; border-radius: 14px; border: 1px solid rgba(148, 168, 201, 0.16); background: rgba(5, 13, 24, 0.58); color: var(--text); padding: 14px 15px; outline: none; transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease; }
+      textarea { min-height: 196px; resize: vertical; line-height: 1.55; }
+      input:focus, textarea:focus { border-color: rgba(103, 183, 255, 0.55); box-shadow: 0 0 0 4px rgba(103, 183, 255, 0.12); }
+      .action-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+      button { border: 0; border-radius: 12px; padding: 12px 16px; cursor: pointer; color: #08111f; background: linear-gradient(135deg, #8ed0ff 0%, #67b7ff 100%); font-weight: 700; letter-spacing: 0.01em; transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease; box-shadow: 0 12px 30px rgba(103, 183, 255, 0.25); }
       button:hover { transform: translateY(-1px); }
-      button.secondary {
-        background: rgba(148, 168, 201, 0.12);
-        color: var(--text);
-        box-shadow: none;
-        border: 1px solid rgba(148, 168, 201, 0.14);
-      }
-      .workspace {
-        display: grid;
-        grid-template-columns: 1.35fr 0.95fr;
-        gap: 20px;
-      }
-      .result-shell {
-        display: grid;
-        gap: 18px;
-        padding: 24px;
-      }
-      .status-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-      }
-      .surface {
-        background: var(--panel-strong);
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        overflow: hidden;
-      }
-      .surface-head {
-        padding: 14px 16px;
-        border-bottom: 1px solid var(--line);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
+      button.secondary { background: rgba(148, 168, 201, 0.12); color: var(--text); box-shadow: none; border: 1px solid rgba(148, 168, 201, 0.14); }
+      .workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+      .result-shell { display: grid; gap: 18px; padding: 24px; order: 1; }
+      .status-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+      .status-chip { padding: 14px 16px; border-radius: 16px; background: rgba(148, 168, 201, 0.08); border: 1px solid var(--line); }
+      .status-chip-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+      .status-chip-value { margin-top: 8px; font-size: 18px; font-weight: 800; }
+      .status-chip-sub { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+      .surface { background: var(--panel-strong); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+      .surface-head { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .surface-head h3 { font-size: 15px; }
-      .surface-body {
-        padding: 16px;
-      }
-      .mono {
-        font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        white-space: pre-wrap;
-        word-break: break-word;
-        line-height: 1.5;
-        font-size: 13px;
-      }
-      .console {
-        min-height: 220px;
-        max-height: 420px;
-        overflow: auto;
-        background: rgba(3, 10, 20, 0.58);
-        border-radius: 14px;
-        padding: 14px;
-      }
-      .report {
-        min-height: 280px;
-        max-height: 760px;
-        overflow: auto;
-        background: linear-gradient(180deg, rgba(4, 10, 19, 0.92), rgba(7, 16, 30, 0.8));
-        border-radius: 18px;
-        border: 1px solid rgba(148, 168, 201, 0.12);
-        padding: 20px;
-        line-height: 1.7;
-      }
-      .report h2 { margin-top: 0; font-size: 20px; }
-      .report h3 { margin: 18px 0 10px; font-size: 16px; }
-      .report p, .report li { color: #d9e4fa; }
+      .surface-body { padding: 18px; }
+      .mono { font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; word-break: break-word; line-height: 1.62; font-size: 13px; }
+      .console { min-height: var(--console-min); max-height: 560px; overflow: auto; background: rgba(3, 10, 20, 0.58); border-radius: 14px; padding: 16px; }
+      .report { min-height: var(--report-min); max-height: 960px; overflow: auto; background: linear-gradient(180deg, rgba(4, 10, 19, 0.92), rgba(7, 16, 30, 0.8)); border-radius: 18px; border: 1px solid rgba(148, 168, 201, 0.12); padding: 22px; line-height: 1.8; width: 100%; }
+      .report h2 { margin-top: 0; font-size: 22px; }
+      .report h3 { margin: 18px 0 10px; font-size: 17px; }
+      .report p, .report li { color: #d9e4fa; font-size: 15px; }
       .report ul { padding-left: 20px; }
-      .pill-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-      }
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        border: 1px solid var(--line);
-        background: rgba(148, 168, 201, 0.08);
-        font-size: 13px;
-      }
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 88px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
+      .pill-row { display: flex; flex-wrap: wrap; gap: 10px; }
+      .inline-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(148, 168, 201, 0.08); font-size: 13px; }
+      .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 88px; padding: 8px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
       .badge.ok { color: #082516; background: rgba(33, 196, 123, 0.92); }
       .badge.warn { color: #2d1800; background: rgba(255, 182, 72, 0.92); }
       .badge.danger { color: #390a12; background: rgba(255, 107, 122, 0.95); }
-      .eval-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-      }
-      .eval-card {
-        padding: 14px;
-        border-radius: 16px;
-        background: rgba(148, 168, 201, 0.08);
-        border: 1px solid var(--line);
-      }
+      .report-toolbar-note { color: var(--muted); font-size: 13px; }
+      .eval-stack { display: grid; gap: 12px; }
+      .eval-summary { padding: 14px 16px; border-radius: 16px; background: rgba(103, 183, 255, 0.08); border: 1px solid rgba(103, 183, 255, 0.18); }
+      .eval-summary strong { display:block; font-size:14px; margin-bottom:6px; }
+      .eval-grid { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; }
+      .eval-card { padding: 16px; border-radius: 16px; background: rgba(148, 168, 201, 0.08); border: 1px solid var(--line); min-height: 148px; }
       .eval-card h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
       .eval-card .verdict { font-size: 18px; font-weight: 800; margin-bottom: 8px; }
-      .list-card {
-        padding: 18px;
-        display: grid;
-        gap: 12px;
-      }
-      .job-list {
-        display: grid;
-        gap: 10px;
-        max-height: 420px;
-        overflow: auto;
-      }
-      .job-item {
-        padding: 14px;
-        border-radius: 14px;
-        border: 1px solid var(--line);
-        background: rgba(148, 168, 201, 0.06);
-        cursor: pointer;
-        transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
-      }
+      .eval-card .muted, .eval-summary .muted { white-space: pre-wrap; line-height: 1.55; }
+      .list-card { padding: 18px; display: grid; gap: 12px; order: 2; }
+      .job-list { display: grid; gap: 10px; max-height: 520px; overflow: auto; }
+      .job-item { padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: rgba(148, 168, 201, 0.06); cursor: pointer; transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease; }
       .job-item:hover { transform: translateY(-1px); border-color: rgba(103, 183, 255, 0.35); }
       .job-item strong { display: block; margin-bottom: 6px; }
       .job-meta { font-size: 12px; color: var(--muted); }
-      .split {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-      .helper {
-        padding: 14px;
-        border-radius: 16px;
-        background: rgba(103, 183, 255, 0.08);
-        border: 1px solid rgba(103, 183, 255, 0.18);
-        color: #dcecff;
-      }
+      .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+      .helper { padding: 14px; border-radius: 16px; background: rgba(103, 183, 255, 0.08); border: 1px solid rgba(103, 183, 255, 0.18); color: #dcecff; }
       .hidden { display: none !important; }
-      @media (max-width: 1180px) {
-        .hero, .workspace, .field-grid, .status-grid, .eval-grid, .split { grid-template-columns: 1fr; }
-        .summary-grid { grid-template-columns: 1fr; }
-      }
+      @media (max-width: 1180px) { .hero, .workspace, .field-grid, .eval-grid, .split, .status-strip { grid-template-columns: 1fr; } .summary-grid { grid-template-columns: 1fr; } :root { --console-min: 240px; --report-min: 360px; } }
     </style>
   </head>
   <body>
@@ -2051,195 +2019,87 @@ def _render_research_console_html() -> str:
         <div class="card hero-main">
           <div class="eyebrow">Deep Research · operator console</div>
           <h1>Research UI — modern operator view</h1>
-          <p class="lede">Run jobs, inspect evidence flow, read the result, and now review the post-result evaluator without falling back to raw JSON unless you want to.</p>
+          <p class="lede">Run jobs, inspect evidence flow, read the result, and review the evaluator in a calmer operator-first layout. Raw diagnostics moved to a dedicated debug page.</p>
           <div class="summary-grid">
-            <div class="metric">
-              <div class="metric-label">Mode</div>
-              <div class="metric-value">Live API</div>
-              <div class="metric-sub">Start, run, status, stream, result</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Evaluator</div>
-              <div class="metric-value">v1</div>
-              <div class="metric-sub">Structured quality diagnostics</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Flow</div>
-              <div class="metric-value">Operator-first</div>
-              <div class="metric-sub">Readable by default, raw on demand</div>
-            </div>
+            <div class="metric"><div class="metric-label">Mode</div><div class="metric-value">Live API</div><div class="metric-sub">Start, run, status, result</div></div>
+            <div class="metric"><div class="metric-label">Evaluator</div><div class="metric-value">v1</div><div class="metric-sub">Structured quality diagnostics</div></div>
+            <div class="metric"><div class="metric-label">Flow</div><div class="metric-value">Operator-first</div><div class="metric-sub">Readable by default, raw on demand</div></div>
           </div>
         </div>
         <aside class="card hero-side">
-          <div>
-            <div class="metric-label">What changed</div>
-            <div class="metric-value" style="font-size: 20px;">Evaluation-aware results</div>
-            <div class="metric-sub">Source quality, relevance, truthfulness, risks, next check.</div>
-          </div>
-          <div class="helper">
-            Tip: use one owner id per benchmark slice so you can compare runs without losing the job history.
-          </div>
-          <div class="pill-row">
-            <span class="pill">/research</span>
-            <span class="pill">Readable status</span>
-            <span class="pill">Evaluator summary</span>
-          </div>
+          <div><div class="metric-label">What changed</div><div class="metric-value" style="font-size:20px;">Evaluation-aware results</div><div class="metric-sub">Source quality, relevance, truthfulness, risks, next check.</div></div>
+          <div class="helper">Tip: use one owner id per benchmark slice so you can compare runs without losing the job history.</div>
+          <div class="helper">Operator view is intentionally simplified. Raw status/stream/jobs moved to <a href="/research/debug" style="color:inherit;">debug view</a>.</div>
+          <div class="pill-row"><span class="pill">/research</span><span class="pill">Readable status</span><span class="pill">Evaluator summary</span><a href="/research/debug" class="pill" style="text-decoration:none; color:inherit;">Open debug view</a></div>
         </aside>
       </section>
-
       <section class="card controls">
         <div class="section-title">
-          <div>
-            <h2>Run a research job</h2>
-            <div class="muted">Start from a query, then inspect stream, result, and evaluator output in one place.</div>
-          </div>
-          <div class="pill-row">
-            <span id="connection_pill" class="pill">idle</span>
-            <span id="job_state_pill" class="pill">no job selected</span>
-          </div>
+          <div><h2>Run a research job</h2><div class="muted">Start from a query, then inspect result and evaluator output in one place.</div></div>
+          <div class="pill-row"><span id="connection_pill" class="pill">idle</span><span id="job_state_pill" class="pill">no job selected</span></div>
         </div>
-        <div class="field-grid">
-          <div>
-            <label for="owner_id">Owner id</label>
-            <input id="owner_id" value="user-1" />
-          </div>
-          <div>
-            <label for="job_id">Job id</label>
-            <input id="job_id" placeholder="job id appears here after start" />
-          </div>
-        </div>
-        <div style="margin-top: 16px;">
-          <label for="query">Query</label>
-          <textarea id="query">deep research architecture</textarea>
-        </div>
-        <div class="action-row">
-          <button id="start_btn">Start job</button>
-          <button id="run_btn">Run job</button>
-          <button id="refresh_btn" class="secondary">Refresh status</button>
-          <button id="result_btn" class="secondary">Load result</button>
-          <button id="jobs_btn" class="secondary">List jobs</button>
-        </div>
+        <div class="field-grid"><div><label for="owner_id">Owner id</label><input id="owner_id" value="user-1" /></div><div><label for="job_id">Job id</label><input id="job_id" placeholder="job id appears here after start" /></div></div>
+        <div style="margin-top:16px;"><label for="query">Query</label><textarea id="query">deep research architecture</textarea></div>
+        <div class="action-row"><button id="start_btn">Start job</button><button id="run_btn">Run job</button><button id="refresh_btn" class="secondary">Refresh status</button><button id="result_btn" class="secondary">Load result</button><button id="jobs_btn" class="secondary">List jobs</button></div>
       </section>
-
       <section class="workspace">
-        <div class="stack">
-          <div class="status-grid">
-            <div class="surface">
-              <div class="surface-head">
-                <h3>Status snapshot</h3>
-                <span class="muted">Readable + raw</span>
+        <div class="card result-shell">
+          <div class="surface">
+            <div class="surface-head"><h3>Status snapshot</h3><span class="muted">Readable operator summary</span></div>
+            <div class="surface-body stack">
+              <div class="status-strip">
+                <div class="status-chip"><div class="status-chip-label">Job</div><div id="status_job_value" class="status-chip-value">No job</div><div id="status_job_sub" class="status-chip-sub">Start a job or pick one from the list.</div></div>
+                <div class="status-chip"><div class="status-chip-label">State</div><div id="status_state_value" class="status-chip-value">Idle</div><div id="status_state_sub" class="status-chip-sub">Waiting for an operator action.</div></div>
+                <div class="status-chip"><div class="status-chip-label">Completion</div><div id="status_completion_value" class="status-chip-value">n/a</div><div id="status_completion_sub" class="status-chip-sub">Loads after the result is available.</div></div>
+                <div class="status-chip"><div class="status-chip-label">Search hits</div><div id="status_sources_value" class="status-chip-value">0</div><div id="status_sources_sub" class="status-chip-sub">Visible search hits found so far.</div></div>
               </div>
-              <div class="surface-body">
-                <div id="status_summary" class="helper">No job yet.</div>
-                <div id="status_box" class="console mono" style="margin-top: 12px;">No job yet.</div>
-              </div>
-            </div>
-            <div class="surface">
-              <div class="surface-head">
-                <h3>Progress stream</h3>
-                <span class="muted">Polling fallback</span>
-              </div>
-              <div class="surface-body">
-                <div id="stream_box" class="console mono">No stream yet.</div>
-              </div>
+              <div id="status_summary" class="helper">No job yet.</div>
             </div>
           </div>
-
-          <div class="card result-shell">
-            <div class="section-title">
-              <div>
-                <h2>Result + evaluator</h2>
-                <div class="muted">Readable report first. Diagnostics beside it. Raw JSON only when needed.</div>
-              </div>
-              <div class="pill-row">
-                <span id="result_banner" class="pill">No result yet</span>
-                <span id="query_class_pill" class="pill">query class: n/a</span>
-              </div>
+          <div class="section-title">
+            <div><h2>Result + evaluator</h2><div class="muted">Readable report first. Diagnostics beside it. Raw JSON only when needed.</div></div>
+            <div class="pill-row"><span id="result_banner" class="pill">No result yet</span><span id="query_class_pill" class="pill">query class: n/a</span></div>
+          </div>
+          <div class="split">
+            <div class="surface">
+              <div class="surface-head"><div><h3>Final report</h3><div class="report-toolbar-note">Default view is readable report first; switch to JSON only when you need raw payload.</div></div><div class="inline-actions"><button id="html_btn" class="secondary">HTML</button><button id="preview_btn" class="secondary">Markdown</button><button id="raw_btn" class="secondary">JSON</button></div></div>
+              <div class="surface-body"><div id="result_preview" class="report">No result yet.</div><div id="result_box" class="console mono hidden">No result yet.</div></div>
             </div>
-            <div class="split">
-              <div class="surface">
-                <div class="surface-head">
-                  <h3>Final report</h3>
-                  <div class="pill-row">
-                    <button id="html_btn" class="secondary">HTML</button>
-                    <button id="preview_btn" class="secondary">Markdown</button>
-                    <button id="raw_btn" class="secondary">JSON</button>
-                  </div>
+            <div class="surface">
+              <div class="surface-head"><h3>Evaluator output</h3><span class="muted">Diagnostic first</span></div>
+              <div class="surface-body eval-stack">
+                <div class="eval-summary"><strong>Evaluator summary</strong><div id="eval_summary" class="muted">No evaluation yet.</div></div>
+                <div class="eval-grid">
+                  <div class="eval-card"><h4>Source quality</h4><div id="eval_source_verdict" class="verdict">n/a</div><div id="eval_source_reasons" class="muted">No evaluation yet.</div></div>
+                  <div class="eval-card"><h4>Relevance</h4><div id="eval_relevance_verdict" class="verdict">n/a</div><div id="eval_relevance_risks" class="muted">No evaluation yet.</div></div>
+                  <div class="eval-card"><h4>Truthfulness</h4><div id="eval_truth_verdict" class="verdict">n/a</div><div id="eval_truth_risks" class="muted">No evaluation yet.</div></div>
                 </div>
-                <div class="surface-body">
-                  <iframe id="result_html" class="report hidden" title="HTML report preview"></iframe>
-                  <div id="result_preview" class="report">No result yet.</div>
-                  <div id="result_box" class="console mono hidden">No result yet.</div>
-                </div>
-              </div>
-              <div class="surface">
-                <div class="surface-head">
-                  <h3>Evaluator output</h3>
-                  <span class="muted">Diagnostic first</span>
-                </div>
-                <div class="surface-body stack">
-                  <div class="eval-grid">
-                    <div class="eval-card">
-                      <h4>Source quality</h4>
-                      <div id="eval_source_verdict" class="verdict">n/a</div>
-                      <div id="eval_source_reasons" class="muted">No evaluation yet.</div>
-                    </div>
-                    <div class="eval-card">
-                      <h4>Relevance</h4>
-                      <div id="eval_relevance_verdict" class="verdict">n/a</div>
-                      <div id="eval_relevance_risks" class="muted">No evaluation yet.</div>
-                    </div>
-                    <div class="eval-card">
-                      <h4>Truthfulness</h4>
-                      <div id="eval_truth_verdict" class="verdict">n/a</div>
-                      <div id="eval_truth_risks" class="muted">No evaluation yet.</div>
-                    </div>
-                  </div>
-                  <div class="split">
-                    <div class="eval-card">
-                      <h4>Missing checks</h4>
-                      <div id="eval_missing_checks" class="muted">No evaluation yet.</div>
-                    </div>
-                    <div class="eval-card">
-                      <h4>Recommended next check</h4>
-                      <div id="eval_next_check">No evaluation yet.</div>
-                      <div id="eval_revise" class="muted" style="margin-top: 10px;">should_revise_report: n/a</div>
-                    </div>
-                  </div>
+                <div class="split">
+                  <div class="eval-card"><h4>Missing checks</h4><div id="eval_missing_checks" class="muted">No evaluation yet.</div></div>
+                  <div class="eval-card"><h4>Recommended next check</h4><div id="eval_next_check">No evaluation yet.</div><div id="eval_revise" class="muted" style="margin-top:10px;">should_revise_report: n/a</div></div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-
         <aside class="card list-card">
-          <div class="section-title">
-            <div>
-              <h2>Jobs</h2>
-              <div class="muted">Click a job to load status and result.</div>
-            </div>
-          </div>
-          <div id="jobs_box" class="console mono">No jobs loaded.</div>
+          <div class="section-title"><div><h2>Jobs</h2><div class="muted">Click a job to load status and result. Raw debug panes moved to debug view.</div></div></div>
           <div id="jobs_list" class="job-list"></div>
           <div class="helper">The list is owner-scoped. Reuse the same owner id when running benchmark comparisons.</div>
+          <div class="helper">Need raw status / stream / jobs JSON? Open <a href="/research/debug" style="color:inherit;">debug view</a>.</div>
           <p class="muted"><a href="/">Back to home</a></p>
         </aside>
       </section>
     </div>
-
     <script>
       const ownerInput = document.getElementById('owner_id');
       const queryInput = document.getElementById('query');
       const jobInput = document.getElementById('job_id');
       const statusSummary = document.getElementById('status_summary');
-      const statusBox = document.getElementById('status_box');
-      const streamBox = document.getElementById('stream_box');
       const resultBox = document.getElementById('result_box');
       const resultPreview = document.getElementById('result_preview');
-      const resultHtml = document.getElementById('result_html');
       const resultBanner = document.getElementById('result_banner');
       const queryClassPill = document.getElementById('query_class_pill');
-      const jobsBox = document.getElementById('jobs_box');
       const jobsList = document.getElementById('jobs_list');
       const connectionPill = document.getElementById('connection_pill');
       const jobStatePill = document.getElementById('job_state_pill');
@@ -2252,299 +2112,45 @@ def _render_research_console_html() -> str:
       const evalMissingChecks = document.getElementById('eval_missing_checks');
       const evalNextCheck = document.getElementById('eval_next_check');
       const evalRevise = document.getElementById('eval_revise');
-      let refreshTimer = null;
+      const evalSummary = document.getElementById('eval_summary');
+      const statusJobValue = document.getElementById('status_job_value');
+      const statusJobSub = document.getElementById('status_job_sub');
+      const statusStateValue = document.getElementById('status_state_value');
+      const statusStateSub = document.getElementById('status_state_sub');
+      const statusCompletionValue = document.getElementById('status_completion_value');
+      const statusCompletionSub = document.getElementById('status_completion_sub');
+      const statusSourcesValue = document.getElementById('status_sources_value');
+      const statusSourcesSub = document.getElementById('status_sources_sub');
+      function setText(el, value) { el.textContent = value; }
+      function setBox(el, value, cls='console mono') { el.className = cls; el.textContent = value; }
+      function renderVerdict(el, value) { el.textContent = value ? value.toUpperCase() : 'N/A'; el.style.color = value === 'strong' ? 'var(--ok)' : value === 'weak' ? 'var(--danger)' : 'var(--warn)'; }
+      function renderLines(lines, fallback='None') { if (!Array.isArray(lines) || !lines.length) return fallback; return lines.map((line) => `• ${line}`).join(String.fromCharCode(10)); }
+      function markdownToHtml(markdown) { const escaped = String(markdown || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); return escaped.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>').replace(/[*][*](.*?)[*][*]/g,'<strong>$1</strong>').replace(/^- (.*)$/gm,'<li>$1</li>').replace(/(<li>.*[<]\/li>)/gs,'<ul>$1</ul>').replace(/
 
-      function setText(el, value) {
-        el.textContent = value;
-      }
-
-      function setBox(el, value, cls='console mono') {
-        el.className = cls;
-        el.textContent = value;
-      }
-
-      function verdictTone(value) {
-        if (value === 'strong') return 'ok';
-        if (value === 'weak') return 'danger';
-        return 'warn';
-      }
-
-      function renderVerdict(el, value) {
-        el.textContent = value ? value.toUpperCase() : 'N/A';
-        el.style.color = value === 'strong' ? 'var(--ok)' : value === 'weak' ? 'var(--danger)' : 'var(--warn)';
-      }
-
-      function renderLines(lines, fallback='None') {
-        if (!Array.isArray(lines) || !lines.length) return fallback;
-        return lines.map((line) => `• ${line}`).join(String.fromCharCode(10));
-      }
-
-      function renderStreamText(payload) {
-        const progress = Array.isArray(payload.progress) ? payload.progress : [];
-        if (!progress.length) return 'No progress events yet.';
-        return progress.map((event) => {
-          const bits = [event.phase, event.status];
-          if (event.round) bits.push(`round=${event.round}`);
-          if (event.total_sources) bits.push(`sources=${event.total_sources}`);
-          if (event.total_findings) bits.push(`findings=${event.total_findings}`);
-          if (event.message) bits.push(`msg=${event.message}`);
-          return bits.join(' | ');
-        }).join(String.fromCharCode(10));
-      }
-
-      function markdownToHtml(markdown) {
-        const escaped = String(markdown || '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        return escaped
-          .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-          .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-          .replace(/^# (.*)$/gm, '<h1>$1</h1>')
-          .replace(/[*][*](.*?)[*][*]/g, '<strong>$1</strong>')
-          .replace(/^- (.*)$/gm, '<li>$1</li>')
-          .replace(/(<li>.*[<]\/li>)/gs, '<ul>$1</ul>')
-          .replace(/\n\n/g, '</p><p>')
-          .replace(/^/, '<p>')
-          .replace(/$/, '</p>')
-          .replace(/<p><\/p>/g, '')
-          .replace(/<p>(<h[1-3]>)/g, '$1')
-          .replace(/(<\/h[1-3]>)<\/p>/g, '$1')
-          .replace(/<p>(<ul>)/g, '$1')
-          .replace(/(<\/ul>)<\/p>/g, '$1');
-      }
-
-      function renderStatusSummary(payload) {
-        const job = payload.job || {};
-        const lines = [
-          `job_id: ${job.job_id || 'n/a'}`,
-          `status: ${job.status || 'n/a'}`,
-          `query: ${job.query || 'n/a'}`,
-        ];
-        if (job.completed_at) lines.push(`completed_at: ${job.completed_at}`);
-        statusSummary.textContent = lines.join(String.fromCharCode(10));
-        jobStatePill.textContent = job.status ? `job: ${job.status}` : 'no job selected';
-      }
-
-      function renderJobsList(payload) {
-        const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-        jobsList.innerHTML = '';
-        for (const job of jobs) {
-          const item = document.createElement('button');
-          item.type = 'button';
-          item.className = 'job-item';
-          item.innerHTML = `<strong>${job.job_id}</strong><div>${job.query || 'no query'}</div><div class="job-meta">${job.status} · ${job.created_at || 'n/a'}</div>`;
-          item.onclick = async () => {
-            jobInput.value = job.job_id;
-            await refreshStatus();
-            await loadResult();
-          };
-          jobsList.appendChild(item);
-        }
-      }
-
-      async function jsonRequest(url, options={}) {
-        connectionPill.textContent = 'loading';
-        const response = await fetch(url, options);
-        const text = await response.text();
-        let payload;
-        try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
-        if (!response.ok) {
-          connectionPill.textContent = 'error';
-          const message = payload && (payload.error || payload.status || payload.raw)
-            ? String(payload.error || payload.status || payload.raw)
-            : `HTTP ${response.status}`;
-          throw new Error(`${response.status} ${response.statusText}: ${message}`);
-        }
-        connectionPill.textContent = 'ok';
-        return { response, payload };
-      }
-
-      function showUiError(prefix, error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setBox(statusSummary, `${prefix}: ${message}`, 'helper');
-        setBox(statusBox, `${prefix}: ${message}`, 'console mono');
-        connectionPill.textContent = 'error';
-      }
-
-      function renderEvaluation(evaluation) {
-        if (!evaluation) {
-          queryClassPill.textContent = 'query class: n/a';
-          renderVerdict(evalSourceVerdict, '');
-          renderVerdict(evalRelevanceVerdict, '');
-          renderVerdict(evalTruthVerdict, '');
-          setText(evalSourceReasons, 'No evaluation yet.');
-          setText(evalRelevanceRisks, 'No evaluation yet.');
-          setText(evalTruthRisks, 'No evaluation yet.');
-          setText(evalMissingChecks, 'No evaluation yet.');
-          setText(evalNextCheck, 'No evaluation yet.');
-          setText(evalRevise, 'should_revise_report: n/a');
-          return;
-        }
-        queryClassPill.textContent = `query class: ${evaluation.query_class}`;
-        renderVerdict(evalSourceVerdict, evaluation.source_quality_verdict);
-        renderVerdict(evalRelevanceVerdict, evaluation.relevance_verdict);
-        renderVerdict(evalTruthVerdict, evaluation.truthfulness_verdict);
-        setText(evalSourceReasons, renderLines(evaluation.source_quality_reasons, 'No specific source-quality notes.'));
-        setText(evalRelevanceRisks, renderLines(evaluation.relevance_risks, 'No specific relevance risks.'));
-        setText(evalTruthRisks, renderLines(evaluation.overclaim_risks, 'No explicit overclaim risks flagged.'));
-        setText(evalMissingChecks, renderLines(evaluation.missing_checks, 'No missing checks flagged.'));
-        setText(evalNextCheck, evaluation.recommended_next_check || 'No recommended next check.');
-        setText(evalRevise, `should_revise_report: ${evaluation.should_revise_report ? 'yes' : 'no'}`);
-      }
-
-      async function startJob() {
-        try {
-          const ownerId = ownerInput.value.trim().toLowerCase();
-          const query = queryInput.value.trim();
-          if (!ownerId) {
-            showUiError('Start failed', 'owner_id is required');
-            return;
-          }
-          if (!query) {
-            showUiError('Start failed', 'query is required');
-            return;
-          }
-          ownerInput.value = ownerId;
-          const { payload } = await jsonRequest('/api/research/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ owner_id: ownerId, query }),
-          });
-          if (payload.job && payload.job.job_id) {
-            jobInput.value = payload.job.job_id;
-            setBox(statusSummary, `Job created: ${payload.job.job_id}`, 'helper');
-            await refreshStatus();
-            await listJobs();
-            startAutoRefresh();
-            return;
-          }
-          showUiError('Start failed', 'server did not return a job id');
-        } catch (error) {
-          showUiError('Start failed', error);
-        }
-      }
-
-      async function runJob() {
-        const jobId = jobInput.value.trim();
-        if (!jobId) {
-          showUiError('Run failed', 'job_id is required');
-          return;
-        }
-        setBox(statusSummary, `Running job: ${jobId}`, 'helper');
-        setBox(statusBox, `POST /api/research/run/${jobId}`, 'console mono');
-        try {
-          const { payload } = await jsonRequest(`/api/research/run/${jobId}`, { method: 'POST' });
-          const status = payload && payload.job && payload.job.status ? payload.job.status : 'unknown';
-          const errorText = payload && payload.job && payload.job.error ? `\nerror: ${payload.job.error}` : '';
-          setBox(statusSummary, `Run completed: ${jobId} (${status})`, 'helper');
-          setBox(statusBox, `${JSON.stringify(payload, null, 2)}${errorText}`, 'console mono');
-          await refreshStatus();
-          await readStream();
-          await loadResult();
-          await listJobs();
-          startAutoRefresh();
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          setBox(statusSummary, `Run failed: ${jobId}`, 'helper');
-          setBox(statusBox, `POST /api/research/run/${jobId}\n${message}`, 'console mono');
-          connectionPill.textContent = 'error';
-          await refreshStatus();
-        }
-      }
-
-      async function refreshStatus() {
-        const jobId = jobInput.value.trim();
-        if (!jobId) return;
-        const { payload } = await jsonRequest(`/api/research/status/${jobId}`);
-        renderStatusSummary(payload);
-        setBox(statusBox, JSON.stringify(payload, null, 2), 'console mono');
-        setBox(streamBox, renderStreamText(payload), 'console mono');
-        const status = payload.job && payload.job.status ? payload.job.status : '';
-        if (['done', 'error', 'cancelled'].includes(status)) {
-          stopAutoRefresh();
-        }
-      }
-
-      async function loadResult() {
-        const jobId = jobInput.value.trim();
-        if (!jobId) return;
-        const { payload } = await jsonRequest(`/api/research/result/${jobId}`);
-        const completion = payload.result && payload.result.completion_mode ? payload.result.completion_mode : 'pending';
-        resultBanner.textContent = `completion_mode: ${completion}`;
-        resultBanner.className = `badge ${completion === 'partial_error' ? 'warn' : completion === 'fallback' ? 'warn' : 'ok'}`;
-        const markdown = payload.result && payload.result.result ? payload.result.result : 'No result yet.';
-        resultPreview.innerHTML = markdownToHtml(markdown);
-        resultHtml.src = `/api/research/result/${jobId}.html`;
-        setBox(resultBox, JSON.stringify(payload, null, 2), 'console mono');
-        renderEvaluation(payload.result ? payload.result.evaluation : null);
-      }
-
-      async function listJobs() {
-        const ownerId = ownerInput.value.trim().toLowerCase();
-        if (!ownerId) return;
-        ownerInput.value = ownerId;
-        const { payload } = await jsonRequest(`/api/research/jobs?owner_id=${encodeURIComponent(ownerId)}`);
-        setBox(jobsBox, JSON.stringify(payload, null, 2), 'console mono');
-        renderJobsList(payload);
-      }
-
-      async function readStream() {
-        const jobId = jobInput.value.trim();
-        if (!jobId) return;
-        try {
-          const response = await fetch(`/api/research/stream/${jobId}`);
-          const text = await response.text();
-          setBox(streamBox, text, 'console mono');
-        } catch {
-          await refreshStatus();
-        }
-      }
-
-      function startAutoRefresh() {
-        stopAutoRefresh();
-        refreshTimer = window.setInterval(async () => {
-          await refreshStatus();
-        }, 1500);
-      }
-
-      function stopAutoRefresh() {
-        if (refreshTimer !== null) {
-          window.clearInterval(refreshTimer);
-          refreshTimer = null;
-        }
-      }
-
+/g,'</p><p>').replace(/^/,'<p>').replace(/$/,'</p>').replace(/<p><\/p>/g,'').replace(/<p>(<h[1-3]>)/g,'$1').replace(/(<\/h[1-3]>)<\/p>/g,'$1').replace(/<p>(<ul>)/g,'$1').replace(/(<\/ul>)<\/p>/g,'$1'); }
+      function renderSearchDebug(payload) { const progress = Array.isArray(payload.progress) ? payload.progress : []; const searchEvent = [...progress].reverse().find((event) => event.phase === 'searching'); if (!searchEvent) return 'No search event captured yet.'; const queries = Array.isArray(searchEvent.query_list) && searchEvent.query_list.length ? searchEvent.query_list.map((item) => `• ${item}`).join(String.fromCharCode(10)) : (searchEvent.query_preview || 'n/a'); const providers = Array.isArray(searchEvent.providers_attempted) && searchEvent.providers_attempted.length ? searchEvent.providers_attempted.join(', ') : 'n/a'; return `providers: ${providers}${String.fromCharCode(10)}queries:${String.fromCharCode(10)}${queries}`; }
+      function renderStatusSummary(payload) { const job = payload.job || {}; const lines = [`job_id: ${job.job_id || 'n/a'}`, `status: ${job.status || 'n/a'}`, `query: ${job.query || 'n/a'}`]; if (job.completed_at) lines.push(`completed_at: ${job.completed_at}`); const summary = lines.join(String.fromCharCode(10)); statusSummary.textContent = `${summary}${String.fromCharCode(10)}${String.fromCharCode(10)}${renderSearchDebug(payload)}`; jobStatePill.textContent = job.status ? `job: ${job.status}` : 'no job selected'; statusJobValue.textContent = job.job_id || 'No job'; statusJobSub.textContent = job.query || 'Start a job or pick one from the list.'; statusStateValue.textContent = job.status ? String(job.status).toUpperCase() : 'IDLE'; statusStateSub.textContent = job.completed_at ? `Completed at ${job.completed_at}` : (job.started_at ? `Started at ${job.started_at}` : 'Waiting for an operator action.'); const progress = Array.isArray(payload.progress) ? payload.progress : []; const latest = progress.length ? progress[progress.length - 1] : null; const totalSources = latest && Number.isFinite(latest.total_sources) ? latest.total_sources : 0; const newSources = latest && Number.isFinite(latest.new_sources) ? latest.new_sources : 0; statusSourcesValue.textContent = String(totalSources); statusSourcesSub.textContent = newSources > 0 ? `+${newSources} new in latest step` : 'No new hits in the latest step.'; }
+      function renderJobsList(payload) { const jobs = Array.isArray(payload.jobs) ? payload.jobs : []; jobsList.innerHTML=''; for (const job of jobs) { const item=document.createElement('button'); item.type='button'; item.className='job-item'; const shortQuery=(job.query || 'no query').length>120?`${(job.query || 'no query').slice(0,117)}...`:(job.query || 'no query'); item.innerHTML=`<strong>${job.status} · ${job.job_id}</strong><div>${shortQuery}</div><div class="job-meta">${job.created_at || 'n/a'}</div>`; item.onclick=async()=>{ jobInput.value=job.job_id; await refreshStatus(); await loadResult(); }; jobsList.appendChild(item);} }
+      async function jsonRequest(url, options={}) { connectionPill.textContent='loading'; const response = await fetch(url, options); const text = await response.text(); let payload; try { payload = JSON.parse(text); } catch { payload = { raw: text }; } if (!response.ok) { connectionPill.textContent='error'; const message = payload && (payload.error || payload.status || payload.raw) ? String(payload.error || payload.status || payload.raw) : `HTTP ${response.status}`; throw new Error(`${response.status} ${response.statusText}: ${message}`); } connectionPill.textContent='ok'; return { response, payload }; }
+      function showUiError(prefix, error) { const message = error instanceof Error ? error.message : String(error); setText(statusSummary, `${prefix}: ${message}`); connectionPill.textContent='error'; }
+      function renderEvaluation(evaluation) { if (!evaluation) { queryClassPill.textContent='query class: n/a'; renderVerdict(evalSourceVerdict,''); renderVerdict(evalRelevanceVerdict,''); renderVerdict(evalTruthVerdict,''); setText(evalSourceReasons,'No evaluation yet.'); setText(evalRelevanceRisks,'No evaluation yet.'); setText(evalTruthRisks,'No evaluation yet.'); setText(evalMissingChecks,'No evaluation yet.'); setText(evalNextCheck,'No evaluation yet.'); setText(evalRevise,'should_revise_report: n/a'); setText(evalSummary,'No evaluation yet.'); return; } queryClassPill.textContent=`query class: ${evaluation.query_class}`; renderVerdict(evalSourceVerdict,evaluation.source_quality_verdict); renderVerdict(evalRelevanceVerdict,evaluation.relevance_verdict); renderVerdict(evalTruthVerdict,evaluation.truthfulness_verdict); setText(evalSourceReasons,renderLines(evaluation.source_quality_reasons,'No specific source-quality notes.')); setText(evalRelevanceRisks,renderLines(evaluation.relevance_risks,'No specific relevance risks.')); setText(evalTruthRisks,renderLines(evaluation.overclaim_risks,'No explicit overclaim risks flagged.')); setText(evalMissingChecks,renderLines(evaluation.missing_checks,'No missing checks flagged.')); setText(evalNextCheck,evaluation.recommended_next_check || 'No recommended next check.'); setText(evalRevise,`should_revise_report: ${evaluation.should_revise_report ? 'yes' : 'no'}`); setText(evalSummary,`Source quality: ${evaluation.source_quality_verdict} · Relevance: ${evaluation.relevance_verdict} · Truthfulness: ${evaluation.truthfulness_verdict}${evaluation.should_revise_report ? ' · Needs revision' : ''}`); }
+      async function startJob() { try { const ownerId = ownerInput.value.trim().toLowerCase(); const query = queryInput.value.trim(); if (!ownerId) { showUiError('Start failed','owner_id is required'); return; } if (!query) { showUiError('Start failed','query is required'); return; } ownerInput.value = ownerId; const { payload } = await jsonRequest('/api/research/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ owner_id: ownerId, query }) }); if (payload.job && payload.job.job_id) { jobInput.value = payload.job.job_id; setText(statusSummary, `Job created: ${payload.job.job_id}`); await listJobs(); } } catch (error) { showUiError('Start failed', error); } }
+      async function refreshStatus() { try { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Refresh failed', 'job_id is required'); return; } const { payload } = await jsonRequest(`/api/research/status/${jobId}`); renderStatusSummary(payload); } catch (error) { showUiError('Refresh failed', error); } }
+      async function loadResult() { try { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Load result failed', 'job_id is required'); return; } const { payload } = await jsonRequest(`/api/research/result/${jobId}`); const completion = payload.result && payload.result.completion_mode ? payload.result.completion_mode : 'pending'; resultBanner.textContent = `completion_mode: ${completion}`; resultBanner.className = `badge ${completion === 'partial_error' ? 'warn' : completion === 'fallback' ? 'warn' : 'ok'}`; statusCompletionValue.textContent = String(completion).toUpperCase(); statusCompletionSub.textContent = payload.result && payload.result.completed_at ? `Completed at ${payload.result.completed_at}` : 'Result loaded.'; const reportText = payload.result && payload.result.result ? payload.result.result : 'No result yet.'; resultPreview.innerHTML = markdownToHtml(reportText); setBox(resultBox, JSON.stringify(payload, null, 2), 'console mono'); renderEvaluation(payload.result ? payload.result.evaluation : null); } catch (error) { showUiError('Load result failed', error); } }
+      async function runJob() { try { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Run failed', 'job_id is required'); return; } setText(statusSummary, `Running job ${jobId}…`); const { payload } = await jsonRequest(`/api/research/run/${jobId}`, { method:'POST' }); if (payload.job) { jobStatePill.textContent = `job: ${payload.job.status || 'done'}`; const status = payload.job.status || 'done'; const errorText = payload.job.error ? ` · ${payload.job.error}` : ''; setText(statusSummary, `Run completed: ${jobId} (${status})${errorText}`); } await refreshStatus(); await loadResult(); await listJobs(); } catch (error) { showUiError('Run failed', error); } }
+      async function listJobs() { try { const ownerId = ownerInput.value.trim().toLowerCase(); if (!ownerId) { showUiError('List jobs failed', 'owner_id is required'); return; } ownerInput.value = ownerId; const { payload } = await jsonRequest(`/api/research/jobs?owner_id=${encodeURIComponent(ownerId)}`); renderJobsList(payload); } catch (error) { showUiError('List jobs failed', error); } }
+      function loadStateFromQueryParams() { const params = new URLSearchParams(window.location.search); const ownerId=params.get('owner_id'); const jobId=params.get('job_id'); const query=params.get('query'); if (ownerId) ownerInput.value=ownerId; if (jobId) jobInput.value=jobId; if (query) queryInput.value=query; return { ownerId, jobId, query }; }
+      async function bootstrapFromQueryParams() { const state = loadStateFromQueryParams(); if (state.ownerId) await listJobs(); if (state.jobId) { await refreshStatus(); await loadResult(); } }
       document.getElementById('start_btn').addEventListener('click', startJob);
       document.getElementById('run_btn').addEventListener('click', runJob);
       document.getElementById('refresh_btn').addEventListener('click', refreshStatus);
       document.getElementById('result_btn').addEventListener('click', loadResult);
       document.getElementById('jobs_btn').addEventListener('click', listJobs);
-      document.getElementById('html_btn').addEventListener('click', () => {
-        resultHtml.classList.remove('hidden');
-        resultPreview.classList.add('hidden');
-        resultBox.classList.add('hidden');
-      });
-      document.getElementById('preview_btn').addEventListener('click', () => {
-        resultHtml.classList.add('hidden');
-        resultPreview.classList.remove('hidden');
-        resultBox.classList.add('hidden');
-      });
-      document.getElementById('raw_btn').addEventListener('click', () => {
-        resultHtml.classList.add('hidden');
-        resultPreview.classList.add('hidden');
-        resultBox.classList.remove('hidden');
-      });
+      document.getElementById('html_btn').addEventListener('click', () => { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Open HTML failed', 'job_id is required'); return; } window.open(`/api/research/result/${jobId}.html`, '_blank', 'noopener,noreferrer'); });
+      document.getElementById('preview_btn').addEventListener('click', () => { resultPreview.classList.remove('hidden'); resultBox.classList.add('hidden'); });
+      document.getElementById('raw_btn').addEventListener('click', () => { resultPreview.classList.add('hidden'); resultBox.classList.remove('hidden'); });
+      bootstrapFromQueryParams().catch((error) => { showUiError('Bootstrap failed', error); });
+      if (!window.location.search.includes('owner_id=')) { listJobs(); }
     </script>
   </body>
-</html>
-"""
-
-
-__all__ = [
-    "SourceTraceServerRuntime",
-    "SourceTraceWSGIApp",
-    "create_wsgi_app",
-    "create_wsgi_server",
-    "run_local_server",
-]
+</html>"""

@@ -114,6 +114,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pret
 
 ## What still needs caution
 - `.env` is not loaded by the repo itself; required secrets come from process environment
+- local launcher Deep Research state defaults to the repo-root `data/research`; set `SOURCETRACE_RESEARCH_DATA_DIR` to override it explicitly
 - the thin `sourcetrace.web` path is a local stdlib runtime, not a production server stack
 - broader extraction/normalization/credibility behavior over real providers should be treated as local-runtime dependent unless re-verified live
 - Deep Research recovery currently uses recovery-as-error rather than true resume

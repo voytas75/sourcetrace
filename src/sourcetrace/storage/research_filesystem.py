@@ -129,6 +129,14 @@ class FileBackedCompiledResearchArtifactRepository(InMemoryCompiledResearchArtif
         self._compiled_dir.mkdir(parents=True, exist_ok=True)
         self._load_artifacts()
 
+    def list_artifacts_for_owner(self, owner_id: str) -> tuple[CompiledResearchArtifact, ...]:
+        normalized_owner = owner_id.strip().lower()
+        return tuple(
+            artifact
+            for artifact in self.list_all_artifacts()
+            if artifact.owner_id.strip().lower() == normalized_owner
+        )
+
     def save_artifact(self, artifact: CompiledResearchArtifact) -> CompiledResearchArtifact:
         saved = super().save_artifact(artifact)
         self._artifact_path(artifact.artifact_id).write_text(
@@ -156,6 +164,14 @@ class FileBackedCompiledResearchArtifactLintRepository(InMemoryCompiledResearchA
         self._lint_dir = self._root_dir / "compiled-lint"
         self._lint_dir.mkdir(parents=True, exist_ok=True)
         self._load_lints()
+
+    def list_lints_for_owner(self, owner_id: str) -> tuple[CompiledResearchArtifactLint, ...]:
+        normalized_owner = owner_id.strip().lower()
+        return tuple(
+            lint
+            for lint in self.list_all_lints()
+            if lint.owner_id.strip().lower() == normalized_owner
+        )
 
     def save_lint(self, lint: CompiledResearchArtifactLint) -> CompiledResearchArtifactLint:
         saved = super().save_lint(lint)
@@ -482,6 +498,8 @@ def _research_event_payload(event: ResearchProgressEvent) -> dict[str, object]:
         "query_preview": event.query_preview,
         "total_sources": event.total_sources,
         "new_sources": event.new_sources,
+        "query_list": list(event.query_list),
+        "providers_attempted": list(event.providers_attempted),
         "total_findings": event.total_findings,
         "url": event.url,
         "title": event.title,
@@ -498,6 +516,8 @@ def _research_event_from_payload(payload: dict[str, object]) -> ResearchProgress
         round=int(payload.get("round", 0)),
         queries=int(payload.get("queries", 0)),
         query_preview=_optional_str(payload.get("query_preview")),
+        query_list=tuple(str(item) for item in (payload.get("query_list") or ())),
+        providers_attempted=tuple(str(item) for item in (payload.get("providers_attempted") or ())),
         total_sources=int(payload.get("total_sources", 0)),
         new_sources=int(payload.get("new_sources", 0)),
         total_findings=int(payload.get("total_findings", 0)),

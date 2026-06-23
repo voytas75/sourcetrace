@@ -144,6 +144,7 @@ class SourceTraceDelivery:
     continuity_pack_execution: ContinuityPackExecution | None = None
     credibility_assessment: CredibilityAssessmentExecution | None = None
     claim_extraction_runtime: ClaimExtractionRuntime | None = None
+    research_persistence: ResearchPersistence | None = None
     research: ResearchExecution | None = None
     research_search_backend: str = "stub"
     research_search_configured: bool = False
@@ -873,6 +874,7 @@ def create_default_delivery(
         continuity_pack_execution=continuity_pack_execution,
         credibility_assessment=credibility_assessment,
         claim_extraction_runtime=claim_extraction_runtime,
+        research_persistence=research_persistence,
         research=research,
         research_search_backend=research_search_backend,
         research_search_configured=research_search_configured,

@@ -1,6 +1,7 @@
 """Runtime orchestration for the Deep Research lifecycle and bounded engine loop."""
 
 from collections.abc import Callable
+import json
 from urllib.error import URLError
 from dataclasses import dataclass, replace
 from collections import Counter
@@ -87,15 +88,36 @@ class StubQueryGenerator:
                 f'{objective} Microsoft Learn official documentation',
                 f'{objective} Configuration Manager documentation',
             )
-        if round_number == 1:
-            return (
-                objective,
-                f"{objective} architecture",
-            )
-        return (
-            f"{objective} stop rails",
-            f"{objective} result artifact",
+        return (objective,)
+
+
+class LlmQueryGenerator:
+    """LLM-assisted query refinement used only after weak/empty non-procedural search."""
+
+    def __init__(self, synthesize_text: Callable[[str], object]) -> None:
+        self.synthesize_text = synthesize_text
+
+    def __call__(self, query: str) -> tuple[str, ...]:
+        prompt = (
+            "You generate web search queries for research. "
+            "Return strict JSON with key 'queries' as an array of 2-4 concise search queries. "
+            "Do not include explanations. "
+            "Preserve the user's language. "
+            "Prefer query variants suitable for web/community knowledge when the topic is not procedural/admin. "
+            f"User query: {query}"
         )
+        try:
+            result = self.synthesize_text(prompt)
+            text = getattr(result, 'text', '') if result is not None else ''
+            payload = json.loads(text)
+            queries = payload.get('queries') if isinstance(payload, dict) else None
+            if isinstance(queries, list):
+                cleaned = tuple(str(item).strip() for item in queries if str(item).strip())
+                if cleaned:
+                    return cleaned[:4]
+        except Exception:
+            return ()
+        return ()
 
 
 
@@ -259,13 +281,14 @@ def build_procedural_admin_unified_search_adapter(
 
     class _ProceduralAdminUnifiedAdapter:
         provider_name = "procedural_admin_unified_search"
+        active_provider_names = ("procedural_admin_unified_search", "searxng")
 
         def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
             objective = queries[0] if queries else ""
-            if not _procedural_query_bias(objective.lower()):
-                return current_search(queries, round_number=round_number)
             unified_adapter = WebSearchBackedSearchAdapter(unified_search_web, count=10)
             hits = unified_adapter(queries, round_number=round_number)
+            if not _procedural_query_bias(objective.lower()):
+                return hits or current_search(queries, round_number=round_number)
             if hits and _looks_official_enough(hits):
                 return hits
             return current_search(queries, round_number=round_number)
@@ -311,7 +334,9 @@ def build_provider_search_adapter(
     if searxng_base_url:
         return SearxNGSearchAdapter(base_url=searxng_base_url)
     if provider_adapter is None:
-        return StubSearchAdapter()
+        raise ResearchSearchError(
+            "Search is unavailable: no unified search provider is configured and no SearxNG fallback is configured."
+        )
     return provider_adapter
 
 class LlmResearchSynthesizer:
@@ -359,32 +384,6 @@ class LlmResearchSynthesizer:
             report_markdown=report,
             answer_summary=answer_summary,
             should_continue=round_number < 2 and len(findings) > 0,
-        )
-
-
-class StubSearchAdapter:
-    """Deterministic search adapter stub with normalized hits."""
-
-    def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
-        if round_number == 1:
-            return (
-                SearchHit(
-                    url="https://example.test/odysseus-architecture",
-                    title="Odysseus Deep Research Architecture",
-                    snippet="Async jobs, progress streaming, and persisted artifacts.",
-                ),
-                SearchHit(
-                    url="https://example.test/source-trace-design",
-                    title="SourceTrace Deep Research Design",
-                    snippet="Lifecycle-first implementation reduces rework.",
-                ),
-            )
-        return (
-            SearchHit(
-                url="https://example.test/stop-rails",
-                title="Deterministic Stop Rails",
-                snippet="Bound the loop with max rounds and low-yield guards.",
-            ),
         )
 
 
@@ -562,7 +561,17 @@ def _query_keywords(query: str) -> tuple[str, ...]:
 
 def _procedural_query_bias(query: str) -> bool:
     lowered = query.lower()
-    return any(token in lowered for token in ("jak ", "how ", "wdroż", "wdroze", "deploy", "configuration", "baseline", "sccm", "kiedy", "when "))
+    strong_domain_tokens = (
+        "wdroż", "wdroze", "deploy", "deployment", "configuration", "baseline", "baselines", "sccm",
+        "intune", "entra", "conditional access", "compliance", "policy", "policies", "microsoft learn",
+        "configuration manager", "active directory", "azure", "exchange", "sharepoint", "endpoint manager",
+        "operator guide", "console path", "monitoring steps", "failure checks",
+    )
+    procedural_starters = ("jak ", "how ", "kiedy ", "when ")
+    return any(token in lowered for token in strong_domain_tokens) or (
+        any(token in lowered for token in procedural_starters)
+        and any(token in lowered for token in ("microsoft", "admin", "system", "ustaw", "configure", "setup", "deploy", "policy", "collection"))
+    )
 
 
 def _procedural_query_variants(query: str) -> tuple[str, ...]:
@@ -690,6 +699,7 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
 
 def _source_type(url: str, title: str) -> str:
     haystack = f"{url} {title}".lower()
+    domain = _normalized_domain(url)
     if 'learn.microsoft.com' in haystack or any(token in haystack for token in ('/docs/', 'documentation', 'configuration manager | microsoft learn')):
         return 'official_docs'
     if any(token in haystack for token in ('reddit.com', 'stackoverflow.com', 'stack overflow')):
@@ -702,6 +712,10 @@ def _source_type(url: str, title: str) -> str:
         return "data"
     if 'youtube.com' in haystack or 'youtu.be' in haystack:
         return 'video'
+    if domain.endswith('linkedin.com'):
+        return 'forum'
+    if domain.endswith('manageengine.com') or domain.endswith('preludesecurity.com'):
+        return 'vendor_docs'
     if any(token in haystack for token in ('blog', 'blogspot', 'anoopcnair', 'substack', 'medium.com', 'wordpress')):
         return 'blog'
     if any(token in haystack for token in ("docs", "architecture", "design", "guide")):
@@ -781,6 +795,7 @@ def _source_rank_for_query(*, query: str, url: str, title: str) -> int:
             'official_docs': 0,
             'docs': 1,
             'generic': 2,
+            'vendor_docs': 4,
             'blog': 6,
             'snippet_repo': 7,
             'forum': 8,
@@ -839,6 +854,9 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
         authority = _authority_signal_score(query=query, hit=hit)
         relevance = _general_relevance_score(query=query, hit=hit)
         if source_type in {'forum', 'video', 'snippet_repo'}:
+            dropped.append(hit)
+            continue
+        if source_type == 'vendor_docs' and any(_source_type(item.url, item.title) == 'official_docs' for item in strong):
             dropped.append(hit)
             continue
         if source_type == 'official_docs' or authority >= 10:
@@ -908,6 +926,9 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
             if source_type in {'docs', 'generic'} and len(supporting) < supporting_limit and not official_core_present:
                 supporting.append(finding)
                 continue
+            if source_type == 'vendor_docs':
+                background.append(finding)
+                continue
             background.append(finding)
             continue
         if query_class is ResearchQueryClass.MARKET_SYMBOL:
@@ -952,9 +973,14 @@ def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query:
     selected: list[ExtractedFinding] = []
     seen_types: set[str] = set()
     blocked_types = {'forum', 'video', 'snippet_repo'} if _procedural_query_bias(normalized_query) else set()
+    official_present = any(_source_type(finding.url, finding.title) == 'official_docs' for finding in ranked)
     for finding in ranked:
         source_type = _source_type(finding.url, finding.title)
         if source_type in blocked_types:
+            continue
+        if official_present and source_type == 'vendor_docs':
+            continue
+        if official_present and source_type == 'vendor_docs':
             continue
         if source_type in seen_types:
             continue
@@ -983,7 +1009,7 @@ def _resolve_search_provider_names(search: ResearchSearchAdapter, configured_pro
     provider_name = getattr(search, "provider_name", None)
     if isinstance(provider_name, str) and provider_name and provider_name != "chained":
         return (provider_name,)
-    return ("stub-search",)
+    return ()
 
 
 def _build_research_report_prompt(*, query: str, round_number: int, previous_answer: str, evidence: str, query_class: ResearchQueryClass, has_direct_procedural_evidence: bool) -> str:
@@ -1350,7 +1376,23 @@ def _project_source_refs(
 ) -> tuple[ResearchSource, ...]:
     refs: list[ResearchSource] = []
     seen_urls: set[str] = set()
-    for source in result.sources:
+    projected_sources = result.sources
+    if _classify_query(result.query) is ResearchQueryClass.PROCEDURAL_ADMIN:
+        official_sources = [
+            source for source in result.sources
+            if _source_type(source.url, source.title) == 'official_docs'
+        ]
+        if official_sources:
+            filtered_sources: list[ResearchSource] = []
+            for source in result.sources:
+                source_type = _source_type(source.url, source.title)
+                if source_type in {'forum', 'video', 'snippet_repo'}:
+                    continue
+                if source_type in {'vendor_docs', 'blog'}:
+                    continue
+                filtered_sources.append(source)
+            projected_sources = tuple(filtered_sources) if filtered_sources else tuple(official_sources)
+    for source in projected_sources:
         url = source.url.strip()
         if not url or url in seen_urls:
             continue
@@ -1655,6 +1697,7 @@ class FakeResearchWorker:
         *,
         planner: ResearchPlanner | None = None,
         query_generator: ResearchQueryGenerator | None = None,
+        llm_query_generator: LlmQueryGenerator | None = None,
         search: ResearchSearchAdapter | None = None,
         extract: ResearchExtractor | None = None,
         synthesize: ResearchSynthesizer | None = None,
@@ -1663,6 +1706,7 @@ class FakeResearchWorker:
         self.persistence = persistence
         self.planner = planner or StubResearchPlanner()
         self.query_generator = query_generator or StubQueryGenerator()
+        self.llm_query_generator = llm_query_generator
         self.search = search or build_search_adapter()
         self.extract = extract or StubExtractor()
         self.synthesize = synthesize or StubSynthesizer()
@@ -1710,6 +1754,7 @@ class FakeResearchWorker:
                 return self.persistence.results.get_result(job_id)
 
             queries = self.query_generator(plan, round_number=round_number)
+            provider_names = _resolve_search_provider_names(self.search, configured_provider=None)
             self._emit(
                 job_id,
                 ResearchJobStatus.RUNNING,
@@ -1717,6 +1762,8 @@ class FakeResearchWorker:
                 round=round_number,
                 queries=len(queries),
                 query_preview=queries[0] if queries else None,
+                query_list=tuple(queries),
+                providers_attempted=provider_names,
                 message=f"Running {len(queries)} search querie(s).",
             )
             try:
@@ -1741,10 +1788,23 @@ class FakeResearchWorker:
                     ResearchJobStatus.ERROR,
                     ResearchPhase.ERROR,
                     round=round_number,
-                    message="Research job failed before any usable findings were collected.",
+                    message=(
+                        "Search is unavailable: unified search returned no usable official evidence and the fallback search path did not return usable results."
+                        if _procedural_query_bias(running.query)
+                        else "Search is unavailable: neither unified web search nor the fallback search path returned usable results for this query."
+                    ),
                     final=True,
                 )
-                errored = replace(running, status=ResearchJobStatus.ERROR, completed_at=_utcnow(), error=str(exc))
+                errored = replace(
+                    running,
+                    status=ResearchJobStatus.ERROR,
+                    completed_at=_utcnow(),
+                    error=(
+                        "Search is unavailable: unified search returned no usable official evidence and the fallback search path did not return usable results."
+                        if _procedural_query_bias(running.query)
+                        else "Search is unavailable: neither unified web search nor the fallback search path returned usable results for this query."
+                    ),
+                )
                 self.persistence.jobs.save_job(errored)
                 return None
             new_hits = self._dedupe_hits(all_hits, hits, query=running.query)
@@ -1754,6 +1814,86 @@ class FakeResearchWorker:
                 consecutive_empty_rounds = 0
             else:
                 consecutive_empty_rounds += 1
+                if len(all_hits) == 0 and round_number == 1 and not _procedural_query_bias(running.query) and self.llm_query_generator is not None:
+                    refined_queries = self.llm_query_generator(running.query)
+                    if refined_queries:
+                        self._emit(
+                            job_id,
+                            ResearchJobStatus.RUNNING,
+                            ResearchPhase.SEARCHING,
+                            round=round_number,
+                            queries=len(refined_queries),
+                            query_preview=refined_queries[0],
+                            query_list=tuple(refined_queries),
+                            providers_attempted=_resolve_search_provider_names(self.search, configured_provider=None),
+                            message="No usable hits from the original query. Retrying search with LLM-refined queries.",
+                        )
+                        retry_hits = self.search(tuple(refined_queries), round_number=round_number)
+                        retry_new_hits = self._dedupe_hits(all_hits, retry_hits, query=running.query)
+                        all_hits.extend(retry_new_hits)
+                        total_urls = len(all_hits)
+                        if retry_new_hits:
+                            consecutive_empty_rounds = 0
+                            new_hits = retry_new_hits
+                        else:
+                            self._emit(
+                                job_id,
+                                ResearchJobStatus.ERROR,
+                                ResearchPhase.ERROR,
+                                round=round_number,
+                                message="Search is unavailable: neither the original query nor the LLM-refined web queries returned usable results.",
+                                final=True,
+                            )
+                            errored = replace(
+                                running,
+                                status=ResearchJobStatus.ERROR,
+                                completed_at=_utcnow(),
+                                error="Search is unavailable: neither the original query nor the LLM-refined web queries returned usable results.",
+                            )
+                            self.persistence.jobs.save_job(errored)
+                            return None
+                    else:
+                        self._emit(
+                            job_id,
+                            ResearchJobStatus.ERROR,
+                            ResearchPhase.ERROR,
+                            round=round_number,
+                            message="Search is unavailable: the original query returned no usable results and LLM query refinement produced no retry queries.",
+                            final=True,
+                        )
+                        errored = replace(
+                            running,
+                            status=ResearchJobStatus.ERROR,
+                            completed_at=_utcnow(),
+                            error="Search is unavailable: the original query returned no usable results and LLM query refinement produced no retry queries.",
+                        )
+                        self.persistence.jobs.save_job(errored)
+                        return None
+                elif len(all_hits) == 0 and round_number == 1:
+                    self._emit(
+                        job_id,
+                        ResearchJobStatus.ERROR,
+                        ResearchPhase.ERROR,
+                        round=round_number,
+                        message=(
+                            "Search is unavailable: unified search returned no usable official evidence and the fallback search path did not return usable results."
+                            if _procedural_query_bias(running.query)
+                            else "Search is unavailable: neither unified web search nor the fallback search path returned usable results for this query."
+                        ),
+                        final=True,
+                    )
+                    errored = replace(
+                        running,
+                        status=ResearchJobStatus.ERROR,
+                        completed_at=_utcnow(),
+                        error=(
+                            "Search is unavailable: unified search returned no usable official evidence and the fallback search path did not return usable results."
+                            if _procedural_query_bias(running.query)
+                            else "Search is unavailable: neither unified web search nor the fallback search path returned usable results for this query."
+                        ),
+                    )
+                    self.persistence.jobs.save_job(errored)
+                    return None
 
             filter_outcome = _filter_hits_for_extraction(query=running.query, hits=tuple(new_hits))
             filtered_hits = list(filter_outcome.kept_hits)
@@ -1839,7 +1979,7 @@ class FakeResearchWorker:
         final_report = evolving_report or """# Deep Research
 
 No report was produced."""
-        result = ResearchResultArtifact(
+        provisional_result = ResearchResultArtifact(
             job_id=job_id,
             owner_id=running.owner_id,
             query=running.query,
@@ -1850,6 +1990,23 @@ No report was produced."""
             category=running.settings.category,
             stats=stats,
             sources=tuple(ResearchSource(url=hit.url, title=hit.title) for hit in all_hits),
+            raw_findings=raw_findings,
+        )
+        projected_sources = _project_source_refs(
+            provisional_result,
+            _project_supporting_evidence(provisional_result),
+        )
+        result = ResearchResultArtifact(
+            job_id=job_id,
+            owner_id=running.owner_id,
+            query=running.query,
+            status=ResearchJobStatus.DONE,
+            completion_mode=ResearchCompletionMode.FULL,
+            result=final_report,
+            raw_report=evolving_report or "",
+            category=running.settings.category,
+            stats=stats,
+            sources=projected_sources,
             raw_findings=raw_findings,
             evaluation=_evaluate_research_result(
                 query=running.query,
@@ -1982,6 +2139,8 @@ Partial salvage preserved."""
         round: int = 0,
         queries: int = 0,
         query_preview: str | None = None,
+        query_list: tuple[str, ...] = (),
+        providers_attempted: tuple[str, ...] = (),
         total_sources: int = 0,
         new_sources: int = 0,
         total_findings: int = 0,
@@ -1998,6 +2157,8 @@ Partial salvage preserved."""
                 round=round,
                 queries=queries,
                 query_preview=query_preview,
+                query_list=query_list,
+                providers_attempted=providers_attempted,
                 total_sources=total_sources,
                 new_sources=new_sources,
                 total_findings=total_findings,

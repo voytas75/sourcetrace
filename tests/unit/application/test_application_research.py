@@ -6,10 +6,10 @@ from sourcetrace.application import (
     StubExtractor,
     StubQueryGenerator,
     SearchHit,
-    build_research_execution,
 )
 from sourcetrace.application.research_runtime import (
     LlmResearchSynthesizer,
+    ResearchSearchError,
     StubQueryGenerator,
     _authority_signal_score,
     _build_research_report_prompt,
@@ -21,6 +21,8 @@ from sourcetrace.application.research_runtime import (
     _lint_compiled_research_artifact,
     _looks_like_listing_page,
     _pack_evidence_for_synthesis,
+    _procedural_query_bias,
+    _project_source_refs,
     _procedural_directness_score,
     _procedural_task_match_score,
     _procedural_query_variants,
@@ -43,6 +45,59 @@ from sourcetrace.domain import (
     ResearchStats,
 )
 from sourcetrace.storage import create_in_memory_research_persistence
+
+
+class DeterministicSearch:
+    def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+        query_text = ' '.join(queries).lower()
+        if 'sccm' in query_text or 'configuration baselines' in query_text:
+            if round_number == 1:
+                return (
+                    SearchHit(
+                        url="https://learn.microsoft.com/en-us/mem/configmgr/compliance/deploy-use/create-configuration-baselines",
+                        title="Create configuration baselines - Configuration Manager | Microsoft Learn",
+                        snippet="Create and deploy configuration baselines in Configuration Manager.",
+                    ),
+                    SearchHit(
+                        url="https://learn.microsoft.com/en-us/mem/configmgr/compliance/deploy-use/monitor-compliance-settings",
+                        title="Monitor compliance settings - Configuration Manager | Microsoft Learn",
+                        snippet="Monitor compliant and non-compliant clients after deployment.",
+                    ),
+                )
+            return (
+                SearchHit(
+                    url="https://learn.microsoft.com/en-us/mem/configmgr/compliance/deploy-use/create-configuration-items",
+                    title="Create configuration items - Configuration Manager | Microsoft Learn",
+                    snippet="Configuration items feed baselines and remediation workflows.",
+                ),
+            )
+        if round_number == 1:
+            return (
+                SearchHit(
+                    url="https://example.test/odysseus-architecture",
+                    title="Odysseus Deep Research Architecture",
+                    snippet="Async jobs, progress streaming, and persisted artifacts.",
+                ),
+                SearchHit(
+                    url="https://example.test/source-trace-design",
+                    title="SourceTrace Deep Research Design",
+                    snippet="Lifecycle-first implementation reduces rework.",
+                ),
+            )
+        return (
+            SearchHit(
+                url="https://example.test/stop-rails",
+                title="Deterministic Stop Rails",
+                snippet="Bound the loop with max rounds and low-yield guards.",
+            ),
+        )
+
+
+def _build_test_execution():
+    persistence = create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+    worker = FakeResearchWorker(persistence, search=DeterministicSearch())
+    return persistence, manager, worker
 
 
 class NoisyMarketSearch:
@@ -103,9 +158,7 @@ def test_research_job_manager_start_and_list_flow() -> None:
 
 
 def test_fake_research_worker_completes_job_and_persists_artifact() -> None:
-    persistence = create_in_memory_research_persistence()
-    manager = ResearchJobManager(persistence)
-    worker = FakeResearchWorker(persistence)
+    persistence, manager, worker = _build_test_execution()
     outcome = manager.start_job(
         ResearchJobStartRequest(owner_id="user-1", query="deep research architecture")
     )
@@ -128,9 +181,7 @@ def test_fake_research_worker_completes_job_and_persists_artifact() -> None:
 
 
 def test_fake_research_worker_can_save_partial_salvage_result() -> None:
-    persistence = create_in_memory_research_persistence()
-    manager = ResearchJobManager(persistence)
-    worker = FakeResearchWorker(persistence)
+    persistence, manager, worker = _build_test_execution()
     outcome = manager.start_job(
         ResearchJobStartRequest(owner_id="user-1", query="deep research architecture")
     )
@@ -143,7 +194,8 @@ def test_fake_research_worker_can_save_partial_salvage_result() -> None:
 
 
 def test_build_research_execution_wires_runtime_bundle() -> None:
-    execution = build_research_execution()
+    persistence, manager, worker = _build_test_execution()
+    execution = type("Execution", (), {"start_job": manager.start_job, "get_job_status": manager.get_job_status, "cancel_job": manager.cancel_job, "get_job_result": manager.get_job_result, "list_jobs": manager.list_jobs, "run_job": worker})()
     accepted = execution.start_job(
         ResearchJobStartRequest(owner_id="user-1", query="deep research architecture")
     )
@@ -154,9 +206,7 @@ def test_build_research_execution_wires_runtime_bundle() -> None:
 
 
 def test_fake_research_worker_runs_two_round_engine_loop() -> None:
-    persistence = create_in_memory_research_persistence()
-    manager = ResearchJobManager(persistence)
-    worker = FakeResearchWorker(persistence)
+    persistence, manager, worker = _build_test_execution()
     outcome = manager.start_job(
         ResearchJobStartRequest(owner_id="user-1", query="deep research architecture")
     )
@@ -228,9 +278,7 @@ def test_top_findings_prefers_source_type_diversity() -> None:
 
 
 def test_compile_research_artifact_projects_result_into_compiled_shape() -> None:
-    persistence = create_in_memory_research_persistence()
-    manager = ResearchJobManager(persistence)
-    worker = FakeResearchWorker(persistence)
+    persistence, manager, worker = _build_test_execution()
     outcome = manager.start_job(
         ResearchJobStartRequest(owner_id="user-1", query="how to deploy configuration baselines in sccm")
     )
@@ -418,9 +466,7 @@ def test_lint_compiled_research_artifact_flags_open_questions_without_next_check
 
 
 def test_enriched_compiled_artifact_improves_lint_surface() -> None:
-    persistence = create_in_memory_research_persistence()
-    manager = ResearchJobManager(persistence)
-    worker = FakeResearchWorker(persistence)
+    persistence, manager, worker = _build_test_execution()
     outcome = manager.start_job(
         ResearchJobStartRequest(owner_id="user-1", query="how to deploy configuration baselines in sccm")
     )
@@ -624,6 +670,61 @@ def test_procedural_task_match_preserves_matching_adjacent_page_for_matching_que
     assert direct_score >= 3
 
 
+def test_procedural_vendor_and_social_sources_are_demoted_when_official_docs_exist() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-alt-all-users-compliant-hybrid-or-mfa",
+            title="Require compliant, hybrid joined devices, or MFA - Microsoft Entra ID",
+            summary="Official direct task guidance.",
+        ),
+        ExtractedFinding(
+            url="https://www.manageengine.com/microsoft-365-management-reporting/kb/how-to-configure-conditional-access-in-microsoft-entra-id.html",
+            title="How to configure Conditional Access in Microsoft Entra ID",
+            summary="Vendor KB article.",
+        ),
+        ExtractedFinding(
+            url="https://www.linkedin.com/pulse/locking-down-conditional-access-policies-lesson-entra-manish-periwal-yqnxe",
+            title="Locking Down Conditional Access Policies: A Lesson in Entra",
+            summary="LinkedIn post.",
+        ),
+    )
+
+    ranked = _top_findings(findings, query="How to configure conditional access in Entra ID?", limit=3)
+
+    assert ranked[0].url.startswith("https://learn.microsoft.com/")
+    assert any("manageengine.com" in item.url for item in ranked[1:])
+    assert all("linkedin.com" not in item.url for item in ranked)
+
+
+def test_project_source_refs_for_procedural_query_prefers_official_docs_in_persisted_sources() -> None:
+    result = ResearchResultArtifact(
+        job_id="rj-1",
+        owner_id="user-1",
+        query="How to configure conditional access in Entra ID?",
+        status=ResearchJobStatus.DONE,
+        completion_mode=ResearchCompletionMode.FULL,
+        result="## Current answer\nUse official documentation.\n\n## Key findings\n- Official docs exist.\n\n## Uncertainty\n- None.\n\n## Next checks\n- None.",
+        raw_report="",
+        stats=ResearchStats(search_providers=("procedural_admin_unified_search", "searxng")),
+        sources=(
+            ResearchSource(url="https://www.manageengine.com/microsoft-365-management-reporting/kb/how-to-configure-conditional-access-in-microsoft-entra-id.html", title="ManageEngine KB"),
+            ResearchSource(url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-alt-all-users-compliant-hybrid-or-mfa", title="Require compliant, hybrid joined devices, or MFA - Microsoft Entra ID"),
+            ResearchSource(url="https://www.linkedin.com/pulse/locking-down-conditional-access-policies-lesson-entra-manish-periwal-yqnxe", title="LinkedIn post"),
+            ResearchSource(url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview", title="Microsoft Entra Conditional Access: Zero Trust Policy Engine"),
+        ),
+        raw_findings=(
+            ResearchFinding(url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-alt-all-users-compliant-hybrid-or-mfa", title="Require compliant, hybrid joined devices, or MFA - Microsoft Entra ID", summary="Official direct task guidance."),
+        ),
+    )
+
+    projected = _project_source_refs(result, ())
+
+    assert projected
+    assert all("linkedin.com" not in item.url for item in projected)
+    assert all("manageengine.com" not in item.url for item in projected)
+    assert projected[0].url.startswith("https://learn.microsoft.com/")
+
+
 def test_procedural_evaluator_downgrades_indirect_official_context() -> None:
     query = "How to configure a policy in an admin portal?"
     findings = (
@@ -699,6 +800,43 @@ def test_chained_search_adapter_falls_back_after_empty_or_soft_failure() -> None
         bridge=SearchProviderBridge(),
     )
     assert isinstance(adapter, ChainedSearchAdapter)
+
+
+def test_procedural_query_bias_does_not_treat_generic_gaming_howto_as_admin_query() -> None:
+    assert _procedural_query_bias("how do I deploy configuration baselines in SCCM") is True
+    assert _procedural_query_bias("what are important elements for poe2 monk to be able do endgame") is False
+
+
+def test_build_search_adapter_raises_when_no_provider_is_configured() -> None:
+    try:
+        build_search_adapter()
+    except ResearchSearchError as exc:
+        assert "Search is unavailable" in str(exc)
+    else:
+        raise AssertionError("Expected ResearchSearchError when no search backend is configured")
+
+
+def test_fake_research_worker_errors_when_search_returns_no_results() -> None:
+    persistence = create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+
+    class EmptySearch:
+        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+            return ()
+
+    worker = FakeResearchWorker(persistence, search=EmptySearch())
+    outcome = manager.start_job(
+        ResearchJobStartRequest(owner_id="user-1", query="How do I create configuration baselines in SCCM?")
+    )
+
+    result = worker(outcome.job.job_id)
+    status = manager.get_job_status(outcome.job.job_id)
+
+    assert result is None
+    assert status is not None
+    assert status.job.status is ResearchJobStatus.ERROR
+    assert "Search is unavailable" in (status.job.error or "")
+    assert status.progress[-1].phase.value == "error"
 
 
 def test_stub_query_generator_shapes_procedural_query_toward_official_docs() -> None:

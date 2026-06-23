@@ -141,6 +141,8 @@ class ResearchProgressEvent:
     round: int = 0
     queries: int = 0
     query_preview: str | None = None
+    query_list: tuple[str, ...] = ()
+    providers_attempted: tuple[str, ...] = ()
     total_sources: int = 0
     new_sources: int = 0
     total_findings: int = 0

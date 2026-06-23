@@ -55,7 +55,7 @@ Optional runtime variables:
 
 Notes:
 - when `SOURCETRACE_SEARXNG_BASE_URL` is set, local launcher mode can run live Deep Research search against the configured SearxNG instance
-- research runtime state is persisted under `data/research` by default, or under `SOURCETRACE_RESEARCH_DATA_DIR` when set
+- research runtime state is persisted under the repo-root `data/research` by default, or under `SOURCETRACE_RESEARCH_DATA_DIR` when set
 - Deep Research now persists run results, compiled artifacts, and compiled-artifact lint outputs in separate filesystem namespaces under the research data root
 - the current Deep Research synthesis task uses repo task routing from `src/sourcetrace/runtime_config.py`
 - local launcher runtime verification hardens underspecified synthetic research synthesis into a markdown-shaped fallback so spot-checks stay representative
@@ -72,6 +72,7 @@ uv run sourcetrace-www-stop --mode local-launcher
 Module-entrypoint equivalents:
 ```bash
 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher
+# default wrapper behavior also exports SOURCETRACE_RESEARCH_DATA_DIR=<repo>/data/research unless you override it
 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control status --mode local-launcher
 PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher
