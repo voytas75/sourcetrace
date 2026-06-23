@@ -333,23 +333,15 @@ class LlmResearchSynthesizer:
             f"- {finding.title}: {finding.summary}" for finding in top_findings
         ) or "- No useful findings in this round."
         previous_answer = _extract_section_body(previous_report, "Current answer") or "NONE"
-        prompt = (
-            "You are writing an operator-facing Deep Research update.\n"
-            "Be concrete, compact, and evidence-first. Avoid vague meta commentary.\n"
-            "Lead with the best current answer to the query, not with discussion of process.\n\n"
-            f"Query: {query}\n"
-            f"Round: {round_number}\n"
-            f"Previous answer: {previous_answer}\n"
-            f"Evidence:\n{evidence}\n\n"
-            "Return plain markdown with exactly these sections in this order:\n"
-            "## Current answer\n"
-            "- 2 to 4 sentences answering the query directly\n\n"
-            "## Key findings\n"
-            "- 3 to 5 bullet points using only the strongest findings\n\n"
-            "## Uncertainty\n"
-            "- 1 to 3 bullet points describing what is still weak, ambiguous, or missing\n\n"
-            "## Next checks\n"
-            "- 1 to 3 bullet points for the next most useful verification steps\n"
+        query_class = _classify_query(query)
+        packed = _pack_evidence_for_synthesis(query=query, findings=top_findings)
+        prompt = _build_research_report_prompt(
+            query=query,
+            round_number=round_number,
+            previous_answer=previous_answer,
+            evidence=evidence,
+            query_class=query_class,
+            has_direct_procedural_evidence=packed.has_direct_procedural_evidence,
         )
         result = self.synthesize_text(prompt)
         text = getattr(result, 'text', '') if result is not None else ''
@@ -717,6 +709,63 @@ def _source_type(url: str, title: str) -> str:
     return "generic"
 
 
+def _procedural_task_match_score(*, query: str, url: str, title: str) -> int:
+    haystack = f"{title} {url}".lower()
+    tokens = [token for token in _query_keywords(query) if token not in {
+        'how', 'what', 'when', 'why', 'configure', 'configured', 'create', 'created', 'enable', 'enabled',
+        'deploy', 'deployed', 'register', 'registered', 'install', 'installed', 'setup', 'policy', 'admin',
+        'portal', 'documentation', 'official'
+    }]
+    if not tokens:
+        return 0
+    score = 0
+    for token in tokens[:4]:
+        if token in haystack:
+            score += 1
+    joined_pairs = (
+        'conditional access',
+        'configuration baseline',
+        'authentication methods',
+        'device code',
+    )
+    pair_match = False
+    for pair in joined_pairs:
+        if pair in query.lower() and pair in haystack:
+            score += 2
+            pair_match = True
+    if pair_match and any(token in haystack for token in ('overview', 'concept', 'conditions', 'grant', 'policy engine', 'templates')):
+        score -= 2
+    return max(score, 0)
+
+
+def _procedural_directness_score(*, query: str, url: str, title: str) -> int:
+    haystack = f"{title} {url}".lower()
+    score = 0
+    strong_direct_tokens = (
+        'how to', 'create ', 'configure ', 'enable ', 'register ', 'deploy ', 'install ', 'set up ', 'setup ',
+    )
+    moderate_direct_tokens = (
+        'assign ', 'new policy', 'authentication methods', 'configuration baselines',
+    )
+    for token in strong_direct_tokens:
+        if token in haystack:
+            score += 4
+    for token in moderate_direct_tokens:
+        if token in haystack:
+            score += 2
+    if any(token in haystack for token in ('overview', 'concept', 'zero trust', 'what is', 'common tasks', 'conditions', 'grant', 'policy engine', 'templates')):
+        score -= 3
+    if any(token in haystack for token in ('fabric', 'training', 'releases and announcements', 'whats-new', 'what\'s new')):
+        score -= 5
+    task_match = _procedural_task_match_score(query=query, url=url, title=title)
+    score += task_match * 2
+    if task_match == 0:
+        score -= 3
+    if task_match <= 1 and any(token in haystack for token in ('enable ', 'register ', 'install ', 'setup ', 'set up ')):
+        score -= 3
+    return score
+
+
 def _source_rank_for_query(*, query: str, url: str, title: str) -> int:
     source_type = _source_type(url, title)
     if _procedural_query_bias(query):
@@ -727,18 +776,19 @@ def _source_rank_for_query(*, query: str, url: str, title: str) -> int:
             authority_bonus = -2
         elif authority >= 6:
             authority_bonus = -1
+        directness = _procedural_directness_score(query=query, url=url, title=title)
         order = {
             'official_docs': 0,
             'docs': 1,
             'generic': 2,
-            'snippet_repo': 5,
-            'forum': 6,
-            'blog': 7,
-            'video': 8,
-            'analysis': 9,
-            'data': 10,
+            'blog': 6,
+            'snippet_repo': 7,
+            'forum': 8,
+            'video': 9,
+            'analysis': 10,
+            'data': 11,
         }
-        return order.get(source_type, 9) + authority_bonus
+        return order.get(source_type, 9) + authority_bonus - directness
     order = {
         'official_docs': 0,
         'analysis': 1,
@@ -767,6 +817,7 @@ class PackedEvidence:
     core: tuple[ExtractedFinding, ...]
     supporting: tuple[ExtractedFinding, ...]
     background: tuple[ExtractedFinding, ...]
+    has_direct_procedural_evidence: bool = False
 
 
 def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> PreExtractionFilterOutcome:
@@ -839,13 +890,20 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
     core: list[ExtractedFinding] = []
     supporting: list[ExtractedFinding] = []
     background: list[ExtractedFinding] = []
+    has_direct_procedural_evidence = False
 
     for finding in ranked:
         source_type = _source_type(finding.url, finding.title)
         if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+            direct = _procedural_directness_score(query=query, url=finding.url, title=finding.title) >= 3
+            if direct:
+                has_direct_procedural_evidence = True
             official_core_present = any(_source_type(item.url, item.title) == 'official_docs' for item in core)
-            if source_type == 'official_docs' and len(core) < core_limit:
+            if direct and source_type == 'official_docs' and len(core) < core_limit:
                 core.append(finding)
+                continue
+            if source_type == 'official_docs' and len(core) < core_limit and not direct:
+                supporting.append(finding) if len(supporting) < supporting_limit else background.append(finding)
                 continue
             if source_type in {'docs', 'generic'} and len(supporting) < supporting_limit and not official_core_present:
                 supporting.append(finding)
@@ -873,7 +931,12 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
         core.append(supporting.pop(0))
     if not core and background:
         core.append(background.pop(0))
-    return PackedEvidence(core=tuple(core), supporting=tuple(supporting), background=tuple(background))
+    return PackedEvidence(
+        core=tuple(core),
+        supporting=tuple(supporting),
+        background=tuple(background),
+        has_direct_procedural_evidence=has_direct_procedural_evidence,
+    )
 
 
 def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query: str | None = None) -> tuple[ExtractedFinding, ...]:
@@ -923,6 +986,84 @@ def _resolve_search_provider_names(search: ResearchSearchAdapter, configured_pro
     return ("stub-search",)
 
 
+def _build_research_report_prompt(*, query: str, round_number: int, previous_answer: str, evidence: str, query_class: ResearchQueryClass, has_direct_procedural_evidence: bool) -> str:
+    base_rules = (
+        "You are writing an operator-facing Deep Research report.\n"
+        "Be concrete, compact, evidence-first, and useful to a technical operator.\n"
+        "Do not narrate your process, confidence theater, or generic caveats.\n"
+        "Only include claims supported by the evidence block.\n"
+        "Do not invent facts, steps, prerequisites, labels, paths, or recommendations.\n"
+        "If the evidence does not support a detail, say explicitly that you do not know or that the current evidence is insufficient.\n"
+        "If evidence is missing for an exact step, say so in Uncertainty instead of inventing it.\n"
+        "Prefer exact product names, exact admin paths, and explicit constraints when supported.\n"
+        "Keep the answer tight and high-signal.\n\n"
+    )
+    section_contract = (
+        "Return plain markdown with exactly these sections in this order:\n"
+        "## Current answer\n"
+        "- 2 to 5 sentences answering the query directly\n\n"
+        "## Key findings\n"
+        "- 3 to 6 bullet points using only the strongest findings\n\n"
+        "## Uncertainty\n"
+        "- 1 to 4 bullet points describing what is still weak, ambiguous, or missing\n\n"
+        "## Next checks\n"
+        "- 1 to 4 bullet points for the next most useful verification steps\n"
+    )
+    class_overlay = _research_report_prompt_overlay(query_class, has_direct_procedural_evidence=has_direct_procedural_evidence)
+    return (
+        f"{base_rules}"
+        f"Query class: {query_class.value}\n"
+        f"Query: {query}\n"
+        f"Round: {round_number}\n"
+        f"Previous answer: {previous_answer}\n\n"
+        f"Class-specific shaping rules:\n{class_overlay}\n\n"
+        f"Evidence:\n{evidence}\n\n"
+        f"{section_contract}"
+    )
+
+
+def _research_report_prompt_overlay(query_class: ResearchQueryClass, *, has_direct_procedural_evidence: bool) -> str:
+    if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+        exactness_rule = (
+            "- Direct procedural evidence is present, so exact entry points, menu paths, and settings may be stated only when they are supported by the evidence.\n"
+            if has_direct_procedural_evidence else
+            "- Direct procedural evidence is not confirmed in the current evidence set. Do not state exact click-paths, menu chains, field labels, or exact setup steps. Give a high-level procedural answer and say explicitly which exact steps are not confirmed.\n"
+        )
+        return (
+            "- Optimize for an admin/operator who wants the practical path, not a conceptual essay.\n"
+            f"{exactness_rule}"
+            "- In Current answer, prefer this order when evidence supports it: exact admin path or entry point, main action, important option/scope, and validation outcome.\n"
+            "- In Key findings, prioritize: official product path, prerequisites/licensing, rollout-safe guidance, exact controls/settings, and validation/report-only guidance.\n"
+            "- Distinguish clearly between confirmed steps and recommended safeguards.\n"
+            "- If official docs are present, anchor the answer to them rather than secondary blogs.\n"
+            "- Do not invent wizard clicks, field names, or prerequisites that are not evidenced.\n"
+            "- If the evidence is procedural but incomplete, say exactly what step details are still missing in Uncertainty."
+        )
+    if query_class is ResearchQueryClass.BROAD_CONCEPT:
+        return (
+            "- Optimize for a clear conceptual explanation.\n"
+            "- Define the thing first, then contrast it with nearby concepts if helpful.\n"
+            "- Preserve ambiguity where the evidence does not support one clean definition."
+        )
+    if query_class is ResearchQueryClass.CURRENT_NEWS:
+        return (
+            "- Optimize for recency, attribution, and restraint.\n"
+            "- Separate confirmed developments from tentative claims.\n"
+            "- Surface conflicts or timeline uncertainty explicitly."
+        )
+    if query_class is ResearchQueryClass.MARKET_SYMBOL:
+        return (
+            "- Optimize for exact instrument matching and time-window discipline.\n"
+            "- Avoid mixing spot and derivatives unless the evidence explicitly requires it.\n"
+            "- Prefer concrete market observations over generic commentary."
+        )
+    return (
+        "- Give the clearest direct answer supported by the evidence.\n"
+        "- Prefer precise statements over broad summaries.\n"
+        "- Surface missing verification explicitly."
+    )
+
+
 def _classify_query(query: str) -> ResearchQueryClass:
     lowered = query.lower().strip()
     if _looks_like_market_query(lowered):
@@ -947,24 +1088,39 @@ def _evaluate_research_result(*, query: str, findings: tuple[ResearchFinding, ..
 
     official_count = sum(1 for source_type in source_types if source_type == 'official_docs')
     weak_count = sum(1 for source_type in source_types if source_type in {'blog', 'video', 'forum', 'snippet_repo'})
+    direct_procedural_count = sum(
+        1 for finding in findings
+        if _procedural_directness_score(query=query, url=finding.url, title=finding.title) >= 3
+    ) if query_class is ResearchQueryClass.PROCEDURAL_ADMIN else 0
+    indirect_official_count = max(0, official_count - direct_procedural_count) if query_class is ResearchQueryClass.PROCEDURAL_ADMIN else 0
+    report_lower = report.lower()
 
     if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
-        if official_count >= 1:
-            source_quality_verdict = ResearchEvaluationVerdict.MIXED if weak_count else ResearchEvaluationVerdict.STRONG
-            source_quality_reasons.append('Official documentation is present in the evidence set.')
-            if weak_count:
-                source_quality_reasons.append('Community or weak procedural sources are still mixed into the result set.')
-        else:
+        if official_count < 1:
             source_quality_verdict = ResearchEvaluationVerdict.WEAK
             source_quality_reasons.append('No official procedural documentation was found in the evidence set.')
+        elif direct_procedural_count < 1:
+            source_quality_verdict = ResearchEvaluationVerdict.MIXED
+            source_quality_reasons.append('Official documentation is present, but direct task/setup evidence is not confirmed.')
+            missing_checks.append('Find at least one direct task or setup page before trusting exact procedural details.')
+        elif weak_count:
+            source_quality_verdict = ResearchEvaluationVerdict.MIXED
+            source_quality_reasons.append('Direct procedural documentation is present, but weaker community-style sources are still mixed into the result set.')
+        else:
+            source_quality_verdict = ResearchEvaluationVerdict.STRONG
+            source_quality_reasons.append('Direct procedural documentation is present in the evidence set.')
+        if indirect_official_count > 0:
+            source_quality_reasons.append('Some official sources are indirect context pages rather than direct task instructions.')
         if stats.authority_policy_applied:
             source_quality_reasons.append('Authority-first filtering was applied before extraction.')
         if stats.authority_filter_fallback_used:
             source_quality_reasons.append('Fallback admitted secondary sources because too few strong procedural sources survived filtering.')
         if weak_count:
             relevance_risks.append('Some findings still come from community, forum, video, or snippet-style sources.')
-        if 'microsoft learn' not in report.lower() and official_count < 1:
-            missing_checks.append('Verify the answer directly against current Microsoft Learn documentation.')
+        if direct_procedural_count < 1:
+            relevance_risks.append('The answer may rely on indirect procedural context rather than direct task instructions.')
+        if 'microsoft learn' not in report_lower and official_count < 1:
+            missing_checks.append('Verify the answer directly against current official documentation.')
     elif query_class is ResearchQueryClass.MARKET_SYMBOL:
         source_quality_verdict = ResearchEvaluationVerdict.STRONG if all(source_type in {'analysis', 'data', 'generic'} for source_type in source_types[:4]) else ResearchEvaluationVerdict.MIXED
         if any('perpetual' in (finding.title + ' ' + finding.summary).lower() for finding in findings) and any('spot' in (finding.title + ' ' + finding.summary).lower() for finding in findings):
@@ -998,15 +1154,18 @@ def _evaluate_research_result(*, query: str, findings: tuple[ResearchFinding, ..
         missing_checks.append('Collect at least one attributable source before trusting the result.')
     else:
         relevance_verdict = ResearchEvaluationVerdict.WEAK if any('irs.gov' in url for url in urls) and query_class is ResearchQueryClass.PROCEDURAL_ADMIN else ResearchEvaluationVerdict.MIXED
-        if query_class is ResearchQueryClass.PROCEDURAL_ADMIN and official_count >= 1 and not any('irs.gov' in url for url in urls[:2]):
-            relevance_verdict = ResearchEvaluationVerdict.STRONG
+        if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+            if direct_procedural_count >= 1 and not any('irs.gov' in url for url in urls[:2]):
+                relevance_verdict = ResearchEvaluationVerdict.STRONG
+            elif official_count >= 1:
+                relevance_verdict = ResearchEvaluationVerdict.MIXED
         elif query_class is ResearchQueryClass.MARKET_SYMBOL:
             relevance_verdict = ResearchEvaluationVerdict.STRONG if any('ethusdc' in url.lower() or 'eth/usdc' in url.lower() for url in urls) else ResearchEvaluationVerdict.MIXED
         elif query_class is ResearchQueryClass.BROAD_CONCEPT:
             relevance_verdict = ResearchEvaluationVerdict.MIXED
 
-        uncertainty_present = '## uncertainty' in report.lower()
-        next_checks_present = '## next checks' in report.lower()
+        uncertainty_present = '## uncertainty' in report_lower
+        next_checks_present = '## next checks' in report_lower
         if not uncertainty_present:
             overclaim_risks.append('The report does not expose an explicit uncertainty section.')
         if not next_checks_present:
@@ -1015,6 +1174,13 @@ def _evaluate_research_result(*, query: str, findings: tuple[ResearchFinding, ..
         if query_class is ResearchQueryClass.PROCEDURAL_ADMIN and weak_count >= official_count and weak_count > 0:
             truthfulness_verdict = ResearchEvaluationVerdict.MIXED
             overclaim_risks.append('The answer may lean on community material more than procedural authority warrants.')
+        if query_class is ResearchQueryClass.PROCEDURAL_ADMIN and direct_procedural_count < 1:
+            if source_quality_verdict is ResearchEvaluationVerdict.STRONG:
+                source_quality_verdict = ResearchEvaluationVerdict.MIXED
+            if relevance_verdict is ResearchEvaluationVerdict.STRONG:
+                relevance_verdict = ResearchEvaluationVerdict.MIXED
+            truthfulness_verdict = ResearchEvaluationVerdict.MIXED
+            overclaim_risks.append('Exact procedural details may exceed the directness of the current evidence set.')
 
     recommended_next_check = missing_checks[0] if missing_checks else (
         'Tighten source authority and rerun the same query for comparison.' if weak_count else 'No immediate corrective check required.'

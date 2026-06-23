@@ -2426,21 +2426,30 @@ def _render_research_console_html() -> str:
       }
 
       async function runJob() {
+        const jobId = jobInput.value.trim();
+        if (!jobId) {
+          showUiError('Run failed', 'job_id is required');
+          return;
+        }
+        setBox(statusSummary, `Running job: ${jobId}`, 'helper');
+        setBox(statusBox, `POST /api/research/run/${jobId}`, 'console mono');
         try {
-          const jobId = jobInput.value.trim();
-          if (!jobId) {
-            showUiError('Run failed', 'job_id is required');
-            return;
-          }
-          await jsonRequest(`/api/research/run/${jobId}`, { method: 'POST' });
-          setBox(statusSummary, `Job started: ${jobId}`, 'helper');
+          const { payload } = await jsonRequest(`/api/research/run/${jobId}`, { method: 'POST' });
+          const status = payload && payload.job && payload.job.status ? payload.job.status : 'unknown';
+          const errorText = payload && payload.job && payload.job.error ? `\nerror: ${payload.job.error}` : '';
+          setBox(statusSummary, `Run completed: ${jobId} (${status})`, 'helper');
+          setBox(statusBox, `${JSON.stringify(payload, null, 2)}${errorText}`, 'console mono');
           await refreshStatus();
           await readStream();
           await loadResult();
           await listJobs();
           startAutoRefresh();
         } catch (error) {
-          showUiError('Run failed', error);
+          const message = error instanceof Error ? error.message : String(error);
+          setBox(statusSummary, `Run failed: ${jobId}`, 'helper');
+          setBox(statusBox, `POST /api/research/run/${jobId}\n${message}`, 'console mono');
+          connectionPill.textContent = 'error';
+          await refreshStatus();
         }
       }
 

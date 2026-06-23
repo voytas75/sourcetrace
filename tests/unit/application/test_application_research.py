@@ -9,8 +9,10 @@ from sourcetrace.application import (
     build_research_execution,
 )
 from sourcetrace.application.research_runtime import (
+    LlmResearchSynthesizer,
     StubQueryGenerator,
     _authority_signal_score,
+    _build_research_report_prompt,
     _classify_query,
     _compile_research_artifact,
     _evaluate_research_result,
@@ -19,7 +21,10 @@ from sourcetrace.application.research_runtime import (
     _lint_compiled_research_artifact,
     _looks_like_listing_page,
     _pack_evidence_for_synthesis,
+    _procedural_directness_score,
+    _procedural_task_match_score,
     _procedural_query_variants,
+    _research_report_prompt_overlay,
     _top_findings,
     build_procedural_admin_unified_search_adapter,
     build_search_adapter,
@@ -241,6 +246,148 @@ def test_compile_research_artifact_projects_result_into_compiled_shape() -> None
     assert compiled.next_checks or compiled.open_questions
 
 
+def test_research_report_prompt_overlay_for_procedural_admin_demands_operator_shape() -> None:
+    overlay = _research_report_prompt_overlay(ResearchQueryClass.PROCEDURAL_ADMIN, has_direct_procedural_evidence=False)
+
+    assert "exact admin path" in overlay
+    assert "validation" in overlay
+    assert "Do not invent wizard clicks" in overlay
+    assert "Direct procedural evidence is not confirmed" in overlay
+
+
+def test_build_research_report_prompt_includes_query_class_and_section_contract() -> None:
+    prompt = _build_research_report_prompt(
+        query="How to configure conditional access in Entra ID?",
+        round_number=1,
+        previous_answer="NONE",
+        evidence="- Microsoft Learn: documented policy path.",
+        query_class=ResearchQueryClass.PROCEDURAL_ADMIN,
+        has_direct_procedural_evidence=False,
+    )
+
+    assert "Query class: procedural_admin" in prompt
+    assert "Class-specific shaping rules:" in prompt
+    assert "## Current answer" in prompt
+    assert "## Next checks" in prompt
+    assert "exact admin path or entry point" in prompt
+    assert "Do not invent facts, steps, prerequisites, labels, paths, or recommendations." in prompt
+    assert "say explicitly that you do not know or that the current evidence is insufficient" in prompt
+    assert "Do not state exact click-paths, menu chains, field labels, or exact setup steps" in prompt
+
+
+def test_llm_research_synthesizer_uses_prompt_builder_with_query_class_overlay() -> None:
+    captured: dict[str, str] = {}
+
+    def fake_synthesize_text(prompt: str):
+        captured["prompt"] = prompt
+        class _Result:
+            text = "## Current answer\nUse Entra admin center path.\n\n## Key findings\n- Microsoft Learn documents the policy flow.\n\n## Uncertainty\n- Exact rollout safeguards need confirmation.\n\n## Next checks\n- Verify report-only guidance."
+        return _Result()
+
+    synth = LlmResearchSynthesizer(fake_synthesize_text)
+    result = synth(
+        query="How to configure conditional access in Entra ID?",
+        round_number=1,
+        findings=(
+            ExtractedFinding(
+                url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-conditional-access-policies",
+                title="Build Conditional Access policies in Microsoft Entra",
+                summary="Microsoft documents policy assignments, conditions, and controls.",
+            ),
+        ),
+        previous_report=None,
+    )
+
+    prompt = captured["prompt"]
+    assert "Query class: procedural_admin" in prompt
+    assert "exact admin path or entry point" in prompt
+    assert "Do not invent wizard clicks" in prompt
+    assert ("Direct procedural evidence is not confirmed" in prompt) or ("Direct procedural evidence is present" in prompt)
+    assert result.report_markdown.startswith("## Current answer")
+
+
+def test_procedural_task_match_score_distinguishes_direct_task_from_adjacent_procedure() -> None:
+    direct = _procedural_task_match_score(
+        query="How to configure conditional access in Entra ID?",
+        url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/howto-conditional-access-policy-all-users-mfa",
+        title="How to create a Conditional Access policy requiring MFA",
+    )
+    adjacent = _procedural_task_match_score(
+        query="How to configure conditional access in Entra ID?",
+        url="https://learn.microsoft.com/en-us/entra/identity/authentication/tutorial-enable-azure-mfa",
+        title="Enable Microsoft Entra multifactor authentication - Microsoft Entra ID | Microsoft Learn",
+    )
+
+    assert direct > adjacent
+    assert adjacent <= 1
+
+
+def test_procedural_directness_score_prefers_task_pages_over_adjacent_context() -> None:
+    direct = _procedural_directness_score(
+        query="How to configure conditional access in Entra ID?",
+        url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/howto-conditional-access-policy-all-users-mfa",
+        title="How to create a Conditional Access policy requiring MFA",
+    )
+    adjacent = _procedural_directness_score(
+        query="How to configure conditional access in Entra ID?",
+        url="https://learn.microsoft.com/sl-si/fabric/security/security-conditional-access",
+        title="Conditional Access - Microsoft Fabric | Microsoft Learn",
+    )
+    conceptual = _procedural_directness_score(
+        query="How to configure conditional access in Entra ID?",
+        url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-conditional-access-conditions",
+        title="Conditional Access: Conditions - Microsoft Entra ID",
+    )
+    adjacent_procedure = _procedural_directness_score(
+        query="How to configure conditional access in Entra ID?",
+        url="https://learn.microsoft.com/en-us/entra/identity/authentication/tutorial-enable-azure-mfa",
+        title="Enable Microsoft Entra multifactor authentication - Microsoft Entra ID | Microsoft Learn",
+    )
+
+    assert direct > adjacent
+    assert direct > conceptual
+    assert direct > adjacent_procedure
+    assert conceptual < direct
+
+
+def test_procedural_overlay_allows_exactness_when_direct_evidence_exists() -> None:
+    overlay = _research_report_prompt_overlay(ResearchQueryClass.PROCEDURAL_ADMIN, has_direct_procedural_evidence=True)
+
+    assert "Direct procedural evidence is present" in overlay
+    assert "may be stated only when they are supported by the evidence" in overlay
+
+
+def test_top_findings_for_procedural_query_demotes_adjacent_official_context() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-conditional-access-conditions",
+            title="Conditional Access: Conditions - Microsoft Entra ID",
+            summary="Conceptual documentation for conditions.",
+        ),
+        ExtractedFinding(
+            url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview",
+            title="Microsoft Entra Conditional Access: Zero Trust Policy Engine",
+            summary="Overview page.",
+        ),
+        ExtractedFinding(
+            url="https://learn.microsoft.com/sl-si/fabric/security/security-conditional-access",
+            title="Conditional Access - Microsoft Fabric | Microsoft Learn",
+            summary="Adjacent service context.",
+        ),
+        ExtractedFinding(
+            url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/howto-conditional-access-policy-all-users-mfa",
+            title="How to create a Conditional Access policy requiring MFA",
+            summary="Direct setup guidance.",
+        ),
+    )
+
+    ranked = _top_findings(findings, query="How to configure conditional access in Entra ID?", limit=4)
+
+    assert ranked[0].title == "How to create a Conditional Access policy requiring MFA"
+    assert ranked.index(next(item for item in ranked if item.title == "Conditional Access - Microsoft Fabric | Microsoft Learn")) > 0
+    assert ranked.index(next(item for item in ranked if item.title == "Conditional Access: Conditions - Microsoft Entra ID")) > 0
+
+
 def test_lint_compiled_research_artifact_flags_open_questions_without_next_checks() -> None:
     artifact = CompiledResearchArtifact(
         artifact_id="cra-1",
@@ -427,6 +574,7 @@ def test_evidence_packing_prefers_official_docs_as_core_for_procedural_query() -
     assert all('learn.microsoft.com' in finding.url for finding in packed.core)
     assert all('velessoftware.com' not in finding.url for finding in packed.core)
     assert len(packed.background) >= 1
+    assert packed.has_direct_procedural_evidence is True
 
 
 def test_query_classification_and_post_result_evaluator_for_procedural_query() -> None:
@@ -458,6 +606,53 @@ def test_query_classification_and_post_result_evaluator_for_procedural_query() -
     assert evaluation.relevance_verdict is ResearchEvaluationVerdict.STRONG
     assert evaluation.truthfulness_verdict is ResearchEvaluationVerdict.MIXED
     assert evaluation.should_revise_report is False
+
+
+def test_procedural_task_match_preserves_matching_adjacent_page_for_matching_query() -> None:
+    match_score = _procedural_task_match_score(
+        query="How to enable Microsoft Entra multifactor authentication?",
+        url="https://learn.microsoft.com/en-us/entra/identity/authentication/tutorial-enable-azure-mfa",
+        title="Enable Microsoft Entra multifactor authentication - Microsoft Entra ID | Microsoft Learn",
+    )
+    direct_score = _procedural_directness_score(
+        query="How to enable Microsoft Entra multifactor authentication?",
+        url="https://learn.microsoft.com/en-us/entra/identity/authentication/tutorial-enable-azure-mfa",
+        title="Enable Microsoft Entra multifactor authentication - Microsoft Entra ID | Microsoft Learn",
+    )
+
+    assert match_score >= 2
+    assert direct_score >= 3
+
+
+def test_procedural_evaluator_downgrades_indirect_official_context() -> None:
+    query = "How to configure a policy in an admin portal?"
+    findings = (
+        ResearchFinding(
+            url="https://learn.microsoft.com/en-us/product/overview",
+            title="Policy engine overview",
+            summary="Official overview page describing policy concepts.",
+        ),
+        ResearchFinding(
+            url="https://learn.microsoft.com/en-us/product/concept-conditions",
+            title="Conditions concept",
+            summary="Official concept page for conditions and controls.",
+        ),
+    )
+    report = "## Current answer\nUse the admin portal to configure the policy.\n\n## Key findings\n- Official docs describe policy concepts.\n\n## Uncertainty\n- Exact setup steps are not confirmed.\n\n## Next checks\n- Find the direct setup page."
+
+    evaluation = _evaluate_research_result(
+        query=query,
+        findings=findings,
+        report=report,
+        stats=ResearchStats(search_providers=("searxng",), authority_policy_applied=True),
+    )
+
+    assert evaluation.source_quality_verdict is ResearchEvaluationVerdict.MIXED
+    assert evaluation.relevance_verdict is ResearchEvaluationVerdict.MIXED
+    assert evaluation.truthfulness_verdict is ResearchEvaluationVerdict.MIXED
+    assert any("direct task/setup evidence is not confirmed" in reason for reason in evaluation.source_quality_reasons)
+    assert any("indirect procedural context" in risk for risk in evaluation.relevance_risks)
+    assert any("Find at least one direct task or setup page" in check for check in evaluation.missing_checks)
     assert any("Official documentation" in reason for reason in evaluation.source_quality_reasons)
 
 
