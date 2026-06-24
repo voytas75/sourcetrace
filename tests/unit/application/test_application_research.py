@@ -1033,3 +1033,16 @@ def test_lint_flags_thin_evidence_base_when_reflection_reports_no_core_evidence(
     assert 'thin_evidence_base' in lint.risk_flags
     assert 'claims_without_supporting_evidence' in lint.risk_flags
     assert lint.recommended_next_action == 'revise_artifact'
+
+
+def test_file_backed_payload_load_maps_legacy_unknown_query_class_to_general() -> None:
+    from sourcetrace.storage.research_filesystem import _problem_analysis_from_payload
+
+    analysis = _problem_analysis_from_payload({
+        "query_class": "unknown",
+        "complexity": "medium",
+        "goal": "legacy question",
+    })
+
+    assert analysis is not None
+    assert analysis.query_class is ResearchQueryClass.GENERAL
