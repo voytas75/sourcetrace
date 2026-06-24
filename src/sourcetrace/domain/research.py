@@ -22,6 +22,24 @@ class ResearchQueryClass(str, Enum):
     UNKNOWN = "unknown"
 
 
+class ResearchComplexity(str, Enum):
+    """Coarse difficulty band derived from the user query."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ResearchPlanStrategy(str, Enum):
+    """Small bounded planning strategy set for Deep Research."""
+
+    DIRECT_ANSWER = "direct_answer"
+    PROCEDURAL_RESEARCH = "procedural_research"
+    BROAD_RESEARCH = "broad_research"
+    NEWS_RESEARCH = "news_research"
+    MARKET_SCAN = "market_scan"
+
+
 class ResearchJobStatus(str, Enum):
     """Top-level lifecycle state for a Deep Research job."""
 
@@ -117,6 +135,101 @@ class ResearchStats:
 
 
 @dataclass(frozen=True)
+class ProblemAnalysis:
+    """Minimal structured problem framing derived for each research job."""
+
+    query_class: ResearchQueryClass = ResearchQueryClass.UNKNOWN
+    complexity: ResearchComplexity = ResearchComplexity.MEDIUM
+    goal: str = ""
+    focus_areas: tuple[str, ...] = ()
+    constraints: tuple[str, ...] = ()
+    analysis_version: str = "problem_analyzer_v1"
+
+
+@dataclass(frozen=True)
+class ResearchExecutionPlanStep:
+    """One bounded planning step for a research run."""
+
+    step_id: str
+    kind: str
+    objective: str
+    depends_on: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ResearchExecutionPlan:
+    """Compact explicit execution plan derived from problem analysis."""
+
+    plan_version: str = "planner_v2"
+    strategy: ResearchPlanStrategy = ResearchPlanStrategy.DIRECT_ANSWER
+    objective: str = ""
+    steps: tuple[ResearchExecutionPlanStep, ...] = ()
+
+
+@dataclass(frozen=True)
+class ResearchEvidencePack:
+    """Durable grouped evidence pack used by synthesis."""
+
+    pack_version: str = "evidence_pack_v1"
+    query_class: ResearchQueryClass = ResearchQueryClass.UNKNOWN
+    core: tuple[ResearchFinding, ...] = ()
+    supporting: tuple[ResearchFinding, ...] = ()
+    background: tuple[ResearchFinding, ...] = ()
+    has_direct_procedural_evidence: bool = False
+
+
+@dataclass(frozen=True)
+class ResearchBranchProposal:
+    """One bounded analytical branch candidate for later execution/evaluation."""
+
+    branch_id: str
+    label: str
+    objective: str
+
+
+@dataclass(frozen=True)
+class ResearchBranchProposalSet:
+    """Deterministic branch proposal set for eligible research queries."""
+
+    proposal_version: str = "branch_proposal_v1"
+    eligible: bool = False
+    reason: str = "not_eligible"
+    branches: tuple[ResearchBranchProposal, ...] = ()
+
+
+@dataclass(frozen=True)
+class ResearchBranchScore:
+    """Deterministic score for one proposed analytical branch."""
+
+    branch_id: str
+    coverage_score: float = 0.0
+    evidence_fit_score: float = 0.0
+    priority_score: float = 0.0
+    combined_score: float = 0.0
+
+
+@dataclass(frozen=True)
+class ResearchBranchEvaluation:
+    """Bounded evaluation artifact over a branch proposal set."""
+
+    evaluation_version: str = "branch_evaluator_v1"
+    selected_branch_ids: tuple[str, ...] = ()
+    scores: tuple[ResearchBranchScore, ...] = ()
+
+
+@dataclass(frozen=True)
+class ResearchReflection:
+    """Deterministic post-result reflection artifact."""
+
+    reflection_version: str = "reflection_v1"
+    goal_coverage: str = "partial"
+    missing_topics: tuple[str, ...] = ()
+    weak_evidence_areas: tuple[str, ...] = ()
+    should_follow_up: bool = False
+    recommended_follow_up: str | None = None
+
+
+@dataclass(frozen=True)
 class ResearchJob:
     """Durable Deep Research job record."""
 
@@ -128,6 +241,8 @@ class ResearchJob:
     started_at: str | None = None
     completed_at: str | None = None
     settings: ResearchSettings = field(default_factory=ResearchSettings)
+    problem_analysis: ProblemAnalysis | None = None
+    execution_plan: ResearchExecutionPlan | None = None
     error: str | None = None
 
 
@@ -202,6 +317,9 @@ class CompiledResearchArtifact:
     open_questions: tuple[str, ...] = ()
     next_checks: tuple[str, ...] = ()
     source_refs: tuple[ResearchSource, ...] = ()
+    problem_analysis_snapshot: ProblemAnalysis | None = None
+    execution_plan_snapshot: ResearchExecutionPlan | None = None
+    reflection_snapshot: ResearchReflection | None = None
     evaluation_snapshot: ResearchEvaluationArtifact | None = None
     created_at: str = ""
 
@@ -239,6 +357,12 @@ class ResearchResultArtifact:
     stats: ResearchStats = field(default_factory=ResearchStats)
     sources: tuple[ResearchSource, ...] = ()
     raw_findings: tuple[ResearchFinding, ...] = ()
+    problem_analysis: ProblemAnalysis | None = None
+    execution_plan: ResearchExecutionPlan | None = None
+    evidence_pack: ResearchEvidencePack | None = None
+    branch_proposals: ResearchBranchProposalSet | None = None
+    branch_evaluation: ResearchBranchEvaluation | None = None
+    reflection: ResearchReflection | None = None
     evaluation: ResearchEvaluationArtifact | None = None
     created_at: str = ""
     completed_at: str | None = None
@@ -250,11 +374,22 @@ __all__ = [
     "CompiledResearchArtifactLintStatus",
     "CompiledResearchClaim",
     "CompiledResearchEvidenceRef",
+    "ProblemAnalysis",
+    "ResearchBranchEvaluation",
+    "ResearchBranchProposal",
+    "ResearchBranchProposalSet",
+    "ResearchBranchScore",
+    "ResearchReflection",
+    "ResearchEvidencePack",
+    "ResearchExecutionPlan",
+    "ResearchExecutionPlanStep",
     "ResearchCompletionMode",
+    "ResearchComplexity",
     "ResearchEvaluationArtifact",
     "ResearchEvaluationVerdict",
     "ResearchFinding",
     "ResearchJob",
+    "ResearchPlanStrategy",
     "ResearchJobStatus",
     "ResearchPhase",
     "ResearchProgressEvent",

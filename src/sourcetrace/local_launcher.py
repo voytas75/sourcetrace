@@ -331,6 +331,11 @@ def build_local_server_runtime(
         claim_normalization=llm_runtime.claim_normalization,
         claim_extraction_runtime=claim_extraction_runtime,
         continuity_pack_root_dir=_resolve_continuity_pack_root_dir(),
+        research_persistence=(
+            research_persistence
+            if 'research_persistence' in locals() and research is not None
+            else None
+        ),
         research=research,
         research_search_backend=(
             "procedural_admin_unified_search+searxng"

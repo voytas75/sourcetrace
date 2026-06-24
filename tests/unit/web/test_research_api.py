@@ -64,13 +64,23 @@ def test_wsgi_research_job_flow() -> None:
     assert start_status == "201 Created"
     assert start_payload["job"]["status"] == "queued"
     assert status_status == "200 OK"
-    assert json.loads(status_body)["job"]["job_id"] == job_id
+    status_payload = json.loads(status_body)
+    assert status_payload["job"]["job_id"] == job_id
+    assert status_payload["job"]["problem_analysis"]["analysis_version"] == "problem_analyzer_v1"
+    assert status_payload["job"]["execution_plan"]["plan_version"] == "planner_v2"
     assert pending_result_status == "202 Accepted"
     assert json.loads(pending_result_body)["status"] == "pending"
     assert run_status == "200 OK"
     assert json.loads(run_body)["job"]["status"] == "done"
     assert result_status == "200 OK"
-    assert json.loads(result_body)["result"]["completion_mode"] == "full"
+    result_payload = json.loads(result_body)
+    assert result_payload["result"]["completion_mode"] == "full"
+    assert result_payload["result"]["problem_analysis"]["goal"] == start_payload["job"]["query"]
+    assert result_payload["result"]["execution_plan"]["strategy"]
+    assert result_payload["result"]["evidence_pack"]["pack_version"] == "evidence_pack_v1"
+    assert result_payload["result"]["branch_proposals"]["proposal_version"] == "branch_proposal_v1"
+    assert result_payload["result"]["branch_evaluation"]["evaluation_version"] == "branch_evaluator_v1"
+    assert result_payload["result"]["reflection"]["reflection_version"] == "reflection_v1"
     assert result_html_status == "200 OK"
     assert ("Content-Type", "text/html; charset=utf-8") in result_html_headers
     assert "Structured research report optimized for external reading" in result_html_body
@@ -79,7 +89,11 @@ def test_wsgi_research_job_flow() -> None:
     assert list_status == "200 OK"
     assert len(json.loads(list_body)["jobs"]) == 1
     assert compiled_status == "200 OK"
-    assert json.loads(compiled_body)["artifact"]["artifact_id"] == f"cra-{job_id}"
+    compiled_payload = json.loads(compiled_body)
+    assert compiled_payload["artifact"]["artifact_id"] == f"cra-{job_id}"
+    assert compiled_payload["artifact"]["problem_analysis_snapshot"]["analysis_version"] == "problem_analyzer_v1"
+    assert compiled_payload["artifact"]["execution_plan_snapshot"]["plan_version"] == "planner_v2"
+    assert compiled_payload["artifact"]["reflection_snapshot"]["reflection_version"] == "reflection_v1"
     assert lint_status == "200 OK"
     assert json.loads(lint_body)["lint"]["artifact_id"] == f"cra-{job_id}"
 
@@ -216,3 +230,17 @@ def _test_delivery() -> object:
         "run_job": worker,
     })()
     return create_default_delivery(research=research, research_persistence=persistence)
+
+
+def test_default_delivery_uses_supplied_research_persistence_for_reads() -> None:
+    from sourcetrace.storage import create_file_backed_research_persistence
+    from sourcetrace.web.delivery import create_default_delivery
+
+    persistence = create_file_backed_research_persistence('tmp/test-research-persistence')
+    marker = object()
+    delivery = create_default_delivery(
+        research_persistence=persistence,
+        research=marker,
+    )
+
+    assert delivery.research_persistence is persistence

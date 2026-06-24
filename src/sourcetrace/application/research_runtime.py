@@ -18,7 +18,6 @@ from sourcetrace.application.research import (
     ResearchJobStartOutcome,
     ResearchJobStartRequest,
     ResearchJobStatusOutcome,
-    ResearchPlan,
     ResearchPlanner,
     ResearchQueryGenerator,
     ResearchSearchAdapter,
@@ -32,13 +31,24 @@ from sourcetrace.domain.research import (
     CompiledResearchArtifactLintStatus,
     CompiledResearchClaim,
     CompiledResearchEvidenceRef,
+    ProblemAnalysis,
+    ResearchBranchEvaluation,
+    ResearchBranchProposal,
+    ResearchBranchProposalSet,
+    ResearchBranchScore,
     ResearchCompletionMode,
+    ResearchReflection,
+    ResearchComplexity,
     ResearchEvaluationArtifact,
+    ResearchEvidencePack,
     ResearchEvaluationVerdict,
+    ResearchExecutionPlan,
+    ResearchExecutionPlanStep,
     ResearchFinding,
     ResearchJob,
     ResearchJobStatus,
     ResearchPhase,
+    ResearchPlanStrategy,
     ResearchProgressEvent,
     ResearchQueryClass,
     ResearchResultArtifact,
@@ -49,25 +59,59 @@ from sourcetrace.storage.research import ResearchPersistence, create_in_memory_r
 
 
 class StubResearchPlanner:
-    """Deterministic planner stub for the first engine-loop slice."""
+    """Deterministic planner stub for the bounded planner-v2 slice."""
 
-    def __call__(self, query: str) -> ResearchPlan:
-        return ResearchPlan(
-            objective=query,
-            subquestions=(
-                f"What is the system shape of {query}?",
-                f"What runtime rails matter for {query}?",
-            ),
+    def __call__(self, query: str, *, problem_analysis: ProblemAnalysis) -> ResearchExecutionPlan:
+        objective = problem_analysis.goal or query
+        query_class = problem_analysis.query_class
+        if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+            strategy = ResearchPlanStrategy.PROCEDURAL_RESEARCH
+            steps = (
+                ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Find direct procedural or official task guidance."),
+                ResearchExecutionPlanStep(step_id="step-2", kind="read", objective="Extract exact supported controls, scopes, and validation steps.", depends_on=("step-1",)),
+                ResearchExecutionPlanStep(step_id="step-3", kind="write", objective="Write a bounded operator answer with explicit uncertainty.", depends_on=("step-2",)),
+            )
+        elif query_class is ResearchQueryClass.BROAD_CONCEPT:
+            strategy = ResearchPlanStrategy.BROAD_RESEARCH
+            steps = (
+                ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Collect high-signal conceptual and technical sources."),
+                ResearchExecutionPlanStep(step_id="step-2", kind="analyze", objective="Identify system shape, boundaries, and tradeoffs.", depends_on=("step-1",)),
+                ResearchExecutionPlanStep(step_id="step-3", kind="write", objective="Synthesize a clear conceptual answer with open questions.", depends_on=("step-2",)),
+            )
+        elif query_class is ResearchQueryClass.CURRENT_NEWS:
+            strategy = ResearchPlanStrategy.NEWS_RESEARCH
+            steps = (
+                ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather recent attributed developments."),
+                ResearchExecutionPlanStep(step_id="step-2", kind="analyze", objective="Separate confirmed updates from weak or stale reporting.", depends_on=("step-1",)),
+                ResearchExecutionPlanStep(step_id="step-3", kind="write", objective="Write a recency-aware summary with timeline caveats.", depends_on=("step-2",)),
+            )
+        elif query_class is ResearchQueryClass.MARKET_SYMBOL:
+            strategy = ResearchPlanStrategy.MARKET_SCAN
+            steps = (
+                ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather instrument-specific market evidence for the requested window."),
+                ResearchExecutionPlanStep(step_id="step-2", kind="analyze", objective="Check signal consistency without mixing unlike instruments.", depends_on=("step-1",)),
+                ResearchExecutionPlanStep(step_id="step-3", kind="write", objective="Report bounded market observations and missing checks.", depends_on=("step-2",)),
+            )
+        else:
+            strategy = ResearchPlanStrategy.DIRECT_ANSWER
+            steps = (
+                ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather the strongest relevant evidence."),
+                ResearchExecutionPlanStep(step_id="step-2", kind="write", objective="Answer directly and surface missing verification.", depends_on=("step-1",)),
+            )
+        return ResearchExecutionPlan(
+            strategy=strategy,
+            objective=objective,
+            steps=steps,
         )
 
 
 class StubQueryGenerator:
     """Deterministic query generator stub with light domain-aware shaping."""
 
-    def __call__(self, plan: ResearchPlan, *, round_number: int) -> tuple[str, ...]:
+    def __call__(self, plan: ResearchExecutionPlan, *, round_number: int) -> tuple[str, ...]:
         objective = plan.objective.strip()
         normalized = objective.lower()
-        if _looks_like_market_query(normalized):
+        if plan.strategy is ResearchPlanStrategy.MARKET_SCAN or _looks_like_market_query(normalized):
             symbol = _extract_market_symbol(objective) or objective
             if round_number == 1:
                 return (
@@ -80,13 +124,19 @@ class StubQueryGenerator:
                 f"{symbol} exchange market",
                 f"{symbol} analytics volume open interest",
             )
-        if _procedural_query_bias(normalized):
+        if plan.strategy is ResearchPlanStrategy.PROCEDURAL_RESEARCH or _procedural_query_bias(normalized):
             if round_number == 1:
                 return _procedural_query_variants(objective)
             return (
                 f'site:learn.microsoft.com {objective}',
                 f'{objective} Microsoft Learn official documentation',
                 f'{objective} Configuration Manager documentation',
+            )
+        if plan.strategy is ResearchPlanStrategy.NEWS_RESEARCH and round_number > 1:
+            return (
+                f"{objective} latest developments",
+                f"{objective} this week",
+                f"{objective} official update",
             )
         return (objective,)
 
@@ -694,7 +744,13 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
     if _procedural_query_bias(query):
         if _looks_like_listing_page(hit) or _looks_like_weak_general_source(hit):
             return False
-    return matched >= 2 or _general_relevance_score(query=query, hit=hit) >= 4
+    if matched >= 2 or _general_relevance_score(query=query, hit=hit) >= 4:
+        return True
+    if not _procedural_query_bias(query) and matched >= 1:
+        source_type = _source_type(hit.url, hit.title)
+        if source_type in {'generic', 'docs', 'official_docs', 'vendor_docs'}:
+            return True
+    return False
 
 
 def _source_type(url: str, title: str) -> str:
@@ -960,6 +1016,176 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
     )
 
 
+def _evaluate_branch_proposals(
+    *,
+    problem_analysis: ProblemAnalysis | None,
+    execution_plan: ResearchExecutionPlan | None,
+    evidence_pack: ResearchEvidencePack | None,
+    branch_proposals: ResearchBranchProposalSet | None,
+) -> ResearchBranchEvaluation:
+    if branch_proposals is None or not branch_proposals.eligible or not branch_proposals.branches:
+        return ResearchBranchEvaluation()
+
+    focus = set(problem_analysis.focus_areas if problem_analysis is not None else ())
+    step_kinds = {step.kind for step in execution_plan.steps} if execution_plan is not None else set()
+    evidence_core = len(evidence_pack.core) if evidence_pack is not None else 0
+    evidence_supporting = len(evidence_pack.supporting) if evidence_pack is not None else 0
+
+    scores: list[ResearchBranchScore] = []
+    for branch in branch_proposals.branches:
+        label = branch.label.lower()
+        coverage = 0.6
+        if label == "system_shape" and ({"definition", "system_shape"} & focus):
+            coverage = 0.95
+        elif label == "tradeoffs" and ({"key_tradeoffs"} & focus or "analyze" in step_kinds):
+            coverage = 0.9
+        elif label == "open_questions":
+            coverage = 0.85
+
+        evidence_fit = 0.5
+        if evidence_core >= 2:
+            evidence_fit += 0.25
+        if evidence_supporting >= 1:
+            evidence_fit += 0.15
+        if label == "open_questions" and evidence_supporting == 0:
+            evidence_fit -= 0.1
+        evidence_fit = max(0.0, min(1.0, evidence_fit))
+
+        priority = 0.6
+        if label == "system_shape":
+            priority = 0.9
+        elif label == "tradeoffs":
+            priority = 0.82
+        elif label == "open_questions":
+            priority = 0.78
+
+        combined = round((coverage * 0.4) + (evidence_fit * 0.3) + (priority * 0.3), 3)
+        scores.append(
+            ResearchBranchScore(
+                branch_id=branch.branch_id,
+                coverage_score=round(coverage, 3),
+                evidence_fit_score=round(evidence_fit, 3),
+                priority_score=round(priority, 3),
+                combined_score=combined,
+            )
+        )
+
+    ranked = tuple(sorted(scores, key=lambda item: item.combined_score, reverse=True))
+    selected = tuple(item.branch_id for item in ranked[:2])
+    return ResearchBranchEvaluation(selected_branch_ids=selected, scores=ranked)
+
+
+def _derive_reflection(
+    *,
+    problem_analysis: ProblemAnalysis | None,
+    execution_plan: ResearchExecutionPlan | None,
+    evidence_pack: ResearchEvidencePack | None,
+    branch_evaluation: ResearchBranchEvaluation | None,
+    evaluation: ResearchEvaluationArtifact | None,
+) -> ResearchReflection:
+    missing_topics: list[str] = []
+    weak_evidence_areas: list[str] = []
+
+    if problem_analysis is None:
+        return ResearchReflection(
+            goal_coverage="weak",
+            missing_topics=("problem_analysis_missing",),
+            weak_evidence_areas=("result_framing_missing",),
+            should_follow_up=True,
+            recommended_follow_up="Re-run after restoring problem analysis framing.",
+        )
+
+    focus_areas = set(problem_analysis.focus_areas)
+    if "key_tradeoffs" in focus_areas and branch_evaluation is not None:
+        selected = set(branch_evaluation.selected_branch_ids)
+        if "branch-2" not in selected:
+            missing_topics.append("tradeoffs")
+    if evidence_pack is None:
+        weak_evidence_areas.append("evidence_pack_missing")
+    else:
+        if len(evidence_pack.core) == 0:
+            weak_evidence_areas.append("no_core_evidence")
+        if len(evidence_pack.core) < 2 and problem_analysis.complexity is ResearchComplexity.HIGH:
+            weak_evidence_areas.append("thin_core_evidence")
+        if problem_analysis.query_class is ResearchQueryClass.BROAD_CONCEPT and len(evidence_pack.supporting) == 0:
+            weak_evidence_areas.append("missing_supporting_context")
+
+    if evaluation is not None and evaluation.relevance_verdict is ResearchEvaluationVerdict.WEAK:
+        missing_topics.append("relevance_alignment")
+    if execution_plan is not None and len(execution_plan.steps) < 2:
+        weak_evidence_areas.append("shallow_execution_plan")
+
+    if not missing_topics and not weak_evidence_areas:
+        coverage = "full"
+    elif len(missing_topics) <= 1 and len(weak_evidence_areas) <= 1:
+        coverage = "partial"
+    else:
+        coverage = "weak"
+
+    should_follow_up = bool(missing_topics or weak_evidence_areas)
+    recommended_follow_up = None
+    if should_follow_up:
+        if missing_topics:
+            recommended_follow_up = f"Investigate missing topic: {missing_topics[0]}."
+        elif weak_evidence_areas:
+            recommended_follow_up = f"Strengthen evidence around: {weak_evidence_areas[0]}."
+
+    return ResearchReflection(
+        goal_coverage=coverage,
+        missing_topics=tuple(missing_topics[:3]),
+        weak_evidence_areas=tuple(weak_evidence_areas[:3]),
+        should_follow_up=should_follow_up,
+        recommended_follow_up=recommended_follow_up,
+    )
+
+
+def _derive_branch_proposals(*, problem_analysis: ProblemAnalysis | None, execution_plan: ResearchExecutionPlan | None) -> ResearchBranchProposalSet:
+    if problem_analysis is None:
+        return ResearchBranchProposalSet(reason="missing_problem_analysis")
+    if problem_analysis.query_class is not ResearchQueryClass.BROAD_CONCEPT and problem_analysis.complexity is not ResearchComplexity.HIGH:
+        return ResearchBranchProposalSet(eligible=False, reason="query_not_eligible")
+
+    objective = (execution_plan.objective if execution_plan is not None and execution_plan.objective else problem_analysis.goal).strip()
+    branches = (
+        ResearchBranchProposal(
+            branch_id="branch-1",
+            label="system_shape",
+            objective=f"Describe the current system shape and boundaries for: {objective}",
+        ),
+        ResearchBranchProposal(
+            branch_id="branch-2",
+            label="tradeoffs",
+            objective=f"Identify key tradeoffs, risks, and constraints for: {objective}",
+        ),
+        ResearchBranchProposal(
+            branch_id="branch-3",
+            label="open_questions",
+            objective=f"Identify unresolved questions and evidence gaps for: {objective}",
+        ),
+    )
+    return ResearchBranchProposalSet(
+        eligible=True,
+        reason="broad_or_high_complexity_query",
+        branches=branches,
+    )
+
+
+def _to_research_evidence_pack(*, query: str, packed: PackedEvidence) -> ResearchEvidencePack:
+    def convert(items: tuple[ExtractedFinding, ...]) -> tuple[ResearchFinding, ...]:
+        return tuple(
+            ResearchFinding(url=item.url, title=item.title, summary=item.summary)
+            for item in items
+        )
+
+    return ResearchEvidencePack(
+        query_class=_classify_query(query),
+        core=convert(packed.core),
+        supporting=convert(packed.supporting),
+        background=convert(packed.background),
+        has_direct_procedural_evidence=packed.has_direct_procedural_evidence,
+    )
+
+
 def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query: str | None = None) -> tuple[ExtractedFinding, ...]:
     normalized_query = query or ''
     ranked = sorted(
@@ -1101,6 +1327,46 @@ def _classify_query(query: str) -> ResearchQueryClass:
     if any(token in lowered for token in ("architecture", "design", "how it works", "workflow", "system shape")):
         return ResearchQueryClass.BROAD_CONCEPT
     return ResearchQueryClass.UNKNOWN
+
+
+def _derive_problem_analysis(query: str) -> ProblemAnalysis:
+    normalized = query.strip()
+    query_class = _classify_query(normalized)
+    lowered = normalized.lower()
+
+    if query_class in {ResearchQueryClass.PROCEDURAL_ADMIN, ResearchQueryClass.MARKET_SYMBOL}:
+        complexity = ResearchComplexity.LOW
+    elif query_class is ResearchQueryClass.BROAD_CONCEPT:
+        complexity = ResearchComplexity.HIGH
+    elif query_class is ResearchQueryClass.CURRENT_NEWS:
+        complexity = ResearchComplexity.MEDIUM
+    elif any(token in lowered for token in ("compare", "vs", "tradeoff", "decision", "plan", "strategy")):
+        complexity = ResearchComplexity.HIGH
+    else:
+        complexity = ResearchComplexity.MEDIUM
+
+    focus_areas_map: dict[ResearchQueryClass, tuple[str, ...]] = {
+        ResearchQueryClass.PROCEDURAL_ADMIN: ("task_path", "required_controls", "validation"),
+        ResearchQueryClass.BROAD_CONCEPT: ("definition", "system_shape", "key_tradeoffs"),
+        ResearchQueryClass.CURRENT_NEWS: ("recent_developments", "timeline", "source_recency"),
+        ResearchQueryClass.MARKET_SYMBOL: ("instrument_scope", "time_window", "market_signal"),
+        ResearchQueryClass.UNKNOWN: ("main_question",),
+    }
+    constraints: list[str] = []
+    if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+        constraints.append("state_exact_steps_only_when_supported_by_evidence")
+    if query_class is ResearchQueryClass.CURRENT_NEWS:
+        constraints.append("prefer_recent_attributed_evidence")
+    if query_class is ResearchQueryClass.MARKET_SYMBOL:
+        constraints.append("keep_instrument_and_time_window_consistent")
+
+    return ProblemAnalysis(
+        query_class=query_class,
+        complexity=complexity,
+        goal=normalized,
+        focus_areas=focus_areas_map[query_class],
+        constraints=tuple(constraints),
+    )
 
 
 def _evaluate_research_result(*, query: str, findings: tuple[ResearchFinding, ...], report: str, stats: ResearchStats) -> ResearchEvaluationArtifact:
@@ -1492,6 +1758,9 @@ def _compile_research_artifact(result: ResearchResultArtifact) -> CompiledResear
         open_questions=open_questions,
         next_checks=next_checks,
         source_refs=source_refs,
+        problem_analysis_snapshot=result.problem_analysis,
+        execution_plan_snapshot=result.execution_plan,
+        reflection_snapshot=result.reflection,
         evaluation_snapshot=result.evaluation,
         created_at=result.completed_at or result.created_at,
     )
@@ -1521,6 +1790,12 @@ def _lint_compiled_research_artifact(artifact: CompiledResearchArtifact) -> Comp
     if artifact.evaluation_snapshot is None:
         missing_sections.append('evaluation_snapshot')
         risk_flags.append('missing_evaluation_snapshot')
+    if artifact.execution_plan_snapshot is None:
+        missing_sections.append('execution_plan_snapshot')
+        risk_flags.append('missing_execution_plan_snapshot')
+    if artifact.reflection_snapshot is None:
+        missing_sections.append('reflection_snapshot')
+        risk_flags.append('missing_reflection_snapshot')
 
     completeness_verdict = ResearchEvaluationVerdict.STRONG
     if len(missing_sections) >= 2:
@@ -1561,6 +1836,33 @@ def _lint_compiled_research_artifact(artifact: CompiledResearchArtifact) -> Comp
         recommended_repairs.append('Add at least one next check or open question.')
     elif not artifact.open_questions or not artifact.next_checks:
         followup_verdict = ResearchEvaluationVerdict.MIXED
+
+    if artifact.execution_plan_snapshot is not None and len(artifact.execution_plan_snapshot.steps) < 2:
+        risk_flags.append('shallow_execution_plan_snapshot')
+        recommended_repairs.append('Expand the execution plan snapshot to include at least two meaningful steps.')
+        if completeness_verdict is ResearchEvaluationVerdict.STRONG:
+            completeness_verdict = ResearchEvaluationVerdict.MIXED
+
+    if artifact.reflection_snapshot is not None:
+        if artifact.reflection_snapshot.should_follow_up and not artifact.next_checks:
+            risk_flags.append('reflection_followup_without_next_checks')
+            recommended_repairs.append('Add next checks that answer the reflection follow-up recommendation.')
+            followup_verdict = ResearchEvaluationVerdict.WEAK
+        if artifact.reflection_snapshot.goal_coverage == 'weak' and not artifact.reflection_snapshot.recommended_follow_up:
+            risk_flags.append('weak_reflection_without_guidance')
+            recommended_repairs.append('Add one explicit follow-up recommendation for weak reflection coverage.')
+            if followup_verdict is ResearchEvaluationVerdict.STRONG:
+                followup_verdict = ResearchEvaluationVerdict.MIXED
+
+    if artifact.evaluation_snapshot is not None and artifact.reflection_snapshot is not None:
+        if (
+            artifact.reflection_snapshot.goal_coverage == 'weak'
+            and artifact.evaluation_snapshot.should_revise_report is False
+            and not artifact.next_checks
+        ):
+            risk_flags.append('reflection_evaluation_mismatch')
+            recommended_repairs.append('Align artifact follow-up guidance with weak reflection coverage.')
+            followup_verdict = ResearchEvaluationVerdict.WEAK
 
     status = CompiledResearchArtifactLintStatus.HEALTHY
     if (
@@ -1642,6 +1944,8 @@ class ResearchJobManager:
 
     def start_job(self, request: ResearchJobStartRequest) -> ResearchJobStartOutcome:
         now = _utcnow()
+        problem_analysis = _derive_problem_analysis(request.query)
+        execution_plan = StubResearchPlanner()(request.query, problem_analysis=problem_analysis)
         job = ResearchJob(
             job_id=f"rj-{uuid4().hex[:12]}",
             owner_id=request.owner_id,
@@ -1649,6 +1953,8 @@ class ResearchJobManager:
             status=ResearchJobStatus.QUEUED,
             created_at=now,
             settings=request.settings,
+            problem_analysis=problem_analysis,
+            execution_plan=execution_plan,
         )
         self.persistence.jobs.save_job(job)
         return ResearchJobStartOutcome(request=request, job=job)
@@ -1728,8 +2034,11 @@ class FakeResearchWorker:
         running = replace(started, status=ResearchJobStatus.RUNNING)
         self.persistence.jobs.save_job(running)
 
-        plan = self.planner(running.query)
-        self._emit(job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.subquestions)} subquestion(s).")
+        problem_analysis = running.problem_analysis or _derive_problem_analysis(running.query)
+        plan = self.planner(running.query, problem_analysis=problem_analysis)
+        running = replace(running, problem_analysis=problem_analysis, execution_plan=plan)
+        self.persistence.jobs.save_job(running)
+        self._emit(job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.steps)} step(s) with strategy {plan.strategy.value}.")
 
         round_number = 0
         total_urls = 0
@@ -1746,6 +2055,13 @@ class FakeResearchWorker:
         packed_core_count = 0
         packed_supporting_count = 0
         packed_background_count = 0
+        evidence_pack: ResearchEvidencePack | None = None
+        branch_proposals: ResearchBranchProposalSet | None = _derive_branch_proposals(
+            problem_analysis=running.problem_analysis,
+            execution_plan=running.execution_plan,
+        )
+        branch_evaluation: ResearchBranchEvaluation | None = None
+        reflection: ResearchReflection | None = None
 
         while True:
             round_number += 1
@@ -1929,9 +2245,16 @@ class FakeResearchWorker:
             )
 
             packed = _pack_evidence_for_synthesis(query=running.query, findings=findings)
+            evidence_pack = _to_research_evidence_pack(query=running.query, packed=packed)
             packed_core_count = len(packed.core)
             packed_supporting_count = len(packed.supporting)
             packed_background_count = len(packed.background)
+            branch_evaluation = _evaluate_branch_proposals(
+                problem_analysis=running.problem_analysis,
+                execution_plan=running.execution_plan,
+                evidence_pack=evidence_pack,
+                branch_proposals=branch_proposals,
+            )
             synthesis = self.synthesize(
                 query=running.query,
                 round_number=round_number,
@@ -1991,10 +2314,28 @@ No report was produced."""
             stats=stats,
             sources=tuple(ResearchSource(url=hit.url, title=hit.title) for hit in all_hits),
             raw_findings=raw_findings,
+            problem_analysis=running.problem_analysis,
+            execution_plan=running.execution_plan,
+            evidence_pack=evidence_pack,
+            branch_proposals=branch_proposals,
+            branch_evaluation=branch_evaluation,
         )
         projected_sources = _project_source_refs(
             provisional_result,
             _project_supporting_evidence(provisional_result),
+        )
+        post_evaluation = _evaluate_research_result(
+            query=running.query,
+            findings=raw_findings,
+            report=final_report,
+            stats=stats,
+        )
+        reflection = _derive_reflection(
+            problem_analysis=running.problem_analysis,
+            execution_plan=running.execution_plan,
+            evidence_pack=evidence_pack,
+            branch_evaluation=branch_evaluation,
+            evaluation=post_evaluation,
         )
         result = ResearchResultArtifact(
             job_id=job_id,
@@ -2008,12 +2349,13 @@ No report was produced."""
             stats=stats,
             sources=projected_sources,
             raw_findings=raw_findings,
-            evaluation=_evaluate_research_result(
-                query=running.query,
-                findings=raw_findings,
-                report=final_report,
-                stats=stats,
-            ),
+            problem_analysis=running.problem_analysis,
+            execution_plan=running.execution_plan,
+            evidence_pack=evidence_pack,
+            branch_proposals=branch_proposals,
+            branch_evaluation=branch_evaluation,
+            reflection=reflection,
+            evaluation=post_evaluation,
             created_at=running.created_at,
             completed_at=completed_at,
         )
@@ -2065,6 +2407,36 @@ No report was produced."""
         report = """# Partial Deep Research result
 
 Partial salvage preserved."""
+        salvage_evidence_pack = ResearchEvidencePack(
+            query_class=_classify_query(job.query),
+            core=raw_findings,
+            supporting=(),
+            background=(),
+            has_direct_procedural_evidence=_procedural_query_bias(job.query),
+        )
+        salvage_branch_proposals = _derive_branch_proposals(
+            problem_analysis=job.problem_analysis,
+            execution_plan=job.execution_plan,
+        )
+        salvage_branch_evaluation = _evaluate_branch_proposals(
+            problem_analysis=job.problem_analysis,
+            execution_plan=job.execution_plan,
+            evidence_pack=salvage_evidence_pack,
+            branch_proposals=salvage_branch_proposals,
+        )
+        salvage_evaluation = _evaluate_research_result(
+            query=job.query,
+            findings=raw_findings,
+            report=report,
+            stats=stats,
+        )
+        salvage_reflection = _derive_reflection(
+            problem_analysis=job.problem_analysis,
+            execution_plan=job.execution_plan,
+            evidence_pack=salvage_evidence_pack,
+            branch_evaluation=salvage_branch_evaluation,
+            evaluation=salvage_evaluation,
+        )
         result = ResearchResultArtifact(
             job_id=job_id,
             owner_id=job.owner_id,
@@ -2077,12 +2449,13 @@ Partial salvage preserved."""
             stats=stats,
             sources=(ResearchSource(url="https://example.test/partial", title="Partial source"),),
             raw_findings=raw_findings,
-            evaluation=_evaluate_research_result(
-                query=job.query,
-                findings=raw_findings,
-                report=report,
-                stats=stats,
-            ),
+            problem_analysis=job.problem_analysis,
+            execution_plan=job.execution_plan,
+            evidence_pack=salvage_evidence_pack,
+            branch_proposals=salvage_branch_proposals,
+            branch_evaluation=salvage_branch_evaluation,
+            reflection=salvage_reflection,
+            evaluation=salvage_evaluation,
             created_at=job.created_at,
             completed_at=completed_at,
         )

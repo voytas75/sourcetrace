@@ -865,8 +865,9 @@ def create_default_delivery(
         claim_extraction=claim_extraction,
         claim_normalization=claim_normalization,
     )
-    research_persistence = research_persistence or create_in_memory_research_persistence()
-    research = research or build_research_execution(persistence=research_persistence)
+    if research is not None or research_persistence is not None:
+        research_persistence = research_persistence or create_in_memory_research_persistence()
+        research = research or build_research_execution(persistence=research_persistence)
     return SourceTraceDelivery(
         persistence=persistence,
         verification_runtime=verification_runtime,

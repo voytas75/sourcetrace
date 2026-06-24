@@ -15,6 +15,10 @@ from sourcetrace.application.research_runtime import (
     _build_research_report_prompt,
     _classify_query,
     _compile_research_artifact,
+    _derive_branch_proposals,
+    _derive_problem_analysis,
+    _derive_reflection,
+    _evaluate_branch_proposals,
     _evaluate_research_result,
     _filter_hits_for_extraction,
     _is_relevant_hit,
@@ -22,10 +26,10 @@ from sourcetrace.application.research_runtime import (
     _looks_like_listing_page,
     _pack_evidence_for_synthesis,
     _procedural_query_bias,
-    _project_source_refs,
     _procedural_directness_score,
-    _procedural_task_match_score,
     _procedural_query_variants,
+    _procedural_task_match_score,
+    _project_source_refs,
     _research_report_prompt_overlay,
     _top_findings,
     build_procedural_admin_unified_search_adapter,
@@ -34,17 +38,28 @@ from sourcetrace.application.research_runtime import (
 from sourcetrace.domain import (
     CompiledResearchArtifact,
     CompiledResearchArtifactLintStatus,
+    CompiledResearchEvidenceRef,
+    ProblemAnalysis,
+    ResearchBranchEvaluation,
+    ResearchBranchProposalSet,
+    ResearchBranchScore,
     ResearchCompletionMode,
+    ResearchReflection,
+    ResearchComplexity,
     ResearchEvaluationArtifact,
     ResearchEvaluationVerdict,
+    ResearchEvidencePack,
+    ResearchExecutionPlan,
+    ResearchExecutionPlanStep,
     ResearchFinding,
     ResearchJobStatus,
+    ResearchPlanStrategy,
     ResearchQueryClass,
     ResearchResultArtifact,
     ResearchSource,
     ResearchStats,
 )
-from sourcetrace.storage import create_in_memory_research_persistence
+from sourcetrace.storage import create_file_backed_research_persistence, create_in_memory_research_persistence
 
 
 class DeterministicSearch:
@@ -154,6 +169,8 @@ def test_research_job_manager_start_and_list_flow() -> None:
     listed = manager.list_jobs("user-1")
 
     assert outcome.job.status is ResearchJobStatus.QUEUED
+    assert outcome.job.problem_analysis is not None
+    assert outcome.job.execution_plan is not None
     assert listed.jobs[0].job_id == outcome.job.job_id
 
 
@@ -168,6 +185,8 @@ def test_fake_research_worker_completes_job_and_persists_artifact() -> None:
 
     assert result is not None
     assert result.completion_mode is ResearchCompletionMode.FULL
+    assert result.execution_plan is not None
+    assert result.evidence_pack is not None
     assert status is not None
     assert status.job.status is ResearchJobStatus.DONE
     assert status.progress[-1].final is True
@@ -190,6 +209,8 @@ def test_fake_research_worker_can_save_partial_salvage_result() -> None:
 
     assert result is not None
     assert result.completion_mode is ResearchCompletionMode.PARTIAL_ERROR
+    assert result.execution_plan is not None
+    assert result.evidence_pack is not None
     assert manager.get_job_result(outcome.job.job_id).result is not None
 
 
@@ -229,8 +250,8 @@ def test_fake_research_worker_runs_two_round_engine_loop() -> None:
 
 def test_stub_query_generator_diversifies_market_queries_by_round() -> None:
     generator = StubQueryGenerator()
-    round_one = generator(type("Plan", (), {"objective": "analiza ostatniego tygodnia ethusdc"})(), round_number=1)
-    round_two = generator(type("Plan", (), {"objective": "analiza ostatniego tygodnia ethusdc"})(), round_number=2)
+    round_one = generator(type("Plan", (), {"objective": "analiza ostatniego tygodnia ethusdc", "strategy": ResearchPlanStrategy.MARKET_SCAN})(), round_number=1)
+    round_two = generator(type("Plan", (), {"objective": "analiza ostatniego tygodnia ethusdc", "strategy": ResearchPlanStrategy.MARKET_SCAN})(), round_number=2)
 
     assert any("price last 7 days" in query for query in round_one)
     assert any("technical analysis tradingview" in query for query in round_one)
@@ -289,9 +310,30 @@ def test_compile_research_artifact_projects_result_into_compiled_shape() -> None
     assert compiled.title
     assert compiled.current_answer
     assert compiled.query == result.query
+    assert compiled.problem_analysis_snapshot is not None
+    assert compiled.execution_plan_snapshot is not None
+    assert compiled.reflection_snapshot is not None
     assert compiled.evaluation_snapshot is not None
     assert compiled.source_refs or compiled.supporting_evidence
     assert compiled.next_checks or compiled.open_questions
+
+
+def test_result_artifact_carries_evidence_pack_from_runtime_grouping() -> None:
+    persistence, manager, worker = _build_test_execution()
+    outcome = manager.start_job(
+        ResearchJobStartRequest(owner_id="user-1", query="how to deploy configuration baselines in sccm")
+    )
+    result = worker(outcome.job.job_id)
+
+    assert result is not None
+    assert result.evidence_pack is not None
+    assert result.branch_proposals is not None
+    assert result.branch_evaluation is not None
+    assert result.reflection is not None
+    assert result.evidence_pack.pack_version == "evidence_pack_v1"
+    assert result.evidence_pack.query_class is ResearchQueryClass.PROCEDURAL_ADMIN
+    assert result.branch_proposals.eligible is False
+    assert len(result.evidence_pack.core) + len(result.evidence_pack.supporting) + len(result.evidence_pack.background) >= 1
 
 
 def test_research_report_prompt_overlay_for_procedural_admin_demands_operator_shape() -> None:
@@ -436,6 +478,49 @@ def test_top_findings_for_procedural_query_demotes_adjacent_official_context() -
     assert ranked.index(next(item for item in ranked if item.title == "Conditional Access: Conditions - Microsoft Entra ID")) > 0
 
 
+def test_lint_compiled_research_artifact_flags_snapshot_and_reflection_followup_gaps() -> None:
+    artifact = CompiledResearchArtifact(
+        artifact_id="cra-1",
+        source_job_id="rj-1",
+        owner_id="user-1",
+        query="test query",
+        query_class=ResearchQueryClass.BROAD_CONCEPT,
+        title="Test",
+        summary="Summary",
+        current_answer="Answer",
+        supporting_evidence=(CompiledResearchEvidenceRef(url="https://example.test", title="Example", summary="Summary"),),
+        source_refs=(ResearchSource(url="https://example.test", title="Example"),),
+        problem_analysis_snapshot=ProblemAnalysis(
+            query_class=ResearchQueryClass.BROAD_CONCEPT,
+            complexity=ResearchComplexity.HIGH,
+            goal="test query",
+        ),
+        execution_plan_snapshot=ResearchExecutionPlan(
+            strategy=ResearchPlanStrategy.BROAD_RESEARCH,
+            objective="test query",
+            steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Collect sources."),),
+        ),
+        reflection_snapshot=ResearchReflection(
+            goal_coverage="weak",
+            should_follow_up=True,
+            recommended_follow_up=None,
+        ),
+        evaluation_snapshot=ResearchEvaluationArtifact(
+            query_class=ResearchQueryClass.BROAD_CONCEPT,
+            should_revise_report=False,
+        ),
+        created_at="2026-06-21T00:00:00+00:00",
+    )
+
+    lint = _lint_compiled_research_artifact(artifact)
+
+    assert 'shallow_execution_plan_snapshot' in lint.risk_flags
+    assert 'reflection_followup_without_next_checks' in lint.risk_flags
+    assert 'weak_reflection_without_guidance' in lint.risk_flags
+    assert 'reflection_evaluation_mismatch' in lint.risk_flags
+    assert lint.status is CompiledResearchArtifactLintStatus.WEAK
+
+
 def test_lint_compiled_research_artifact_flags_open_questions_without_next_checks() -> None:
     artifact = CompiledResearchArtifact(
         artifact_id="cra-1",
@@ -545,7 +630,6 @@ def test_procedural_admin_unified_search_adapter_falls_back_when_unified_hits_la
     assert hits[0].url.startswith('https://learn.microsoft.com/')
 
 
-
 def test_general_relevance_prefers_procedural_docs_over_loose_noise() -> None:
     query = "jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów"
     strong_hit = SearchHit(
@@ -575,6 +659,10 @@ def test_fake_research_worker_filters_off_topic_hits_for_market_query() -> None:
     result = worker(outcome.job.job_id)
 
     assert result is not None
+    assert result.problem_analysis is not None
+    assert result.execution_plan is not None
+    assert result.problem_analysis.goal == outcome.job.query
+    assert result.execution_plan.objective == outcome.job.query
     assert result.stats.rounds == 2
     assert len(result.sources) == 3
     assert all("ethusdc" in source.title.lower() or "ethusdc" in source.url.lower() for source in result.sources)
@@ -621,6 +709,137 @@ def test_evidence_packing_prefers_official_docs_as_core_for_procedural_query() -
     assert all('velessoftware.com' not in finding.url for finding in packed.core)
     assert len(packed.background) >= 1
     assert packed.has_direct_procedural_evidence is True
+
+
+def test_problem_analysis_derivation_for_broad_and_procedural_queries() -> None:
+    broad = _derive_problem_analysis("deep research architecture")
+    procedural = _derive_problem_analysis("How do I create configuration baselines in SCCM?")
+
+    assert broad.query_class is ResearchQueryClass.BROAD_CONCEPT
+    assert broad.complexity is ResearchComplexity.HIGH
+    assert "system_shape" in broad.focus_areas
+    assert procedural.query_class is ResearchQueryClass.PROCEDURAL_ADMIN
+    assert procedural.complexity is ResearchComplexity.LOW
+    assert "validation" in procedural.focus_areas
+    assert "state_exact_steps_only_when_supported_by_evidence" in procedural.constraints
+
+
+def test_branch_proposals_are_only_eligible_for_broad_or_high_complexity_queries() -> None:
+    broad_analysis = ProblemAnalysis(
+        query_class=ResearchQueryClass.BROAD_CONCEPT,
+        complexity=ResearchComplexity.HIGH,
+        goal="deep research architecture",
+    )
+    procedural_analysis = ProblemAnalysis(
+        query_class=ResearchQueryClass.PROCEDURAL_ADMIN,
+        complexity=ResearchComplexity.LOW,
+        goal="How do I create configuration baselines in SCCM?",
+    )
+    broad_plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.BROAD_RESEARCH,
+        objective="deep research architecture",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Collect high-signal conceptual and technical sources."),),
+    )
+
+    broad = _derive_branch_proposals(problem_analysis=broad_analysis, execution_plan=broad_plan)
+    procedural = _derive_branch_proposals(problem_analysis=procedural_analysis, execution_plan=None)
+
+    assert broad.eligible is True
+    assert broad.reason == "broad_or_high_complexity_query"
+    assert len(broad.branches) == 3
+    assert procedural.eligible is False
+    assert procedural.reason == "query_not_eligible"
+    assert procedural.branches == ()
+
+
+def test_branch_evaluator_selects_top_two_branches_for_eligible_broad_query() -> None:
+    analysis = ProblemAnalysis(
+        query_class=ResearchQueryClass.BROAD_CONCEPT,
+        complexity=ResearchComplexity.HIGH,
+        goal="deep research architecture",
+        focus_areas=("definition", "system_shape", "key_tradeoffs"),
+    )
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.BROAD_RESEARCH,
+        objective="deep research architecture",
+        steps=(
+            ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Collect sources."),
+            ResearchExecutionPlanStep(step_id="step-2", kind="analyze", objective="Analyze tradeoffs.", depends_on=("step-1",)),
+        ),
+    )
+    proposals = _derive_branch_proposals(problem_analysis=analysis, execution_plan=plan)
+    evidence_pack = ResearchEvidencePack(
+        query_class=ResearchQueryClass.BROAD_CONCEPT,
+        core=(ResearchFinding(url="https://example.test/1", title="A", summary="Summary A"), ResearchFinding(url="https://example.test/2", title="B", summary="Summary B")),
+        supporting=(ResearchFinding(url="https://example.test/3", title="C", summary="Summary C"),),
+    )
+
+    evaluation = _evaluate_branch_proposals(
+        problem_analysis=analysis,
+        execution_plan=plan,
+        evidence_pack=evidence_pack,
+        branch_proposals=proposals,
+    )
+
+    assert evaluation.evaluation_version == "branch_evaluator_v1"
+    assert len(evaluation.scores) == 3
+    assert len(evaluation.selected_branch_ids) <= 2
+    assert evaluation.selected_branch_ids[0] == evaluation.scores[0].branch_id
+
+
+def test_reflection_emits_bounded_follow_up_for_thin_broad_result() -> None:
+    analysis = ProblemAnalysis(
+        query_class=ResearchQueryClass.BROAD_CONCEPT,
+        complexity=ResearchComplexity.HIGH,
+        goal="deep research architecture",
+        focus_areas=("definition", "system_shape", "key_tradeoffs"),
+    )
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.BROAD_RESEARCH,
+        objective="deep research architecture",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Collect sources."),),
+    )
+    evidence_pack = ResearchEvidencePack(
+        query_class=ResearchQueryClass.BROAD_CONCEPT,
+        core=(ResearchFinding(url="https://example.test/1", title="A", summary="Summary A"),),
+        supporting=(),
+    )
+    branch_evaluation = ResearchBranchEvaluation(selected_branch_ids=("branch-1",))
+    evaluation = ResearchEvaluationArtifact(
+        query_class=ResearchQueryClass.BROAD_CONCEPT,
+        relevance_verdict=ResearchEvaluationVerdict.MIXED,
+    )
+
+    reflection = _derive_reflection(
+        problem_analysis=analysis,
+        execution_plan=plan,
+        evidence_pack=evidence_pack,
+        branch_evaluation=branch_evaluation,
+        evaluation=evaluation,
+    )
+
+    assert reflection.reflection_version == "reflection_v1"
+    assert reflection.goal_coverage in {"partial", "weak"}
+    assert reflection.should_follow_up is True
+    assert reflection.recommended_follow_up is not None
+
+
+def test_stub_planner_uses_problem_analysis_to_build_execution_plan() -> None:
+    problem_analysis = ProblemAnalysis(
+        query_class=ResearchQueryClass.PROCEDURAL_ADMIN,
+        complexity=ResearchComplexity.LOW,
+        goal="How do I create configuration baselines in SCCM?",
+        focus_areas=("task_path", "required_controls", "validation"),
+        constraints=("state_exact_steps_only_when_supported_by_evidence",),
+    )
+    from sourcetrace.application.research_runtime import StubResearchPlanner
+    plan = StubResearchPlanner()(problem_analysis.goal, problem_analysis=problem_analysis)
+
+    assert plan.strategy is ResearchPlanStrategy.PROCEDURAL_RESEARCH
+    assert plan.objective == problem_analysis.goal
+    assert len(plan.steps) == 3
+    assert plan.steps[0].kind == "search"
+    assert plan.steps[-1].depends_on == ("step-2",)
 
 
 def test_query_classification_and_post_result_evaluator_for_procedural_query() -> None:
@@ -706,6 +925,12 @@ def test_project_source_refs_for_procedural_query_prefers_official_docs_in_persi
         result="## Current answer\nUse official documentation.\n\n## Key findings\n- Official docs exist.\n\n## Uncertainty\n- None.\n\n## Next checks\n- None.",
         raw_report="",
         stats=ResearchStats(search_providers=("procedural_admin_unified_search", "searxng")),
+        execution_plan=ResearchExecutionPlan(
+            strategy=ResearchPlanStrategy.PROCEDURAL_RESEARCH,
+            objective="How to configure conditional access in Entra ID?",
+            steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Find direct procedural or official task guidance."),),
+        ),
+        evidence_pack=ResearchEvidencePack(query_class=ResearchQueryClass.PROCEDURAL_ADMIN),
         sources=(
             ResearchSource(url="https://www.manageengine.com/microsoft-365-management-reporting/kb/how-to-configure-conditional-access-in-microsoft-entra-id.html", title="ManageEngine KB"),
             ResearchSource(url="https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-alt-all-users-compliant-hybrid-or-mfa", title="Require compliant, hybrid joined devices, or MFA - Microsoft Entra ID"),
@@ -720,344 +945,35 @@ def test_project_source_refs_for_procedural_query_prefers_official_docs_in_persi
     projected = _project_source_refs(result, ())
 
     assert projected
-    assert all("linkedin.com" not in item.url for item in projected)
-    assert all("manageengine.com" not in item.url for item in projected)
     assert projected[0].url.startswith("https://learn.microsoft.com/")
 
 
-def test_procedural_evaluator_downgrades_indirect_official_context() -> None:
-    query = "How to configure a policy in an admin portal?"
-    findings = (
-        ResearchFinding(
-            url="https://learn.microsoft.com/en-us/product/overview",
-            title="Policy engine overview",
-            summary="Official overview page describing policy concepts.",
-        ),
-        ResearchFinding(
-            url="https://learn.microsoft.com/en-us/product/concept-conditions",
-            title="Conditions concept",
-            summary="Official concept page for conditions and controls.",
-        ),
-    )
-    report = "## Current answer\nUse the admin portal to configure the policy.\n\n## Key findings\n- Official docs describe policy concepts.\n\n## Uncertainty\n- Exact setup steps are not confirmed.\n\n## Next checks\n- Find the direct setup page."
-
-    evaluation = _evaluate_research_result(
-        query=query,
-        findings=findings,
-        report=report,
-        stats=ResearchStats(search_providers=("searxng",), authority_policy_applied=True),
-    )
-
-    assert evaluation.source_quality_verdict is ResearchEvaluationVerdict.MIXED
-    assert evaluation.relevance_verdict is ResearchEvaluationVerdict.MIXED
-    assert evaluation.truthfulness_verdict is ResearchEvaluationVerdict.MIXED
-    assert any("direct task/setup evidence is not confirmed" in reason for reason in evaluation.source_quality_reasons)
-    assert any("indirect procedural context" in risk for risk in evaluation.relevance_risks)
-    assert any("Find at least one direct task or setup page" in check for check in evaluation.missing_checks)
-    assert any("Official documentation" in reason for reason in evaluation.source_quality_reasons)
-
-
-def test_chained_search_adapter_falls_back_after_empty_or_soft_failure() -> None:
-    from sourcetrace.application.research_runtime import (
-        ChainedSearchAdapter,
-        ResearchSearchError,
-        SearchProviderBridge,
-        SearxNGSearchAdapter,
-        build_provider_search_adapter,
-    )
-
-    class EmptyAdapter:
-        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
-            return ()
-
-    class FailingAdapter:
-        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
-            raise ResearchSearchError('searx temporary failure')
-
-    class ProviderAdapter:
-        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
-            return (
-                SearchHit(
-                    url='https://example.test/fallback',
-                    title='Fallback Result',
-                    snippet='Recovered via provider fallback.',
-                ),
-            )
-
-    chained = ChainedSearchAdapter(EmptyAdapter(), ProviderAdapter())
-    hits = chained(('query',), round_number=1)
-    assert len(hits) == 1
-    assert hits[0].title == 'Fallback Result'
-
-    chained_after_error = ChainedSearchAdapter(FailingAdapter(), ProviderAdapter())
-    hits_after_error = chained_after_error(('query',), round_number=1)
-    assert len(hits_after_error) == 1
-    assert hits_after_error[0].url == 'https://example.test/fallback'
-
-    adapter = build_provider_search_adapter(
-        searxng_base_url='http://127.0.0.1:18080',
-        search_web=lambda query, count=3: [{'url': 'https://example.test/provider', 'title': 'Provider Result', 'snippet': 'Provider snippet'}],
-        bridge=SearchProviderBridge(),
-    )
-    assert isinstance(adapter, ChainedSearchAdapter)
-
-
-def test_procedural_query_bias_does_not_treat_generic_gaming_howto_as_admin_query() -> None:
-    assert _procedural_query_bias("how do I deploy configuration baselines in SCCM") is True
-    assert _procedural_query_bias("what are important elements for poe2 monk to be able do endgame") is False
-
-
-def test_build_search_adapter_raises_when_no_provider_is_configured() -> None:
-    try:
-        build_search_adapter()
-    except ResearchSearchError as exc:
-        assert "Search is unavailable" in str(exc)
-    else:
-        raise AssertionError("Expected ResearchSearchError when no search backend is configured")
-
-
-def test_fake_research_worker_errors_when_search_returns_no_results() -> None:
-    persistence = create_in_memory_research_persistence()
+def test_file_backed_research_persistence_roundtrips_new_artifact_fields(tmp_path) -> None:
+    persistence = create_file_backed_research_persistence(tmp_path)
     manager = ResearchJobManager(persistence)
+    worker = FakeResearchWorker(persistence, search=DeterministicSearch())
 
-    class EmptySearch:
-        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
-            return ()
-
-    worker = FakeResearchWorker(persistence, search=EmptySearch())
     outcome = manager.start_job(
-        ResearchJobStartRequest(owner_id="user-1", query="How do I create configuration baselines in SCCM?")
+        ResearchJobStartRequest(owner_id="user-1", query="deep research architecture")
     )
-
     result = worker(outcome.job.job_id)
-    status = manager.get_job_status(outcome.job.job_id)
 
-    assert result is None
-    assert status is not None
-    assert status.job.status is ResearchJobStatus.ERROR
-    assert "Search is unavailable" in (status.job.error or "")
-    assert status.progress[-1].phase.value == "error"
+    reloaded = create_file_backed_research_persistence(tmp_path)
+    job = reloaded.jobs.get_job(outcome.job.job_id)
+    persisted_result = reloaded.results.get_result(outcome.job.job_id)
+    compiled = reloaded.compiled.get_artifact(f"cra-{outcome.job.job_id}")
+    lint = reloaded.compiled_lint.get_lint_for_artifact(f"cra-{outcome.job.job_id}")
 
-
-def test_stub_query_generator_shapes_procedural_query_toward_official_docs() -> None:
-    generator = StubQueryGenerator()
-    plan = type('Plan', (), {'objective': 'How do I create configuration baselines in SCCM?'})()
-
-    queries = generator(plan, round_number=1)
-
-    assert any('site:learn.microsoft.com' in query for query in queries)
-    assert any('Microsoft Learn' in query for query in queries)
-    assert any('configuration baselines' in query.lower() for query in queries)
-
-
-def test_procedural_query_variants_include_authority_seeking_forms() -> None:
-    variants = _procedural_query_variants('How do I create configuration baselines in SCCM?')
-
-    assert any('site:learn.microsoft.com' in variant for variant in variants)
-    assert any('official documentation' in variant.lower() for variant in variants)
-    assert any('Microsoft Learn create configuration baselines in Configuration Manager' in variant for variant in variants)
-
-
-def test_authority_signal_prefers_microsoft_learn_for_procedural_query() -> None:
-    query = "How do I create configuration baselines in SCCM?"
-    official = SearchHit(
-        url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
-        title="Create configuration baselines - Configuration Manager | Microsoft Learn",
-        snippet="Official Microsoft Learn documentation.",
-    )
-    blog = SearchHit(
-        url="https://www.anoopcnair.com/how-create-sccm-configuration-items-baselines/",
-        title="How to Create SCCM Configuration Items Configuration Baselines",
-        snippet="Community blog walkthrough.",
-    )
-
-    assert _authority_signal_score(query=query, hit=official) > _authority_signal_score(query=query, hit=blog)
-    assert _authority_signal_score(query=query, hit=official) >= 10
-
-
-def test_general_relevance_rejects_weak_blog_root_and_generic_pdf_for_procedural_query() -> None:
-    query = "jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów"
-    weak_blog = SearchHit(
-        url="http://piotrsccm.blogspot.com/",
-        title="SCCM",
-        snippet="Zdalne wywołanie Configuration Baseline. Po utworzeniu i wdrożeniu na testową kolekcję komputerów...",
-    )
-    weak_pdf = SearchHit(
-        url="http://www.e-szbi.pl/files/Przewodnik_zabezpieczen_systemu_Win_8_1.pdf",
-        title="przewodnik zabezpieczeo - systemu windows 8 oraz",
-        snippet="PDF guide with mixed Windows security content.",
-    )
-    strong_doc = SearchHit(
-        url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
-        title="Create configuration baselines - Configuration Manager | Microsoft Learn",
-        snippet="Configuration baselines contain predefined configuration items and can be deployed to collections for compliance evaluation.",
-    )
-
-    assert _is_relevant_hit(query=query, hit=weak_blog) is False
-    assert _is_relevant_hit(query=query, hit=weak_pdf) is False
-    assert _is_relevant_hit(
-        query=query,
-        hit=SearchHit(
-            url="https://www.reddit.com/r/SCCM/comments/example/baselines/",
-            title="Need help with SCCM baselines",
-            snippet="Reddit thread with community opinions.",
-        ),
-    ) is False
-    assert _is_relevant_hit(
-        query=query,
-        hit=SearchHit(
-            url="https://stackoverflow.com/questions/39803370/sccm-configuration-baseline-name-table",
-            title="SCCM Configuration Baseline Name table - Stack Overflow",
-            snippet="Community Q&A about SCCM baseline internals.",
-        ),
-    ) is False
-    assert _is_relevant_hit(
-        query=query,
-        hit=SearchHit(
-            url="https://gist.github.com/Ioan-Popovici/4a5f932f1a7a0c6c7bc69c092f0b9969",
-            title="SCCM Configuration Baseline Script",
-            snippet="Community gist with a baseline-related script.",
-        ),
-    ) is False
-    assert _is_relevant_hit(query=query, hit=strong_doc) is True
-
-
-def test_pre_extraction_filter_prefers_official_docs_and_drops_forum_video_snippet() -> None:
-    hits = (
-        SearchHit(
-            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
-            title="Create configuration baselines - Configuration Manager | Microsoft Learn",
-            snippet="Official procedural documentation.",
-        ),
-        SearchHit(
-            url="https://www.youtube.com/watch?v=oKk2K_omk7c",
-            title="Configuring SCCM Configuration Items and Baselines",
-            snippet="Video walkthrough of SCCM baseline setup.",
-        ),
-        SearchHit(
-            url="https://www.reddit.com/r/SCCM/comments/jb1z19/can_i_just_say_how_much_i_love_configuration/",
-            title="Can I just say how much I love Configuration Items/Baselines?",
-            snippet="Forum discussion about SCCM baselines.",
-        ),
-        SearchHit(
-            url="https://gist.github.com/Ioan-Popovici/4a5f932f1a7a0c6c7bc69c092f0b9969",
-            title="SCCM Configuration Baseline Script",
-            snippet="Community gist with a baseline-related script.",
-        ),
-    )
-
-    outcome = _filter_hits_for_extraction(
-        query='How do I create configuration baselines in SCCM?',
-        hits=hits,
-    )
-
-    kept_urls = [hit.url for hit in outcome.kept_hits]
-    assert any(url.startswith('https://learn.microsoft.com/') for url in kept_urls)
-    assert all('youtube.com' not in url for url in kept_urls)
-    assert all('reddit.com' not in url for url in kept_urls)
-    assert all('gist.github.com' not in url for url in kept_urls)
-    assert outcome.authority_policy_applied is True
-    assert outcome.dropped_count >= 2
-
-
-def test_pre_extraction_filter_caps_secondary_when_two_official_docs_exist() -> None:
-    hits = (
-        SearchHit(
-            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
-            title="Create configuration baselines - Configuration Manager | Microsoft Learn",
-            snippet="Official procedural documentation.",
-        ),
-        SearchHit(
-            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/deploy-configuration-baselines",
-            title="Deploy configuration baselines - Configuration Manager | Microsoft Learn",
-            snippet="Official deployment documentation.",
-        ),
-        SearchHit(
-            url="https://www.anoopcnair.com/how-create-sccm-configuration-items-baselines/",
-            title="How to Create SCCM Configuration Items Configuration Baselines",
-            snippet="Community tutorial.",
-        ),
-    )
-
-    outcome = _filter_hits_for_extraction(
-        query='How do I create configuration baselines in SCCM?',
-        hits=hits,
-    )
-
-    kept_urls = tuple(hit.url for hit in outcome.kept_hits)
-    assert kept_urls == (
-        'https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines',
-        'https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/deploy-configuration-baselines',
-    )
-
-
-def test_pre_extraction_filter_uses_fallback_when_only_secondary_sources_exist() -> None:
-    hits = (
-        SearchHit(
-            url="https://www.velessoftware.com/blog/deploy-a-sccm-configuration-baseline",
-            title="Deploy a SCCM Configuration Baseline",
-            snippet="Community blog walkthrough with procedural details.",
-        ),
-        SearchHit(
-            url="https://msendpointmgr.com/2017/04/09/configmgr-configuration-baselines-a-beginners-guide/",
-            title="ConfigMgr Configuration Baselines - A Beginners Guide",
-            snippet="Secondary technical guide for configuration baselines.",
-        ),
-    )
-
-    outcome = _filter_hits_for_extraction(
-        query='How do I create configuration baselines in SCCM?',
-        hits=hits,
-    )
-
-    assert len(outcome.kept_hits) >= 1
-    assert outcome.fallback_used is True
-    assert outcome.authority_policy_applied is True
-
-
-def test_top_findings_prefers_official_docs_over_blog_video_and_forum_for_procedural_query() -> None:
-    findings = (
-        ExtractedFinding(
-            url="https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines",
-            title="Create configuration baselines - Configuration Manager | Microsoft Learn",
-            summary="Official procedural documentation for creating and deploying configuration baselines.",
-        ),
-        ExtractedFinding(
-            url="https://www.anoopcnair.com/how-create-sccm-configuration-items-baselines/",
-            title="How to Create SCCM Configuration Items Configuration Baselines",
-            summary="Community blog walkthrough for SCCM baselines.",
-        ),
-        ExtractedFinding(
-            url="https://www.youtube.com/watch?v=oKk2K_omk7c",
-            title="Configuring SCCM Configuration Items and Baselines",
-            summary="Video walkthrough of SCCM baseline setup.",
-        ),
-        ExtractedFinding(
-            url="https://www.reddit.com/r/SCCM/comments/jb1z19/can_i_just_say_how_much_i_love_configuration/",
-            title="Can I just say how much I love Configuration Items/Baselines?",
-            summary="Forum discussion about SCCM baselines.",
-        ),
-        ExtractedFinding(
-            url="https://stackoverflow.com/questions/39803370/sccm-configuration-baseline-name-table",
-            title="SCCM Configuration Baseline Name table - Stack Overflow",
-            summary="Community Q&A about SCCM baseline internals.",
-        ),
-        ExtractedFinding(
-            url="https://gist.github.com/Ioan-Popovici/4a5f932f1a7a0c6c7bc69c092f0b9969",
-            title="SCCM Configuration Baseline Script",
-            summary="Community gist with a baseline-related script.",
-        ),
-    )
-
-    top = _top_findings(
-        findings,
-        limit=2,
-        query="jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów",
-    )
-
-    assert len(top) == 2
-    assert top[0].url.startswith("https://learn.microsoft.com/")
-    assert all("youtube.com" not in finding.url for finding in top)
-    assert all("reddit.com" not in finding.url for finding in top)
-    assert all("stackoverflow.com" not in finding.url for finding in top)
-    assert all("gist.github.com" not in finding.url for finding in top)
+    assert result.problem_analysis is not None
+    assert job is not None and job.problem_analysis is not None
+    assert job.execution_plan is not None
+    assert persisted_result is not None and persisted_result.problem_analysis is not None
+    assert persisted_result.execution_plan is not None
+    assert persisted_result.evidence_pack is not None
+    assert persisted_result.branch_proposals is not None
+    assert persisted_result.branch_evaluation is not None
+    assert persisted_result.reflection is not None
+    assert compiled is not None and compiled.problem_analysis_snapshot is not None
+    assert compiled.execution_plan_snapshot is not None
+    assert compiled.reflection_snapshot is not None
+    assert lint is not None

@@ -10,15 +10,26 @@ from sourcetrace.domain.research import (
     CompiledResearchArtifactLintStatus,
     CompiledResearchClaim,
     CompiledResearchEvidenceRef,
+    ProblemAnalysis,
+    ResearchBranchEvaluation,
+    ResearchBranchProposal,
+    ResearchBranchProposalSet,
+    ResearchBranchScore,
     ResearchCompletionMode,
+    ResearchComplexity,
     ResearchEvaluationArtifact,
     ResearchEvaluationVerdict,
+    ResearchEvidencePack,
+    ResearchExecutionPlan,
+    ResearchExecutionPlanStep,
     ResearchFinding,
     ResearchJob,
     ResearchJobStatus,
     ResearchPhase,
+    ResearchPlanStrategy,
     ResearchProgressEvent,
     ResearchQueryClass,
+    ResearchReflection,
     ResearchResultArtifact,
     ResearchSettings,
     ResearchSource,
@@ -241,6 +252,233 @@ def recover_interrupted_research_jobs(root_dir: str | Path) -> tuple[str, ...]:
         recovered.append(job.job_id)
     return tuple(recovered)
 
+
+
+def _problem_analysis_payload(analysis: ProblemAnalysis | None) -> dict[str, object] | None:
+    if analysis is None:
+        return None
+    return {
+        "query_class": analysis.query_class.value,
+        "complexity": analysis.complexity.value,
+        "goal": analysis.goal,
+        "focus_areas": list(analysis.focus_areas),
+        "constraints": list(analysis.constraints),
+        "analysis_version": analysis.analysis_version,
+    }
+
+
+def _problem_analysis_from_payload(payload: object) -> ProblemAnalysis | None:
+    if not isinstance(payload, dict):
+        return None
+    return ProblemAnalysis(
+        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
+        complexity=ResearchComplexity(str(payload.get("complexity", ResearchComplexity.MEDIUM.value))),
+        goal=str(payload.get("goal", "")),
+        focus_areas=tuple(str(item) for item in payload.get("focus_areas", [])),
+        constraints=tuple(str(item) for item in payload.get("constraints", [])),
+        analysis_version=str(payload.get("analysis_version", "problem_analyzer_v1")),
+    )
+
+
+def _execution_plan_payload(plan: ResearchExecutionPlan | None) -> dict[str, object] | None:
+    if plan is None:
+        return None
+    return {
+        "plan_version": plan.plan_version,
+        "strategy": plan.strategy.value,
+        "objective": plan.objective,
+        "steps": [
+            {
+                "step_id": step.step_id,
+                "kind": step.kind,
+                "objective": step.objective,
+                "depends_on": list(step.depends_on),
+            }
+            for step in plan.steps
+        ],
+    }
+
+
+def _execution_plan_from_payload(payload: object) -> ResearchExecutionPlan | None:
+    if not isinstance(payload, dict):
+        return None
+    return ResearchExecutionPlan(
+        plan_version=str(payload.get("plan_version", "planner_v2")),
+        strategy=ResearchPlanStrategy(str(payload.get("strategy", ResearchPlanStrategy.DIRECT_ANSWER.value))),
+        objective=str(payload.get("objective", "")),
+        steps=tuple(
+            ResearchExecutionPlanStep(
+                step_id=str(item.get("step_id", "")),
+                kind=str(item.get("kind", "")),
+                objective=str(item.get("objective", "")),
+                depends_on=tuple(str(dep) for dep in item.get("depends_on", [])),
+            )
+            for item in payload.get("steps", []) if isinstance(item, dict)
+        ),
+    )
+
+
+def _evidence_pack_payload(pack: ResearchEvidencePack | None) -> dict[str, object] | None:
+    if pack is None:
+        return None
+    return {
+        "pack_version": pack.pack_version,
+        "query_class": pack.query_class.value,
+        "core": [asdict(item) for item in pack.core],
+        "supporting": [asdict(item) for item in pack.supporting],
+        "background": [asdict(item) for item in pack.background],
+        "has_direct_procedural_evidence": pack.has_direct_procedural_evidence,
+    }
+
+
+def _evidence_pack_from_payload(payload: object) -> ResearchEvidencePack | None:
+    if not isinstance(payload, dict):
+        return None
+    def _finding_tuple(key: str) -> tuple[ResearchFinding, ...]:
+        return tuple(
+            ResearchFinding(
+                url=str(item.get("url", "")),
+                title=str(item.get("title", "")),
+                summary=str(item.get("summary", "")),
+            )
+            for item in payload.get(key, []) if isinstance(item, dict)
+        )
+    return ResearchEvidencePack(
+        pack_version=str(payload.get("pack_version", "evidence_pack_v1")),
+        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
+        core=_finding_tuple("core"),
+        supporting=_finding_tuple("supporting"),
+        background=_finding_tuple("background"),
+        has_direct_procedural_evidence=bool(payload.get("has_direct_procedural_evidence", False)),
+    )
+
+
+def _branch_proposal_set_payload(proposals: ResearchBranchProposalSet | None) -> dict[str, object] | None:
+    if proposals is None:
+        return None
+    return {
+        "proposal_version": proposals.proposal_version,
+        "eligible": proposals.eligible,
+        "reason": proposals.reason,
+        "branches": [asdict(item) for item in proposals.branches],
+    }
+
+
+def _branch_proposal_set_from_payload(payload: object) -> ResearchBranchProposalSet | None:
+    if not isinstance(payload, dict):
+        return None
+    return ResearchBranchProposalSet(
+        proposal_version=str(payload.get("proposal_version", "branch_proposal_v1")),
+        eligible=bool(payload.get("eligible", False)),
+        reason=str(payload.get("reason", "not_eligible")),
+        branches=tuple(
+            ResearchBranchProposal(
+                branch_id=str(item.get("branch_id", "")),
+                label=str(item.get("label", "")),
+                objective=str(item.get("objective", "")),
+            )
+            for item in payload.get("branches", []) if isinstance(item, dict)
+        ),
+    )
+
+
+def _branch_evaluation_payload(evaluation: ResearchBranchEvaluation | None) -> dict[str, object] | None:
+    if evaluation is None:
+        return None
+    return {
+        "evaluation_version": evaluation.evaluation_version,
+        "selected_branch_ids": list(evaluation.selected_branch_ids),
+        "scores": [
+            {
+                "branch_id": item.branch_id,
+                "coverage_score": item.coverage_score,
+                "evidence_fit_score": item.evidence_fit_score,
+                "priority_score": item.priority_score,
+                "combined_score": item.combined_score,
+            }
+            for item in evaluation.scores
+        ],
+    }
+
+
+def _branch_evaluation_from_payload(payload: object) -> ResearchBranchEvaluation | None:
+    if not isinstance(payload, dict):
+        return None
+    return ResearchBranchEvaluation(
+        evaluation_version=str(payload.get("evaluation_version", "branch_evaluator_v1")),
+        selected_branch_ids=tuple(str(item) for item in payload.get("selected_branch_ids", [])),
+        scores=tuple(
+            ResearchBranchScore(
+                branch_id=str(item.get("branch_id", "")),
+                coverage_score=float(item.get("coverage_score", 0.0)),
+                evidence_fit_score=float(item.get("evidence_fit_score", 0.0)),
+                priority_score=float(item.get("priority_score", 0.0)),
+                combined_score=float(item.get("combined_score", 0.0)),
+            )
+            for item in payload.get("scores", []) if isinstance(item, dict)
+        ),
+    )
+
+
+def _reflection_payload(reflection: ResearchReflection | None) -> dict[str, object] | None:
+    if reflection is None:
+        return None
+    return {
+        "reflection_version": reflection.reflection_version,
+        "goal_coverage": reflection.goal_coverage,
+        "missing_topics": list(reflection.missing_topics),
+        "weak_evidence_areas": list(reflection.weak_evidence_areas),
+        "should_follow_up": reflection.should_follow_up,
+        "recommended_follow_up": reflection.recommended_follow_up,
+    }
+
+
+def _reflection_from_payload(payload: object) -> ResearchReflection | None:
+    if not isinstance(payload, dict):
+        return None
+    return ResearchReflection(
+        reflection_version=str(payload.get("reflection_version", "reflection_v1")),
+        goal_coverage=str(payload.get("goal_coverage", "partial")),
+        missing_topics=tuple(str(item) for item in payload.get("missing_topics", [])),
+        weak_evidence_areas=tuple(str(item) for item in payload.get("weak_evidence_areas", [])),
+        should_follow_up=bool(payload.get("should_follow_up", False)),
+        recommended_follow_up=_optional_str(payload.get("recommended_follow_up")),
+    )
+
+
+def _evaluation_payload(evaluation: ResearchEvaluationArtifact | None) -> dict[str, object] | None:
+    if evaluation is None:
+        return None
+    return {
+        "query_class": evaluation.query_class.value,
+        "source_quality_verdict": evaluation.source_quality_verdict.value,
+        "source_quality_reasons": list(evaluation.source_quality_reasons),
+        "relevance_verdict": evaluation.relevance_verdict.value,
+        "relevance_risks": list(evaluation.relevance_risks),
+        "truthfulness_verdict": evaluation.truthfulness_verdict.value,
+        "overclaim_risks": list(evaluation.overclaim_risks),
+        "missing_checks": list(evaluation.missing_checks),
+        "recommended_next_check": evaluation.recommended_next_check,
+        "should_revise_report": evaluation.should_revise_report,
+    }
+
+
+def _evaluation_from_payload(payload: object) -> ResearchEvaluationArtifact | None:
+    if not isinstance(payload, dict):
+        return None
+    return ResearchEvaluationArtifact(
+        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
+        source_quality_verdict=ResearchEvaluationVerdict(str(payload.get("source_quality_verdict", ResearchEvaluationVerdict.MIXED.value))),
+        source_quality_reasons=tuple(str(item) for item in payload.get("source_quality_reasons", [])),
+        relevance_verdict=ResearchEvaluationVerdict(str(payload.get("relevance_verdict", ResearchEvaluationVerdict.MIXED.value))),
+        relevance_risks=tuple(str(item) for item in payload.get("relevance_risks", [])),
+        truthfulness_verdict=ResearchEvaluationVerdict(str(payload.get("truthfulness_verdict", ResearchEvaluationVerdict.MIXED.value))),
+        overclaim_risks=tuple(str(item) for item in payload.get("overclaim_risks", [])),
+        missing_checks=tuple(str(item) for item in payload.get("missing_checks", [])),
+        recommended_next_check=str(payload.get("recommended_next_check", "")),
+        should_revise_report=bool(payload.get("should_revise_report", False)),
+    )
+
 def _research_job_payload(job: ResearchJob) -> dict[str, object]:
     return {
         "job_id": job.job_id,
@@ -251,6 +489,8 @@ def _research_job_payload(job: ResearchJob) -> dict[str, object]:
         "started_at": job.started_at,
         "completed_at": job.completed_at,
         "settings": asdict(job.settings),
+        "problem_analysis": _problem_analysis_payload(job.problem_analysis),
+        "execution_plan": _execution_plan_payload(job.execution_plan),
         "error": job.error,
     }
 
@@ -266,6 +506,8 @@ def _research_job_from_payload(payload: dict[str, object]) -> ResearchJob:
         started_at=_optional_str(payload.get("started_at")),
         completed_at=_optional_str(payload.get("completed_at")),
         settings=ResearchSettings(**{k: v for k, v in settings.items() if k in ResearchSettings.__dataclass_fields__}),
+        problem_analysis=_problem_analysis_from_payload(payload.get("problem_analysis")),
+        execution_plan=_execution_plan_from_payload(payload.get("execution_plan")),
         error=_optional_str(payload.get("error")),
     )
 
@@ -283,18 +525,13 @@ def _research_result_payload(result: ResearchResultArtifact) -> dict[str, object
         "stats": asdict(result.stats),
         "sources": [asdict(source) for source in result.sources],
         "raw_findings": [asdict(finding) for finding in result.raw_findings],
-        "evaluation": {
-            "query_class": result.evaluation.query_class.value,
-            "source_quality_verdict": result.evaluation.source_quality_verdict.value,
-            "source_quality_reasons": list(result.evaluation.source_quality_reasons),
-            "relevance_verdict": result.evaluation.relevance_verdict.value,
-            "relevance_risks": list(result.evaluation.relevance_risks),
-            "truthfulness_verdict": result.evaluation.truthfulness_verdict.value,
-            "overclaim_risks": list(result.evaluation.overclaim_risks),
-            "missing_checks": list(result.evaluation.missing_checks),
-            "recommended_next_check": result.evaluation.recommended_next_check,
-            "should_revise_report": result.evaluation.should_revise_report,
-        } if result.evaluation is not None else None,
+        "problem_analysis": _problem_analysis_payload(result.problem_analysis),
+        "execution_plan": _execution_plan_payload(result.execution_plan),
+        "evidence_pack": _evidence_pack_payload(result.evidence_pack),
+        "branch_proposals": _branch_proposal_set_payload(result.branch_proposals),
+        "branch_evaluation": _branch_evaluation_payload(result.branch_evaluation),
+        "reflection": _reflection_payload(result.reflection),
+        "evaluation": _evaluation_payload(result.evaluation),
         "created_at": result.created_at,
         "completed_at": result.completed_at,
     }
@@ -315,18 +552,10 @@ def _compiled_research_artifact_payload(artifact: CompiledResearchArtifact) -> d
         "open_questions": list(artifact.open_questions),
         "next_checks": list(artifact.next_checks),
         "source_refs": [asdict(source) for source in artifact.source_refs],
-        "evaluation_snapshot": {
-            "query_class": artifact.evaluation_snapshot.query_class.value,
-            "source_quality_verdict": artifact.evaluation_snapshot.source_quality_verdict.value,
-            "source_quality_reasons": list(artifact.evaluation_snapshot.source_quality_reasons),
-            "relevance_verdict": artifact.evaluation_snapshot.relevance_verdict.value,
-            "relevance_risks": list(artifact.evaluation_snapshot.relevance_risks),
-            "truthfulness_verdict": artifact.evaluation_snapshot.truthfulness_verdict.value,
-            "overclaim_risks": list(artifact.evaluation_snapshot.overclaim_risks),
-            "missing_checks": list(artifact.evaluation_snapshot.missing_checks),
-            "recommended_next_check": artifact.evaluation_snapshot.recommended_next_check,
-            "should_revise_report": artifact.evaluation_snapshot.should_revise_report,
-        } if artifact.evaluation_snapshot is not None else None,
+        "problem_analysis_snapshot": _problem_analysis_payload(artifact.problem_analysis_snapshot),
+        "execution_plan_snapshot": _execution_plan_payload(artifact.execution_plan_snapshot),
+        "reflection_snapshot": _reflection_payload(artifact.reflection_snapshot),
+        "evaluation_snapshot": _evaluation_payload(artifact.evaluation_snapshot),
         "created_at": artifact.created_at,
     }
 
@@ -369,7 +598,6 @@ def _compiled_research_artifact_lint_from_payload(payload: dict[str, object]) ->
 
 
 def _compiled_research_artifact_from_payload(payload: dict[str, object]) -> CompiledResearchArtifact:
-    evaluation_payload = payload.get("evaluation_snapshot") if isinstance(payload.get("evaluation_snapshot"), dict) else None
     return CompiledResearchArtifact(
         artifact_id=str(payload["artifact_id"]),
         source_job_id=str(payload["source_job_id"]),
@@ -404,20 +632,10 @@ def _compiled_research_artifact_from_payload(payload: dict[str, object]) -> Comp
             )
             for item in payload.get("source_refs", []) if isinstance(item, dict)
         ),
-        evaluation_snapshot=(
-            ResearchEvaluationArtifact(
-                query_class=ResearchQueryClass(str(evaluation_payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
-                source_quality_verdict=ResearchEvaluationVerdict(str(evaluation_payload.get("source_quality_verdict", ResearchEvaluationVerdict.MIXED.value))),
-                source_quality_reasons=tuple(str(item) for item in evaluation_payload.get("source_quality_reasons", [])),
-                relevance_verdict=ResearchEvaluationVerdict(str(evaluation_payload.get("relevance_verdict", ResearchEvaluationVerdict.MIXED.value))),
-                relevance_risks=tuple(str(item) for item in evaluation_payload.get("relevance_risks", [])),
-                truthfulness_verdict=ResearchEvaluationVerdict(str(evaluation_payload.get("truthfulness_verdict", ResearchEvaluationVerdict.MIXED.value))),
-                overclaim_risks=tuple(str(item) for item in evaluation_payload.get("overclaim_risks", [])),
-                missing_checks=tuple(str(item) for item in evaluation_payload.get("missing_checks", [])),
-                recommended_next_check=str(evaluation_payload.get("recommended_next_check", "")),
-                should_revise_report=bool(evaluation_payload.get("should_revise_report", False)),
-            ) if evaluation_payload is not None else None
-        ),
+        problem_analysis_snapshot=_problem_analysis_from_payload(payload.get("problem_analysis_snapshot")),
+        execution_plan_snapshot=_execution_plan_from_payload(payload.get("execution_plan_snapshot")),
+        reflection_snapshot=_reflection_from_payload(payload.get("reflection_snapshot")),
+        evaluation_snapshot=_evaluation_from_payload(payload.get("evaluation_snapshot")),
         created_at=str(payload.get("created_at", "")),
     )
 
@@ -425,7 +643,6 @@ def _compiled_research_artifact_from_payload(payload: dict[str, object]) -> Comp
 
 def _research_result_from_payload(payload: dict[str, object]) -> ResearchResultArtifact:
     stats_payload = payload.get("stats") if isinstance(payload.get("stats"), dict) else {}
-    evaluation_payload = payload.get("evaluation") if isinstance(payload.get("evaluation"), dict) else None
     return ResearchResultArtifact(
         job_id=str(payload["job_id"]),
         owner_id=str(payload["owner_id"]),
@@ -468,21 +685,13 @@ def _research_result_from_payload(payload: dict[str, object]) -> ResearchResultA
             )
             for item in payload.get("raw_findings", []) if isinstance(item, dict)
         ),
-        evaluation=(
-            ResearchEvaluationArtifact(
-                query_class=ResearchQueryClass(str(evaluation_payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
-                source_quality_verdict=ResearchEvaluationVerdict(str(evaluation_payload.get("source_quality_verdict", ResearchEvaluationVerdict.MIXED.value))),
-                source_quality_reasons=tuple(str(item) for item in evaluation_payload.get("source_quality_reasons", [])),
-                relevance_verdict=ResearchEvaluationVerdict(str(evaluation_payload.get("relevance_verdict", ResearchEvaluationVerdict.MIXED.value))),
-                relevance_risks=tuple(str(item) for item in evaluation_payload.get("relevance_risks", [])),
-                truthfulness_verdict=ResearchEvaluationVerdict(str(evaluation_payload.get("truthfulness_verdict", ResearchEvaluationVerdict.MIXED.value))),
-                overclaim_risks=tuple(str(item) for item in evaluation_payload.get("overclaim_risks", [])),
-                missing_checks=tuple(str(item) for item in evaluation_payload.get("missing_checks", [])),
-                recommended_next_check=str(evaluation_payload.get("recommended_next_check", "")),
-                should_revise_report=bool(evaluation_payload.get("should_revise_report", False)),
-            )
-            if evaluation_payload is not None else None
-        ),
+        problem_analysis=_problem_analysis_from_payload(payload.get("problem_analysis")),
+        execution_plan=_execution_plan_from_payload(payload.get("execution_plan")),
+        evidence_pack=_evidence_pack_from_payload(payload.get("evidence_pack")),
+        branch_proposals=_branch_proposal_set_from_payload(payload.get("branch_proposals")),
+        branch_evaluation=_branch_evaluation_from_payload(payload.get("branch_evaluation")),
+        reflection=_reflection_from_payload(payload.get("reflection")),
+        evaluation=_evaluation_from_payload(payload.get("evaluation")),
         created_at=str(payload["created_at"]),
         completed_at=_optional_str(payload.get("completed_at")),
     )

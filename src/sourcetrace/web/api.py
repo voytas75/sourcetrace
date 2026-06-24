@@ -1320,6 +1320,110 @@ def _research_settings_to_payload(settings: ResearchSettings) -> dict[str, objec
     }
 
 
+def _problem_analysis_to_payload(problem_analysis: object | None) -> dict[str, object] | None:
+    if problem_analysis is None:
+        return None
+    return {
+        "query_class": problem_analysis.query_class.value,
+        "complexity": problem_analysis.complexity.value,
+        "goal": problem_analysis.goal,
+        "focus_areas": list(problem_analysis.focus_areas),
+        "constraints": list(problem_analysis.constraints),
+        "analysis_version": problem_analysis.analysis_version,
+    }
+
+
+def _execution_plan_to_payload(execution_plan: object | None) -> dict[str, object] | None:
+    if execution_plan is None:
+        return None
+    return {
+        "plan_version": execution_plan.plan_version,
+        "strategy": execution_plan.strategy.value,
+        "objective": execution_plan.objective,
+        "steps": [
+            {
+                "step_id": step.step_id,
+                "kind": step.kind,
+                "objective": step.objective,
+                "depends_on": list(step.depends_on),
+            }
+            for step in execution_plan.steps
+        ],
+    }
+
+
+def _evidence_pack_to_payload(evidence_pack: object | None) -> dict[str, object] | None:
+    if evidence_pack is None:
+        return None
+    return {
+        "pack_version": evidence_pack.pack_version,
+        "query_class": evidence_pack.query_class.value,
+        "core": [
+            {"url": finding.url, "title": finding.title, "summary": finding.summary}
+            for finding in evidence_pack.core
+        ],
+        "supporting": [
+            {"url": finding.url, "title": finding.title, "summary": finding.summary}
+            for finding in evidence_pack.supporting
+        ],
+        "background": [
+            {"url": finding.url, "title": finding.title, "summary": finding.summary}
+            for finding in evidence_pack.background
+        ],
+        "has_direct_procedural_evidence": evidence_pack.has_direct_procedural_evidence,
+    }
+
+
+def _branch_proposals_to_payload(branch_proposals: object | None) -> dict[str, object] | None:
+    if branch_proposals is None:
+        return None
+    return {
+        "proposal_version": branch_proposals.proposal_version,
+        "eligible": branch_proposals.eligible,
+        "reason": branch_proposals.reason,
+        "branches": [
+            {
+                "branch_id": branch.branch_id,
+                "label": branch.label,
+                "objective": branch.objective,
+            }
+            for branch in branch_proposals.branches
+        ],
+    }
+
+
+def _branch_evaluation_to_payload(branch_evaluation: object | None) -> dict[str, object] | None:
+    if branch_evaluation is None:
+        return None
+    return {
+        "evaluation_version": branch_evaluation.evaluation_version,
+        "selected_branch_ids": list(branch_evaluation.selected_branch_ids),
+        "scores": [
+            {
+                "branch_id": score.branch_id,
+                "coverage_score": score.coverage_score,
+                "evidence_fit_score": score.evidence_fit_score,
+                "priority_score": score.priority_score,
+                "combined_score": score.combined_score,
+            }
+            for score in branch_evaluation.scores
+        ],
+    }
+
+
+def _reflection_to_payload(reflection: object | None) -> dict[str, object] | None:
+    if reflection is None:
+        return None
+    return {
+        "reflection_version": reflection.reflection_version,
+        "goal_coverage": reflection.goal_coverage,
+        "missing_topics": list(reflection.missing_topics),
+        "weak_evidence_areas": list(reflection.weak_evidence_areas),
+        "should_follow_up": reflection.should_follow_up,
+        "recommended_follow_up": reflection.recommended_follow_up,
+    }
+
+
 def _research_job_to_payload(job: ResearchJob) -> dict[str, object]:
     return {
         "job_id": job.job_id,
@@ -1330,6 +1434,8 @@ def _research_job_to_payload(job: ResearchJob) -> dict[str, object]:
         "started_at": job.started_at,
         "completed_at": job.completed_at,
         "settings": _research_settings_to_payload(job.settings),
+        "problem_analysis": _problem_analysis_to_payload(job.problem_analysis),
+        "execution_plan": _execution_plan_to_payload(job.execution_plan),
         "error": job.error,
     }
 
@@ -1393,6 +1499,9 @@ def _compiled_research_artifact_to_payload(artifact: CompiledResearchArtifact) -
             {"url": source.url, "title": source.title, "image": source.image}
             for source in artifact.source_refs
         ],
+        "problem_analysis_snapshot": _problem_analysis_to_payload(artifact.problem_analysis_snapshot),
+        "execution_plan_snapshot": _execution_plan_to_payload(artifact.execution_plan_snapshot),
+        "reflection_snapshot": _reflection_to_payload(artifact.reflection_snapshot),
         "evaluation_snapshot": {
             "query_class": artifact.evaluation_snapshot.query_class.value,
             "source_quality_verdict": artifact.evaluation_snapshot.source_quality_verdict.value,
@@ -1435,6 +1544,12 @@ def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, obj
             {"url": finding.url, "title": finding.title, "summary": finding.summary}
             for finding in result.raw_findings
         ],
+        "problem_analysis": _problem_analysis_to_payload(result.problem_analysis),
+        "execution_plan": _execution_plan_to_payload(result.execution_plan),
+        "evidence_pack": _evidence_pack_to_payload(result.evidence_pack),
+        "branch_proposals": _branch_proposals_to_payload(result.branch_proposals),
+        "branch_evaluation": _branch_evaluation_to_payload(result.branch_evaluation),
+        "reflection": _reflection_to_payload(result.reflection),
         "evaluation": {
             "query_class": result.evaluation.query_class.value,
             "source_quality_verdict": result.evaluation.source_quality_verdict.value,
@@ -2054,6 +2169,7 @@ def _render_research_console_html() -> str:
                 <div class="status-chip"><div class="status-chip-label">Search hits</div><div id="status_sources_value" class="status-chip-value">0</div><div id="status_sources_sub" class="status-chip-sub">Visible search hits found so far.</div></div>
               </div>
               <div id="status_summary" class="helper">No job yet.</div>
+              <div id="start_debug" class="helper" style="margin-top:12px; background: rgba(255, 182, 72, 0.08); border-color: rgba(255, 182, 72, 0.24); color: #ffe7b8;">Start debug: idle</div>
             </div>
           </div>
           <div class="section-title">
@@ -2096,6 +2212,7 @@ def _render_research_console_html() -> str:
       const queryInput = document.getElementById('query');
       const jobInput = document.getElementById('job_id');
       const statusSummary = document.getElementById('status_summary');
+      const startDebug = document.getElementById('start_debug');
       const resultBox = document.getElementById('result_box');
       const resultPreview = document.getElementById('result_preview');
       const resultBanner = document.getElementById('result_banner');
@@ -2125,16 +2242,14 @@ def _render_research_console_html() -> str:
       function setBox(el, value, cls='console mono') { el.className = cls; el.textContent = value; }
       function renderVerdict(el, value) { el.textContent = value ? value.toUpperCase() : 'N/A'; el.style.color = value === 'strong' ? 'var(--ok)' : value === 'weak' ? 'var(--danger)' : 'var(--warn)'; }
       function renderLines(lines, fallback='None') { if (!Array.isArray(lines) || !lines.length) return fallback; return lines.map((line) => `• ${line}`).join(String.fromCharCode(10)); }
-      function markdownToHtml(markdown) { const escaped = String(markdown || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); return escaped.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>').replace(/[*][*](.*?)[*][*]/g,'<strong>$1</strong>').replace(/^- (.*)$/gm,'<li>$1</li>').replace(/(<li>.*[<]\/li>)/gs,'<ul>$1</ul>').replace(/
-
-/g,'</p><p>').replace(/^/,'<p>').replace(/$/,'</p>').replace(/<p><\/p>/g,'').replace(/<p>(<h[1-3]>)/g,'$1').replace(/(<\/h[1-3]>)<\/p>/g,'$1').replace(/<p>(<ul>)/g,'$1').replace(/(<\/ul>)<\/p>/g,'$1'); }
+      function markdownToHtml(markdown) { const escaped = String(markdown || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); return escaped.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>').replace(/[*][*](.*?)[*][*]/g,'<strong>$1</strong>').replace(/^- (.*)$/gm,'<li>$1</li>').replace(/(<li>.*[<]\/li>)/gs,'<ul>$1</ul>').replace(/\n\n/g,'</p><p>').replace(/^/,'<p>').replace(/$/,'</p>').replace(/<p><\/p>/g,'').replace(/<p>(<h[1-3]>)/g,'$1').replace(/(<\/h[1-3]>)<\/p>/g,'$1').replace(/<p>(<ul>)/g,'$1').replace(/(<\/ul>)<\/p>/g,'$1'); }
       function renderSearchDebug(payload) { const progress = Array.isArray(payload.progress) ? payload.progress : []; const searchEvent = [...progress].reverse().find((event) => event.phase === 'searching'); if (!searchEvent) return 'No search event captured yet.'; const queries = Array.isArray(searchEvent.query_list) && searchEvent.query_list.length ? searchEvent.query_list.map((item) => `• ${item}`).join(String.fromCharCode(10)) : (searchEvent.query_preview || 'n/a'); const providers = Array.isArray(searchEvent.providers_attempted) && searchEvent.providers_attempted.length ? searchEvent.providers_attempted.join(', ') : 'n/a'; return `providers: ${providers}${String.fromCharCode(10)}queries:${String.fromCharCode(10)}${queries}`; }
       function renderStatusSummary(payload) { const job = payload.job || {}; const lines = [`job_id: ${job.job_id || 'n/a'}`, `status: ${job.status || 'n/a'}`, `query: ${job.query || 'n/a'}`]; if (job.completed_at) lines.push(`completed_at: ${job.completed_at}`); const summary = lines.join(String.fromCharCode(10)); statusSummary.textContent = `${summary}${String.fromCharCode(10)}${String.fromCharCode(10)}${renderSearchDebug(payload)}`; jobStatePill.textContent = job.status ? `job: ${job.status}` : 'no job selected'; statusJobValue.textContent = job.job_id || 'No job'; statusJobSub.textContent = job.query || 'Start a job or pick one from the list.'; statusStateValue.textContent = job.status ? String(job.status).toUpperCase() : 'IDLE'; statusStateSub.textContent = job.completed_at ? `Completed at ${job.completed_at}` : (job.started_at ? `Started at ${job.started_at}` : 'Waiting for an operator action.'); const progress = Array.isArray(payload.progress) ? payload.progress : []; const latest = progress.length ? progress[progress.length - 1] : null; const totalSources = latest && Number.isFinite(latest.total_sources) ? latest.total_sources : 0; const newSources = latest && Number.isFinite(latest.new_sources) ? latest.new_sources : 0; statusSourcesValue.textContent = String(totalSources); statusSourcesSub.textContent = newSources > 0 ? `+${newSources} new in latest step` : 'No new hits in the latest step.'; }
       function renderJobsList(payload) { const jobs = Array.isArray(payload.jobs) ? payload.jobs : []; jobsList.innerHTML=''; for (const job of jobs) { const item=document.createElement('button'); item.type='button'; item.className='job-item'; const shortQuery=(job.query || 'no query').length>120?`${(job.query || 'no query').slice(0,117)}...`:(job.query || 'no query'); item.innerHTML=`<strong>${job.status} · ${job.job_id}</strong><div>${shortQuery}</div><div class="job-meta">${job.created_at || 'n/a'}</div>`; item.onclick=async()=>{ jobInput.value=job.job_id; await refreshStatus(); await loadResult(); }; jobsList.appendChild(item);} }
       async function jsonRequest(url, options={}) { connectionPill.textContent='loading'; const response = await fetch(url, options); const text = await response.text(); let payload; try { payload = JSON.parse(text); } catch { payload = { raw: text }; } if (!response.ok) { connectionPill.textContent='error'; const message = payload && (payload.error || payload.status || payload.raw) ? String(payload.error || payload.status || payload.raw) : `HTTP ${response.status}`; throw new Error(`${response.status} ${response.statusText}: ${message}`); } connectionPill.textContent='ok'; return { response, payload }; }
       function showUiError(prefix, error) { const message = error instanceof Error ? error.message : String(error); setText(statusSummary, `${prefix}: ${message}`); connectionPill.textContent='error'; }
       function renderEvaluation(evaluation) { if (!evaluation) { queryClassPill.textContent='query class: n/a'; renderVerdict(evalSourceVerdict,''); renderVerdict(evalRelevanceVerdict,''); renderVerdict(evalTruthVerdict,''); setText(evalSourceReasons,'No evaluation yet.'); setText(evalRelevanceRisks,'No evaluation yet.'); setText(evalTruthRisks,'No evaluation yet.'); setText(evalMissingChecks,'No evaluation yet.'); setText(evalNextCheck,'No evaluation yet.'); setText(evalRevise,'should_revise_report: n/a'); setText(evalSummary,'No evaluation yet.'); return; } queryClassPill.textContent=`query class: ${evaluation.query_class}`; renderVerdict(evalSourceVerdict,evaluation.source_quality_verdict); renderVerdict(evalRelevanceVerdict,evaluation.relevance_verdict); renderVerdict(evalTruthVerdict,evaluation.truthfulness_verdict); setText(evalSourceReasons,renderLines(evaluation.source_quality_reasons,'No specific source-quality notes.')); setText(evalRelevanceRisks,renderLines(evaluation.relevance_risks,'No specific relevance risks.')); setText(evalTruthRisks,renderLines(evaluation.overclaim_risks,'No explicit overclaim risks flagged.')); setText(evalMissingChecks,renderLines(evaluation.missing_checks,'No missing checks flagged.')); setText(evalNextCheck,evaluation.recommended_next_check || 'No recommended next check.'); setText(evalRevise,`should_revise_report: ${evaluation.should_revise_report ? 'yes' : 'no'}`); setText(evalSummary,`Source quality: ${evaluation.source_quality_verdict} · Relevance: ${evaluation.relevance_verdict} · Truthfulness: ${evaluation.truthfulness_verdict}${evaluation.should_revise_report ? ' · Needs revision' : ''}`); }
-      async function startJob() { try { const ownerId = ownerInput.value.trim().toLowerCase(); const query = queryInput.value.trim(); if (!ownerId) { showUiError('Start failed','owner_id is required'); return; } if (!query) { showUiError('Start failed','query is required'); return; } ownerInput.value = ownerId; const { payload } = await jsonRequest('/api/research/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ owner_id: ownerId, query }) }); if (payload.job && payload.job.job_id) { jobInput.value = payload.job.job_id; setText(statusSummary, `Job created: ${payload.job.job_id}`); await listJobs(); } } catch (error) { showUiError('Start failed', error); } }
+      async function startJob() { try { const ownerId = ownerInput.value.trim().toLowerCase(); const query = queryInput.value.trim(); if (!ownerId) { showUiError('Start failed','owner_id is required'); setText(startDebug, 'Start debug: missing owner_id'); return; } if (!query) { showUiError('Start failed','query is required'); setText(startDebug, 'Start debug: missing query'); return; } ownerInput.value = ownerId; setText(startDebug, `Start debug: posting start request for owner=${ownerId}`); const { payload } = await jsonRequest('/api/research/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ owner_id: ownerId, query }) }); setText(startDebug, `Start debug: response status=${payload.status || 'n/a'} job_id=${payload.job && payload.job.job_id ? payload.job.job_id : 'missing'}`); if (payload.job && payload.job.job_id) { const jobId = payload.job.job_id; jobInput.value = jobId; setText(statusSummary, `Job created: ${jobId}`); const params = new URLSearchParams(window.location.search); params.set('owner_id', ownerId); params.set('job_id', jobId); if (query) params.set('query', query); window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`); await refreshStatus(); await listJobs(); return; } throw new Error('start response did not include job_id'); } catch (error) { setText(startDebug, `Start debug: error=${error instanceof Error ? error.message : String(error)}`); showUiError('Start failed', error); } }
       async function refreshStatus() { try { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Refresh failed', 'job_id is required'); return; } const { payload } = await jsonRequest(`/api/research/status/${jobId}`); renderStatusSummary(payload); } catch (error) { showUiError('Refresh failed', error); } }
       async function loadResult() { try { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Load result failed', 'job_id is required'); return; } const { payload } = await jsonRequest(`/api/research/result/${jobId}`); const completion = payload.result && payload.result.completion_mode ? payload.result.completion_mode : 'pending'; resultBanner.textContent = `completion_mode: ${completion}`; resultBanner.className = `badge ${completion === 'partial_error' ? 'warn' : completion === 'fallback' ? 'warn' : 'ok'}`; statusCompletionValue.textContent = String(completion).toUpperCase(); statusCompletionSub.textContent = payload.result && payload.result.completed_at ? `Completed at ${payload.result.completed_at}` : 'Result loaded.'; const reportText = payload.result && payload.result.result ? payload.result.result : 'No result yet.'; resultPreview.innerHTML = markdownToHtml(reportText); setBox(resultBox, JSON.stringify(payload, null, 2), 'console mono'); renderEvaluation(payload.result ? payload.result.evaluation : null); } catch (error) { showUiError('Load result failed', error); } }
       async function runJob() { try { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Run failed', 'job_id is required'); return; } setText(statusSummary, `Running job ${jobId}…`); const { payload } = await jsonRequest(`/api/research/run/${jobId}`, { method:'POST' }); if (payload.job) { jobStatePill.textContent = `job: ${payload.job.status || 'done'}`; const status = payload.job.status || 'done'; const errorText = payload.job.error ? ` · ${payload.job.error}` : ''; setText(statusSummary, `Run completed: ${jobId} (${status})${errorText}`); } await refreshStatus(); await loadResult(); await listJobs(); } catch (error) { showUiError('Run failed', error); } }

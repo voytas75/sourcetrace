@@ -4,19 +4,13 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from sourcetrace.domain.research import (
+    ProblemAnalysis,
+    ResearchExecutionPlan,
     ResearchJob,
     ResearchProgressEvent,
     ResearchResultArtifact,
     ResearchSettings,
 )
-
-
-@dataclass(frozen=True)
-class ResearchPlan:
-    """Minimal planning output for one research run."""
-
-    objective: str
-    subquestions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -88,16 +82,16 @@ class ResearchJobListOutcome:
 
 
 class ResearchPlanner(Protocol):
-    """Execution seam for building a research plan from a query."""
+    """Execution seam for building a research plan from problem analysis."""
 
-    def __call__(self, query: str) -> ResearchPlan:
+    def __call__(self, query: str, *, problem_analysis: ProblemAnalysis) -> ResearchExecutionPlan:
         ...
 
 
 class ResearchQueryGenerator(Protocol):
     """Execution seam for generating search queries from a plan."""
 
-    def __call__(self, plan: ResearchPlan, *, round_number: int) -> tuple[str, ...]:
+    def __call__(self, plan: ResearchExecutionPlan, *, round_number: int) -> tuple[str, ...]:
         ...
 
 
@@ -197,7 +191,6 @@ __all__ = [
     "ResearchJobStarter",
     "ResearchJobStatusOutcome",
     "ResearchJobStatusReader",
-    "ResearchPlan",
     "ResearchPlanner",
     "ResearchQueryGenerator",
     "ResearchSearchAdapter",
