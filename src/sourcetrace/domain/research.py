@@ -73,6 +73,15 @@ class ResearchCompletionMode(str, Enum):
     FALLBACK = "fallback"
 
 
+class ResearchTerminationReason(str, Enum):
+    """Small operator-facing terminal/recovery reason surface."""
+
+    CANCELLED = "cancelled"
+    INTERRUPTED_ON_RECOVERY = "interrupted_on_recovery"
+    PROVIDER_FAILURE = "provider_failure"
+    PARTIAL_SALVAGE = "partial_salvage"
+
+
 class CompiledResearchArtifactLintStatus(str, Enum):
     """Overall health status for a compiled research artifact."""
 
@@ -398,4 +407,5 @@ __all__ = [
     "ResearchSettings",
     "ResearchSource",
     "ResearchStats",
+    "ResearchTerminationReason",
 ]

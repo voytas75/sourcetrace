@@ -1,4 +1,5 @@
 from sourcetrace.application import (
+    ChainedSearchAdapter,
     ExtractedFinding,
     FakeResearchWorker,
     ResearchJobManager,
@@ -27,6 +28,7 @@ from sourcetrace.application.research_runtime import (
     _looks_like_listing_page,
     _pack_evidence_for_synthesis,
     _search_rejection_summary,
+    _source_type,
     _procedural_query_bias,
     _procedural_directness_score,
     _procedural_query_variants,
@@ -163,6 +165,14 @@ class NoisyMarketSearch:
         )
 
 
+class FailingProviderSearch:
+    provider_name = "searxng"
+
+    def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+        self.last_provider_names = (self.provider_name,)
+        raise ResearchSearchError("searxng is unavailable")
+
+
 def test_research_job_manager_start_and_list_flow() -> None:
     persistence = create_in_memory_research_persistence()
     manager = ResearchJobManager(persistence)
@@ -250,6 +260,57 @@ def test_fake_research_worker_runs_two_round_engine_loop() -> None:
     assert status is not None
     assert any(event.phase.value == "reading" for event in status.progress)
     assert any(event.phase.value == "analyzing" for event in status.progress)
+
+
+def test_fake_research_worker_stats_reflect_actual_queries_duration_and_provider_path(monkeypatch) -> None:
+    persistence = create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+
+    def unified_search(_: str, *, count: int) -> list[dict[str, object]]:
+        del count
+        return []
+
+    def provider_search(query: str, *, count: int) -> list[dict[str, object]]:
+        del count
+        return [
+            {
+                "url": "https://learn.microsoft.com/en-us/mem/configmgr/compliance/deploy-use/create-configuration-baselines",
+                "title": "Create configuration baselines - Configuration Manager | Microsoft Learn",
+                "snippet": f"Official guidance for {query}.",
+            }
+        ]
+
+    search = build_procedural_admin_unified_search_adapter(
+        current_search=ChainedSearchAdapter(
+            FailingProviderSearch(),
+            build_search_adapter(search_web=provider_search),
+        ),
+        unified_search_web=unified_search,
+    )
+    worker = FakeResearchWorker(
+        persistence,
+        search=search,
+        stop_rails=type("OneRoundRails", (), {"should_stop": lambda self, **kwargs: True})(),
+    )
+    outcome = manager.start_job(
+        ResearchJobStartRequest(
+            owner_id="user-1",
+            query="how to create configuration baselines in Configuration Manager",
+        )
+    )
+    monkeypatch.setattr("sourcetrace.application.research_runtime.perf_counter", iter((10.0, 13.8)).__next__)
+
+    result = worker(outcome.job.job_id)
+
+    assert result is not None
+    assert result.stats.duration_seconds == 3
+    assert result.execution_plan is not None
+    assert result.stats.queries == len(StubQueryGenerator()(result.execution_plan, round_number=1))
+    assert result.stats.search_providers == (
+        "procedural_admin_unified_search",
+        "searxng",
+        "web_search",
+    )
 
 
 def test_stub_query_generator_diversifies_market_queries_by_round() -> None:
@@ -1008,6 +1069,30 @@ def test_evidence_pack_uses_supporting_for_general_query_with_nonempty_findings(
     assert len(packed.supporting) == 1
 
 
+def test_general_evidence_pack_promotes_one_research_like_analysis_finding_to_core() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://example.org/remote-work-mental-health-analysis-2024",
+            title="Remote work mental health analysis after 2023",
+            summary="Research report with evidence about employee loneliness, stress, and wellbeing outcomes.",
+        ),
+        ExtractedFinding(
+            url="https://example.org/remote-work-overview",
+            title="Remote work overview after 2023",
+            summary="General overview of remote work trends and employee experience.",
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        findings=findings,
+    )
+
+    assert len(packed.core) == 1
+    assert packed.core[0].url == "https://example.org/remote-work-mental-health-analysis-2024"
+    assert len(packed.supporting) >= 1
+
+
 def test_lint_flags_thin_evidence_base_when_reflection_reports_no_core_evidence() -> None:
     artifact = CompiledResearchArtifact(
         artifact_id="cra-thin",
@@ -1075,7 +1160,7 @@ def test_pack_evidence_for_general_query_preserves_supporting_from_cumulative_fi
     )
 
     assert evidence_pack.query_class is ResearchQueryClass.GENERAL
-    assert len(evidence_pack.core) == 0
+    assert len(evidence_pack.core) <= 1
     assert len(evidence_pack.supporting) >= 1
 
 
@@ -1083,16 +1168,32 @@ def test_stub_query_generator_expands_direct_answer_queries_after_first_round() 
     generator = StubQueryGenerator()
     plan = ResearchExecutionPlan(
         strategy=ResearchPlanStrategy.DIRECT_ANSWER,
-        objective="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        objective="How does retrieval-augmented generation differ from deep research agents?",
         steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather evidence."),),
     )
 
     first_round = generator(plan, round_number=1)
     second_round = generator(plan, round_number=2)
 
-    assert first_round == ("Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",)
+    assert first_round == ("How does retrieval-augmented generation differ from deep research agents?",)
     assert len(second_round) == 3
     assert any("report study" in query for query in second_round)
+
+
+def test_stub_query_generator_uses_research_shaped_expansion_for_remote_mental_health_query() -> None:
+    generator = StubQueryGenerator()
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.DIRECT_ANSWER,
+        objective="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather evidence."),),
+    )
+
+    second_round = generator(plan, round_number=2)
+
+    assert len(second_round) == 3
+    assert any("longitudinal study after 2023" in query for query in second_round)
+    assert any("survey report after 2023" in query for query in second_round)
+    assert any("remote hybrid work mental health study" in query for query in second_round)
 
 
 def test_general_relevance_retains_nonprocedural_analysis_hit_with_strong_context() -> None:
@@ -1159,6 +1260,43 @@ def test_general_relevance_retains_context_rich_hit_even_with_limited_keyword_ov
         query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
         hit=hit,
     ) is True
+
+
+def test_general_filter_promotes_research_like_analysis_hit_into_strong_bucket() -> None:
+    promoted = SearchHit(
+        url="https://example.org/research/remote-work-mental-health-analysis-2024",
+        title="Longitudinal analysis of remote work and employee mental health after 2023",
+        snippet="Detailed analysis with post-2023 findings on remote work, employee loneliness, stress, wellbeing outcomes, and mental health risks in hybrid versus remote settings.",
+    )
+    secondary = SearchHit(
+        url="https://example.org/remote-work-overview",
+        title="Remote work overview after 2023",
+        snippet="General overview of remote work trends and employee experience.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        hits=(promoted, secondary),
+    )
+
+    assert outcome.authority_policy_applied is True
+    assert outcome.fallback_used is False
+    assert len(outcome.kept_hits) >= 1
+    assert outcome.kept_hits[0].url == promoted.url
+
+
+def test_source_type_recognizes_research_domain_blog_as_analysis() -> None:
+    assert _source_type(
+        "https://research.ibm.com/blog/retrieval-augmented-generation-RAG",
+        "What is retrieval-augmented generation (RAG)? - IBM Research",
+    ) == "analysis"
+
+
+def test_source_type_recognizes_longitudinal_title_as_analysis() -> None:
+    assert _source_type(
+        "https://example.org/workplace-longitudinal-study",
+        "Longitudinal study of remote work and employee wellbeing",
+    ) == "analysis"
 
 
 def test_general_evidence_pack_allows_up_to_three_supporting_findings() -> None:

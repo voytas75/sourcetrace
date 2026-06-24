@@ -6,6 +6,7 @@ from urllib.error import URLError
 from dataclasses import dataclass, replace
 from collections import Counter
 from datetime import UTC, datetime
+from time import perf_counter
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -141,6 +142,12 @@ class StubQueryGenerator:
         if round_number == 1:
             return (objective,)
         if plan.strategy is ResearchPlanStrategy.DIRECT_ANSWER:
+            if any(token in normalized for token in ('mental health', 'zdrowie psychiczne', 'wellbeing', 'dobrostan')) and any(token in normalized for token in ('remote', 'hybrid', 'praca zdalna', 'zdaln')):
+                return (
+                    f"{objective} longitudinal study after 2023",
+                    f"{objective} survey report after 2023",
+                    f"{objective} remote hybrid work mental health study",
+                )
             return (
                 f"{objective} report study",
                 f"{objective} analysis findings",
@@ -222,7 +229,9 @@ class SearxNGSearchAdapter:
                     seen.add(url)
                     hits.append(SearchHit(url=url, title=title, snippet=snippet))
         except (OSError, TimeoutError, URLError, ValueError) as exc:
+            self.last_provider_names = (self.provider_name,)
             raise ResearchSearchError(f"SearxNG search failed: {type(exc).__name__}: {exc}") from exc
+        self.last_provider_names = (self.provider_name,)
         return tuple(hits)
 
     def _fetch(self, query: str, *, count: int | None = None) -> list[dict[str, object]]:
@@ -270,6 +279,7 @@ class WebSearchBackedSearchAdapter:
                     continue
                 seen.add(url)
                 hits.append(SearchHit(url=url, title=title, snippet=snippet))
+        self.last_provider_names = (self.provider_name,)
         return tuple(hits)
 
 
@@ -294,16 +304,22 @@ class ChainedSearchAdapter:
         if not self.adapters:
             return ()
         errors: list[str] = []
+        attempted_names: list[str] = []
         for adapter in self.adapters:
             try:
                 hits = adapter(queries, round_number=round_number)
             except ResearchSearchError as exc:
+                attempted_names.extend(_actual_search_provider_names(adapter))
                 errors.append(str(exc))
                 continue
+            attempted_names.extend(_actual_search_provider_names(adapter))
             if hits:
+                self.last_provider_names = tuple(dict.fromkeys(attempted_names))
                 return hits
         if errors:
+            self.last_provider_names = tuple(dict.fromkeys(attempted_names))
             raise ResearchSearchError(" ; ".join(errors))
+        self.last_provider_names = tuple(dict.fromkeys(attempted_names))
         return ()
 
 
@@ -347,10 +363,22 @@ def build_procedural_admin_unified_search_adapter(
             unified_adapter = WebSearchBackedSearchAdapter(unified_search_web, count=10)
             hits = unified_adapter(queries, round_number=round_number)
             if not _procedural_query_bias(objective.lower()):
-                return hits or current_search(queries, round_number=round_number)
+                if hits:
+                    self.last_provider_names = (self.provider_name,)
+                    return hits
+                fallback_hits = current_search(queries, round_number=round_number)
+                self.last_provider_names = tuple(
+                    dict.fromkeys((self.provider_name, *_actual_search_provider_names(current_search)))
+                )
+                return fallback_hits
             if hits and _looks_official_enough(hits):
+                self.last_provider_names = (self.provider_name,)
                 return hits
-            return current_search(queries, round_number=round_number)
+            fallback_hits = current_search(queries, round_number=round_number)
+            self.last_provider_names = tuple(
+                dict.fromkeys((self.provider_name, *_actual_search_provider_names(current_search)))
+            )
+            return fallback_hits
 
     return _ProceduralAdminUnifiedAdapter()
 
@@ -766,7 +794,7 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
     score = _general_relevance_score(query=query, hit=hit)
     if source_type in {'generic', 'docs', 'analysis', 'data'} and score >= 3:
         return True
-    if source_type in {'generic', 'docs', 'analysis', 'data'} and score >= 2:
+    if source_type in {'generic', 'docs', 'analysis', 'data'} and score >= 3:
         title_len = len(hit.title.strip())
         snippet_len = len(hit.snippet.strip())
         if title_len >= 45 and snippet_len >= 90:
@@ -785,6 +813,10 @@ def _source_type(url: str, title: str) -> str:
         return 'snippet_repo'
     if any(token in haystack for token in ("technical", "technicals", "analysis", "chart")):
         return "analysis"
+    if domain == 'research.ibm.com':
+        return 'analysis'
+    if any(token in title.lower() for token in ('study', 'survey', 'paper', 'journal', 'longitudinal')):
+        return 'analysis'
     if any(token in haystack for token in ("historical", "ohlcv", "price", "quotes", "markets", "market")):
         return "data"
     if 'youtube.com' in haystack or 'youtu.be' in haystack:
@@ -914,14 +946,58 @@ class PackedEvidence:
 
 def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> PreExtractionFilterOutcome:
     if not _procedural_query_bias(query):
+        if _classify_query(query) is not ResearchQueryClass.GENERAL:
+            return PreExtractionFilterOutcome(
+                kept_hits=hits,
+                seen_count=len(hits),
+                kept_count=len(hits),
+                dropped_count=0,
+                authority_policy_applied=False,
+                fallback_used=False,
+                dropped_source_types=(),
+            )
+        strong: list[SearchHit] = []
+        secondary: list[SearchHit] = []
+        dropped: list[SearchHit] = []
+        for hit in hits:
+            source_type = _source_type(hit.url, hit.title)
+            relevance = _general_relevance_score(query=query, hit=hit)
+            if source_type in {'forum', 'video', 'snippet_repo'}:
+                dropped.append(hit)
+                continue
+            if source_type == 'official_docs' and relevance >= 6:
+                strong.append(hit)
+                continue
+            if source_type in {'analysis', 'data'} and relevance >= 3:
+                strong.append(hit)
+                continue
+            if relevance >= 5:
+                secondary.append(hit)
+                continue
+            dropped.append(hit)
+
+        fallback_used = False
+        kept: list[SearchHit] = []
+        if strong:
+            kept.extend(strong)
+            kept.extend(secondary[:1])
+        else:
+            fallback_used = True
+            kept.extend(secondary[:2])
+        if not kept and hits:
+            fallback_used = True
+            kept.append(hits[0])
+
+        counter = Counter(_source_type(hit.url, hit.title) for hit in dropped)
+        dropped_source_types = tuple(f"{source_type}:{count}" for source_type, count in sorted(counter.items()))
         return PreExtractionFilterOutcome(
-            kept_hits=hits,
+            kept_hits=tuple(kept),
             seen_count=len(hits),
-            kept_count=len(hits),
-            dropped_count=0,
-            authority_policy_applied=False,
-            fallback_used=False,
-            dropped_source_types=(),
+            kept_count=len(kept),
+            dropped_count=max(0, len(hits) - len(kept)),
+            authority_policy_applied=True,
+            fallback_used=fallback_used,
+            dropped_source_types=dropped_source_types,
         )
     strong: list[SearchHit] = []
     secondary: list[SearchHit] = []
@@ -1019,7 +1095,12 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
             background.append(finding)
             continue
         if query_class is ResearchQueryClass.GENERAL:
-            if source_type in {'official_docs', 'docs', 'generic', 'vendor_docs', 'blog'} and len(supporting) < supporting_limit:
+            general_haystack = f"{finding.title} {finding.summary}".lower()
+            research_like_general = any(token in general_haystack for token in ('study', 'research', 'analysis', 'report', 'evidence'))
+            if not core and source_type in {'analysis', 'data'} and research_like_general:
+                core.append(finding)
+                continue
+            if source_type in {'official_docs', 'docs', 'generic', 'vendor_docs', 'blog', 'analysis', 'data'} and len(supporting) < supporting_limit:
                 supporting.append(finding)
                 continue
             background.append(finding)
@@ -1263,6 +1344,13 @@ def _resolve_search_provider_names(search: ResearchSearchAdapter, configured_pro
     if isinstance(provider_name, str) and provider_name and provider_name != "chained":
         return (provider_name,)
     return ()
+
+
+def _actual_search_provider_names(search: ResearchSearchAdapter) -> tuple[str, ...]:
+    last = getattr(search, "last_provider_names", None)
+    if isinstance(last, tuple) and last:
+        return tuple(str(name) for name in last if str(name))
+    return _resolve_search_provider_names(search, configured_provider=None)
 
 
 def _build_research_report_prompt(*, query: str, round_number: int, previous_answer: str, evidence: str, query_class: ResearchQueryClass, has_direct_procedural_evidence: bool) -> str:
@@ -2059,6 +2147,7 @@ class FakeResearchWorker:
         self.stop_rails = stop_rails or DeterministicStopRails()
 
     def __call__(self, job_id: str) -> ResearchResultArtifact | None:
+        started_at_monotonic = perf_counter()
         job = self.persistence.jobs.get_job(job_id)
         if job is None:
             return None
@@ -2081,8 +2170,10 @@ class FakeResearchWorker:
         _emit_progress(self.persistence, job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.steps)} step(s) with strategy {plan.strategy.value}.")
 
         round_number = 0
+        executed_query_count = 0
         total_urls = 0
         consecutive_empty_rounds = 0
+        executed_provider_names: list[str] = []
         all_hits: list[SearchHit] = []
         all_findings: list[ExtractedFinding] = []
         evolving_report: str | None = None
@@ -2122,9 +2213,12 @@ class FakeResearchWorker:
                 providers_attempted=provider_names,
                 message=f"Running {len(queries)} search querie(s).",
             )
+            executed_query_count += len(queries)
             try:
                 hits = self.search(queries, round_number=round_number)
+                executed_provider_names.extend(_actual_search_provider_names(self.search))
             except ResearchSearchError as exc:
+                executed_provider_names.extend(_actual_search_provider_names(self.search))
                 _emit_progress(self.persistence, 
                     job_id,
                     ResearchJobStatus.RUNNING,
@@ -2138,6 +2232,20 @@ class FakeResearchWorker:
                     return self.save_partial_result(
                         job_id,
                         mode=ResearchCompletionMode.PARTIAL_ERROR,
+                        duration_seconds=max(0, int(perf_counter() - started_at_monotonic)),
+                        rounds=round_number,
+                        queries=executed_query_count,
+                        urls=len(all_hits),
+                        search_providers=tuple(dict.fromkeys(executed_provider_names)),
+                        pre_extraction_sources_seen=pre_extraction_seen,
+                        pre_extraction_sources_kept=pre_extraction_kept,
+                        pre_extraction_sources_dropped=pre_extraction_dropped,
+                        authority_policy_applied=authority_policy_applied,
+                        authority_filter_fallback_used=authority_filter_fallback_used,
+                        dropped_source_types=tuple(sorted(set(dropped_source_types_seen))),
+                        packed_core_count=packed_core_count,
+                        packed_supporting_count=packed_supporting_count,
+                        packed_background_count=packed_background_count,
                     )
                 _emit_progress(self.persistence, 
                     job_id,
@@ -2195,7 +2303,9 @@ class FakeResearchWorker:
                             providers_attempted=_resolve_search_provider_names(self.search, configured_provider=None),
                             message="No usable hits from the original query. Retrying search with LLM-refined queries.",
                         )
+                        executed_query_count += len(refined_queries)
                         retry_hits = self.search(tuple(refined_queries), round_number=round_number)
+                        executed_provider_names.extend(_actual_search_provider_names(self.search))
                         retry_summary = _search_rejection_summary(query=running.query, existing_hits=all_hits, candidate_hits=retry_hits)
                         retry_new_hits = _dedupe_hits(all_hits, retry_hits, query=running.query)
                         all_hits.extend(retry_new_hits)
@@ -2345,12 +2455,12 @@ class FakeResearchWorker:
 
         completed_at = _utcnow()
         stats = ResearchStats(
-            duration_seconds=1,
+            duration_seconds=max(0, int(perf_counter() - started_at_monotonic)),
             rounds=round_number,
-            queries=2 * round_number,
+            queries=executed_query_count,
             urls=len(all_hits),
             model=running.settings.model,
-            search_providers=_resolve_search_provider_names(self.search, running.settings.search_provider),
+            search_providers=tuple(dict.fromkeys(executed_provider_names)),
             pre_extraction_sources_seen=pre_extraction_seen,
             pre_extraction_sources_kept=pre_extraction_kept,
             pre_extraction_sources_dropped=pre_extraction_dropped,
@@ -2445,26 +2555,41 @@ No report was produced."""
         job_id: str,
         *,
         mode: ResearchCompletionMode = ResearchCompletionMode.PARTIAL_ERROR,
+        duration_seconds: int | None = None,
+        rounds: int | None = None,
+        queries: int | None = None,
+        urls: int | None = None,
+        search_providers: tuple[str, ...] = (),
+        pre_extraction_sources_seen: int | None = None,
+        pre_extraction_sources_kept: int | None = None,
+        pre_extraction_sources_dropped: int | None = None,
+        authority_policy_applied: bool | None = None,
+        authority_filter_fallback_used: bool | None = None,
+        dropped_source_types: tuple[str, ...] = (),
+        packed_core_count: int | None = None,
+        packed_supporting_count: int | None = None,
+        packed_background_count: int | None = None,
     ) -> ResearchResultArtifact | None:
         job = self.persistence.jobs.get_job(job_id)
         if job is None:
             return None
         completed_at = _utcnow()
         stats = ResearchStats(
-            duration_seconds=1,
-            rounds=1,
-            queries=1,
-            urls=1,
+            duration_seconds=duration_seconds if duration_seconds is not None else 1,
+            rounds=rounds if rounds is not None else 1,
+            queries=queries if queries is not None else 1,
+            urls=urls if urls is not None else 1,
             model=job.settings.model,
-            pre_extraction_sources_seen=1,
-            pre_extraction_sources_kept=1,
-            pre_extraction_sources_dropped=0,
-            authority_policy_applied=_procedural_query_bias(job.query),
-            authority_filter_fallback_used=False,
-            dropped_source_types=(),
-            packed_core_count=1,
-            packed_supporting_count=0,
-            packed_background_count=0,
+            search_providers=search_providers,
+            pre_extraction_sources_seen=pre_extraction_sources_seen if pre_extraction_sources_seen is not None else 1,
+            pre_extraction_sources_kept=pre_extraction_sources_kept if pre_extraction_sources_kept is not None else 1,
+            pre_extraction_sources_dropped=pre_extraction_sources_dropped if pre_extraction_sources_dropped is not None else 0,
+            authority_policy_applied=authority_policy_applied if authority_policy_applied is not None else _procedural_query_bias(job.query),
+            authority_filter_fallback_used=authority_filter_fallback_used if authority_filter_fallback_used is not None else False,
+            dropped_source_types=dropped_source_types,
+            packed_core_count=packed_core_count if packed_core_count is not None else 1,
+            packed_supporting_count=packed_supporting_count if packed_supporting_count is not None else 0,
+            packed_background_count=packed_background_count if packed_background_count is not None else 0,
         )
         raw_findings = (ResearchFinding(url="https://example.test/partial", title="Partial source", summary="One useful finding survived."),)
         report = """# Partial Deep Research result

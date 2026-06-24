@@ -149,6 +149,39 @@ class SourceTraceDelivery:
     research_search_backend: str = "stub"
     research_search_configured: bool = False
 
+    @property
+    def research_enabled(self) -> bool:
+        """Return whether a research runtime is wired into delivery."""
+
+        return self.research is not None
+
+    @property
+    def research_ready(self) -> bool:
+        """Return whether Deep Research is both enabled and execution-ready."""
+
+        return self.research_enabled and self.research_search_configured
+
+    @property
+    def research_status(self) -> str:
+        """Return a small operator-facing Deep Research runtime status."""
+
+        if not self.research_enabled:
+            return "disabled"
+        if not self.research_search_configured:
+            return "not_ready"
+        return "ready"
+
+    def research_posture_payload(self) -> dict[str, object]:
+        """Return a compact Deep Research posture summary."""
+
+        return {
+            "enabled": self.research_enabled,
+            "ready": self.research_ready,
+            "status": self.research_status,
+            "search_backend": self.research_search_backend,
+            "search_configured": self.research_search_configured,
+        }
+
     def start_research_job(
         self,
         *,
@@ -157,7 +190,7 @@ class SourceTraceDelivery:
     ) -> ResearchJobStartOutcome | None:
         """Start a Deep Research job if the research runtime is configured."""
 
-        if self.research is None:
+        if not self.research_ready:
             return None
         return self.research.start_job(ResearchJobStartRequest(owner_id=owner_id, query=query))
 
@@ -192,7 +225,7 @@ class SourceTraceDelivery:
     def run_research_job(self, job_id: str) -> ResearchResultArtifact | None:
         """Run the deterministic fake research worker for one job."""
 
-        if self.research is None:
+        if not self.research_ready:
             return None
         return self.research.run_job(job_id)
 
@@ -604,6 +637,7 @@ class SourceTraceDelivery:
         """Return minimal operational readiness metadata."""
 
         continuity_pack_persistence = self.continuity_pack_persistence_status()
+        research = self.research_posture_payload()
         return {
             "status": "ready",
             "checks": {
@@ -614,9 +648,8 @@ class SourceTraceDelivery:
                 "continuity_pack": self.continuity_pack_execution is not None,
                 "continuity_pack_persistence": continuity_pack_persistence.enabled,
                 "credibility_assessment": self.credibility_assessment is not None,
-                "research": self.research is not None,
-                "research_search": self.research_search_configured,
-                "research": self.research is not None,
+                "research": self.research_ready,
+                "research_enabled": self.research_enabled,
                 "research_search": self.research_search_configured,
             },
             "diagnostics": {
@@ -624,7 +657,8 @@ class SourceTraceDelivery:
                     "enabled": continuity_pack_persistence.enabled,
                     "backend": continuity_pack_persistence.backend,
                     "root_dir": continuity_pack_persistence.root_dir,
-                }
+                },
+                "research": research,
             },
         }
 
@@ -632,6 +666,7 @@ class SourceTraceDelivery:
         """Return delivery/runtime composition metadata."""
 
         continuity_pack_persistence = self.continuity_pack_persistence_status()
+        research = self.research_posture_payload()
         return {
             "runtime": {
                 "entrypoint": "wsgi",
@@ -645,9 +680,11 @@ class SourceTraceDelivery:
                     "root_dir": continuity_pack_persistence.root_dir,
                 },
                 "credibility_assessment": _enabled(self.credibility_assessment),
-                "research": _enabled(self.research),
-                "research_search_backend": self.research_search_backend,
-                "research_search_configured": self.research_search_configured,
+                "research": research["status"],
+                "research_enabled": research["enabled"],
+                "research_ready": research["ready"],
+                "research_search_backend": research["search_backend"],
+                "research_search_configured": research["search_configured"],
                 "reporting": "enabled",
                 "dev_routes": "enabled",
             }
@@ -656,6 +693,7 @@ class SourceTraceDelivery:
     def capabilities_payload(self) -> dict[str, object]:
         """Return supported HTTP resource and action capabilities."""
 
+        research = self.research_posture_payload()
         return {
             "capabilities": {
                 "cases": ["create", "list", "get"],
@@ -671,10 +709,11 @@ class SourceTraceDelivery:
             "runtime": {
                 "claim_extraction": self.claim_extraction_runtime is not None,
                 "credibility_assessment": self.credibility_assessment is not None,
-                "research": self.research is not None,
-                "research_search": self.research_search_configured,
-                "research": self.research is not None,
-                "research_search": self.research_search_configured,
+                "research": research["ready"],
+                "research_enabled": research["enabled"],
+                "research_ready": research["ready"],
+                "research_status": research["status"],
+                "research_search": research["search_configured"],
             },
             "routes": {
                 "product": [

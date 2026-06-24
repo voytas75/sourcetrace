@@ -47,7 +47,17 @@ from sourcetrace.web.delivery import (
     _escape_html,
 )
 from sourcetrace.application import SourceIngestionRequest
-from sourcetrace.domain.research import CompiledResearchArtifact, CompiledResearchArtifactLint, ResearchJob, ResearchProgressEvent, ResearchResultArtifact, ResearchSettings
+from sourcetrace.domain.research import (
+    CompiledResearchArtifact,
+    CompiledResearchArtifactLint,
+    ResearchCompletionMode,
+    ResearchJob,
+    ResearchJobStatus,
+    ResearchProgressEvent,
+    ResearchResultArtifact,
+    ResearchSettings,
+    ResearchTerminationReason,
+)
 from sourcetrace.application.research import ResearchJobResultOutcome
 
 
@@ -328,10 +338,24 @@ class SourceTraceWSGIApp:
         outcome = self.delivery.list_research_jobs(owner_id)
         if outcome is None:
             return _json_response(start_response, "503 Service Unavailable", {"error": "research_unavailable", "status": "unavailable"})
+        results_repo = (
+            self.delivery.research_persistence.results
+            if self.delivery.research_persistence is not None
+            else None
+        )
         return _json_response(
             start_response,
             "200 OK",
-            {"owner_id": owner_id, "jobs": [_research_job_to_payload(job) for job in outcome.jobs]},
+            {
+                "owner_id": owner_id,
+                "jobs": [
+                    _research_job_to_payload(
+                        job,
+                        result=results_repo.get_result(job.job_id) if results_repo is not None else None,
+                    )
+                    for job in outcome.jobs
+                ],
+            },
         )
 
     def _get_research_status(
@@ -342,11 +366,13 @@ class SourceTraceWSGIApp:
         outcome = self.delivery.get_research_job_status(job_id)
         if outcome is None:
             return _missing_response(start_response, "research_job", job_id)
+        result_outcome = self.delivery.get_research_result(job_id)
+        result = result_outcome.result if result_outcome is not None else None
         return _json_response(
             start_response,
             "200 OK",
             {
-                "job": _research_job_to_payload(outcome.job),
+                "job": _research_job_to_payload(outcome.job, result=result),
                 "progress": [_research_progress_to_payload(event) for event in outcome.progress],
             },
         )
@@ -359,10 +385,13 @@ class SourceTraceWSGIApp:
         outcome = self.delivery.get_research_job_status(job_id)
         if outcome is None:
             return _missing_response(start_response, "research_job", job_id)
+        result_outcome = self.delivery.get_research_result(job_id)
+        result = result_outcome.result if result_outcome is not None else None
         events = [_research_progress_to_payload(event) for event in outcome.progress]
         final_payload = {
-            "job": _research_job_to_payload(outcome.job),
+            "job": _research_job_to_payload(outcome.job, result=result),
             "final": outcome.job.status.value in {"done", "error", "cancelled"},
+            "termination_reason": _research_job_termination_reason(outcome.job, result=result),
         }
         return _sse_response(
             start_response,
@@ -379,6 +408,18 @@ class SourceTraceWSGIApp:
         if outcome is None:
             return _missing_response(start_response, "research_job", job_id)
         if outcome.result is None:
+            termination_reason = _research_job_termination_reason(outcome.job)
+            if termination_reason is not None:
+                return _json_response(
+                    start_response,
+                    "200 OK",
+                    {
+                        "status": "terminal",
+                        "termination_reason": termination_reason,
+                        "job": _research_job_to_payload(outcome.job),
+                        "result": None,
+                    },
+                )
             return _json_response(
                 start_response,
                 "202 Accepted",
@@ -387,7 +428,11 @@ class SourceTraceWSGIApp:
         return _json_response(
             start_response,
             "200 OK",
-            {"status": "ready", "job": _research_job_to_payload(outcome.job), "result": _research_result_to_payload(outcome.result)},
+            {
+                "status": "ready",
+                "job": _research_job_to_payload(outcome.job, result=outcome.result),
+                "result": _research_result_to_payload(outcome.result),
+            },
         )
 
     def _run_research_job(
@@ -403,7 +448,7 @@ class SourceTraceWSGIApp:
             start_response,
             "200 OK",
             {
-                "job": _research_job_to_payload(status_outcome.job),
+                "job": _research_job_to_payload(status_outcome.job, result=result),
                 "progress": [_research_progress_to_payload(event) for event in status_outcome.progress],
                 "result": _research_result_to_payload(result) if result is not None else None,
             },
@@ -1424,7 +1469,38 @@ def _reflection_to_payload(reflection: object | None) -> dict[str, object] | Non
     }
 
 
-def _research_job_to_payload(job: ResearchJob) -> dict[str, object]:
+def _research_job_termination_reason(
+    job: ResearchJob,
+    *,
+    result: ResearchResultArtifact | None = None,
+) -> str | None:
+    if result is not None:
+        reason = _research_result_termination_reason(result)
+        if reason is not None:
+            return reason
+    if job.status is ResearchJobStatus.CANCELLED:
+        return ResearchTerminationReason.CANCELLED.value
+    if job.error == ResearchTerminationReason.INTERRUPTED_ON_RECOVERY.value:
+        return ResearchTerminationReason.INTERRUPTED_ON_RECOVERY.value
+    if job.status is ResearchJobStatus.ERROR:
+        return ResearchTerminationReason.PROVIDER_FAILURE.value
+    return None
+
+
+def _research_result_termination_reason(result: ResearchResultArtifact) -> str | None:
+    if result.completion_mode in {
+        ResearchCompletionMode.PARTIAL_ERROR,
+        ResearchCompletionMode.PARTIAL_TIMEOUT,
+    }:
+        return ResearchTerminationReason.PARTIAL_SALVAGE.value
+    return None
+
+
+def _research_job_to_payload(
+    job: ResearchJob,
+    *,
+    result: ResearchResultArtifact | None = None,
+) -> dict[str, object]:
     return {
         "job_id": job.job_id,
         "owner_id": job.owner_id,
@@ -1437,6 +1513,7 @@ def _research_job_to_payload(job: ResearchJob) -> dict[str, object]:
         "problem_analysis": _problem_analysis_to_payload(job.problem_analysis),
         "execution_plan": _execution_plan_to_payload(job.execution_plan),
         "error": job.error,
+        "termination_reason": _research_job_termination_reason(job, result=result),
     }
 
 
@@ -1525,6 +1602,7 @@ def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, obj
         "query": result.query,
         "status": result.status.value,
         "completion_mode": result.completion_mode.value,
+        "termination_reason": _research_result_termination_reason(result),
         "result": result.result,
         "raw_report": result.raw_report,
         "category": result.category,
@@ -2155,6 +2233,7 @@ def _render_research_console_html() -> str:
         </div>
         <div class="field-grid"><div><label for="owner_id">Owner id</label><input id="owner_id" value="user-1" /></div><div><label for="job_id">Job id</label><input id="job_id" placeholder="job id appears here after start" /></div></div>
         <div style="margin-top:16px;"><label for="query">Query</label><textarea id="query">deep research architecture</textarea></div>
+        <div id="runtime_notice" class="helper" style="margin-top:16px;">Research runtime status: loading...</div>
         <div class="action-row"><button id="start_btn">Start job</button><button id="run_btn">Run job</button><button id="refresh_btn" class="secondary">Refresh status</button><button id="result_btn" class="secondary">Load result</button><button id="jobs_btn" class="secondary">List jobs</button></div>
       </section>
       <section class="workspace">
@@ -2211,6 +2290,7 @@ def _render_research_console_html() -> str:
       const ownerInput = document.getElementById('owner_id');
       const queryInput = document.getElementById('query');
       const jobInput = document.getElementById('job_id');
+      const runtimeNotice = document.getElementById('runtime_notice');
       const statusSummary = document.getElementById('status_summary');
       const startDebug = document.getElementById('start_debug');
       const resultBox = document.getElementById('result_box');
@@ -2238,16 +2318,19 @@ def _render_research_console_html() -> str:
       const statusCompletionSub = document.getElementById('status_completion_sub');
       const statusSourcesValue = document.getElementById('status_sources_value');
       const statusSourcesSub = document.getElementById('status_sources_sub');
+      const startButton = document.getElementById('start_btn');
+      const runButton = document.getElementById('run_btn');
       function setText(el, value) { el.textContent = value; }
       function setBox(el, value, cls='console mono') { el.className = cls; el.textContent = value; }
       function renderVerdict(el, value) { el.textContent = value ? value.toUpperCase() : 'N/A'; el.style.color = value === 'strong' ? 'var(--ok)' : value === 'weak' ? 'var(--danger)' : 'var(--warn)'; }
       function renderLines(lines, fallback='None') { if (!Array.isArray(lines) || !lines.length) return fallback; return lines.map((line) => `• ${line}`).join(String.fromCharCode(10)); }
       function markdownToHtml(markdown) { const escaped = String(markdown || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); return escaped.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>').replace(/[*][*](.*?)[*][*]/g,'<strong>$1</strong>').replace(/^- (.*)$/gm,'<li>$1</li>').replace(/(<li>.*[<]\/li>)/gs,'<ul>$1</ul>').replace(/\n\n/g,'</p><p>').replace(/^/,'<p>').replace(/$/,'</p>').replace(/<p><\/p>/g,'').replace(/<p>(<h[1-3]>)/g,'$1').replace(/(<\/h[1-3]>)<\/p>/g,'$1').replace(/<p>(<ul>)/g,'$1').replace(/(<\/ul>)<\/p>/g,'$1'); }
-      function renderSearchDebug(payload) { const progress = Array.isArray(payload.progress) ? payload.progress : []; const searchEvent = [...progress].reverse().find((event) => event.phase === 'searching'); if (!searchEvent) return 'No search event captured yet.'; const queries = Array.isArray(searchEvent.query_list) && searchEvent.query_list.length ? searchEvent.query_list.map((item) => `• ${item}`).join(String.fromCharCode(10)) : (searchEvent.query_preview || 'n/a'); const providers = Array.isArray(searchEvent.providers_attempted) && searchEvent.providers_attempted.length ? searchEvent.providers_attempted.join(', ') : 'n/a'; return `providers: ${providers}${String.fromCharCode(10)}queries:${String.fromCharCode(10)}${queries}`; }
+      function renderSearchDebug(payload) { const progress = Array.isArray(payload.progress) ? payload.progress : []; const searchEvent = [...progress].reverse().find((event) => event.phase === 'searching'); const warningEvents = progress.filter((event) => event.phase === 'warning' && typeof event.message === 'string' && event.message.startsWith('Search narrowing:')); if (!searchEvent && !warningEvents.length) return 'No search event captured yet.'; const queries = searchEvent && Array.isArray(searchEvent.query_list) && searchEvent.query_list.length ? searchEvent.query_list.map((item) => `• ${item}`).join(String.fromCharCode(10)) : (searchEvent && searchEvent.query_preview ? searchEvent.query_preview : 'n/a'); const providers = searchEvent && Array.isArray(searchEvent.providers_attempted) && searchEvent.providers_attempted.length ? searchEvent.providers_attempted.join(', ') : 'n/a'; const narrowing = warningEvents.length ? warningEvents.map((event) => `• round ${event.round || '?'}: ${event.message}`).join(String.fromCharCode(10)) : 'No narrowing warning captured yet.'; return `providers: ${providers}${String.fromCharCode(10)}queries:${String.fromCharCode(10)}${queries}${String.fromCharCode(10)}${String.fromCharCode(10)}narrowing:${String.fromCharCode(10)}${narrowing}`; }
       function renderStatusSummary(payload) { const job = payload.job || {}; const lines = [`job_id: ${job.job_id || 'n/a'}`, `status: ${job.status || 'n/a'}`, `query: ${job.query || 'n/a'}`]; if (job.completed_at) lines.push(`completed_at: ${job.completed_at}`); const summary = lines.join(String.fromCharCode(10)); statusSummary.textContent = `${summary}${String.fromCharCode(10)}${String.fromCharCode(10)}${renderSearchDebug(payload)}`; jobStatePill.textContent = job.status ? `job: ${job.status}` : 'no job selected'; statusJobValue.textContent = job.job_id || 'No job'; statusJobSub.textContent = job.query || 'Start a job or pick one from the list.'; statusStateValue.textContent = job.status ? String(job.status).toUpperCase() : 'IDLE'; statusStateSub.textContent = job.completed_at ? `Completed at ${job.completed_at}` : (job.started_at ? `Started at ${job.started_at}` : 'Waiting for an operator action.'); const progress = Array.isArray(payload.progress) ? payload.progress : []; const latest = progress.length ? progress[progress.length - 1] : null; const totalSources = latest && Number.isFinite(latest.total_sources) ? latest.total_sources : 0; const newSources = latest && Number.isFinite(latest.new_sources) ? latest.new_sources : 0; statusSourcesValue.textContent = String(totalSources); statusSourcesSub.textContent = newSources > 0 ? `+${newSources} new in latest step` : 'No new hits in the latest step.'; }
       function renderJobsList(payload) { const jobs = Array.isArray(payload.jobs) ? payload.jobs : []; jobsList.innerHTML=''; for (const job of jobs) { const item=document.createElement('button'); item.type='button'; item.className='job-item'; const shortQuery=(job.query || 'no query').length>120?`${(job.query || 'no query').slice(0,117)}...`:(job.query || 'no query'); item.innerHTML=`<strong>${job.status} · ${job.job_id}</strong><div>${shortQuery}</div><div class="job-meta">${job.created_at || 'n/a'}</div>`; item.onclick=async()=>{ jobInput.value=job.job_id; await refreshStatus(); await loadResult(); }; jobsList.appendChild(item);} }
       async function jsonRequest(url, options={}) { connectionPill.textContent='loading'; const response = await fetch(url, options); const text = await response.text(); let payload; try { payload = JSON.parse(text); } catch { payload = { raw: text }; } if (!response.ok) { connectionPill.textContent='error'; const message = payload && (payload.error || payload.status || payload.raw) ? String(payload.error || payload.status || payload.raw) : `HTTP ${response.status}`; throw new Error(`${response.status} ${response.statusText}: ${message}`); } connectionPill.textContent='ok'; return { response, payload }; }
       function showUiError(prefix, error) { const message = error instanceof Error ? error.message : String(error); setText(statusSummary, `${prefix}: ${message}`); connectionPill.textContent='error'; }
+      function renderResearchRuntime(runtimePayload) { const runtime = runtimePayload && runtimePayload.runtime ? runtimePayload.runtime : {}; const status = runtime.research || 'unknown'; const enabled = Boolean(runtime.research_enabled); const ready = Boolean(runtime.research_ready); const backend = runtime.research_search_backend || 'unknown'; const configured = Boolean(runtime.research_search_configured); if (!enabled) { runtimeNotice.textContent = 'Research runtime status: disabled. Routes exist, but Deep Research is not enabled in this delivery.'; runtimeNotice.style.background = 'rgba(255, 107, 122, 0.08)'; runtimeNotice.style.borderColor = 'rgba(255, 107, 122, 0.24)'; runtimeNotice.style.color = '#ffd7dc'; startButton.disabled = true; runButton.disabled = true; return; } if (!ready) { runtimeNotice.textContent = `Research runtime status: not ready. Runtime is wired, but search is not configured (backend=${backend}, configured=${configured ? 'yes' : 'no'}).`; runtimeNotice.style.background = 'rgba(255, 182, 72, 0.08)'; runtimeNotice.style.borderColor = 'rgba(255, 182, 72, 0.24)'; runtimeNotice.style.color = '#ffe7b8'; startButton.disabled = true; runButton.disabled = true; return; } runtimeNotice.textContent = `Research runtime status: ${status}. Search backend=${backend}.`; runtimeNotice.style.background = 'rgba(103, 183, 255, 0.08)'; runtimeNotice.style.borderColor = 'rgba(103, 183, 255, 0.18)'; runtimeNotice.style.color = '#dcecff'; startButton.disabled = false; runButton.disabled = false; }
       function renderEvaluation(evaluation) { if (!evaluation) { queryClassPill.textContent='query class: n/a'; renderVerdict(evalSourceVerdict,''); renderVerdict(evalRelevanceVerdict,''); renderVerdict(evalTruthVerdict,''); setText(evalSourceReasons,'No evaluation yet.'); setText(evalRelevanceRisks,'No evaluation yet.'); setText(evalTruthRisks,'No evaluation yet.'); setText(evalMissingChecks,'No evaluation yet.'); setText(evalNextCheck,'No evaluation yet.'); setText(evalRevise,'should_revise_report: n/a'); setText(evalSummary,'No evaluation yet.'); return; } queryClassPill.textContent=`query class: ${evaluation.query_class}`; renderVerdict(evalSourceVerdict,evaluation.source_quality_verdict); renderVerdict(evalRelevanceVerdict,evaluation.relevance_verdict); renderVerdict(evalTruthVerdict,evaluation.truthfulness_verdict); setText(evalSourceReasons,renderLines(evaluation.source_quality_reasons,'No specific source-quality notes.')); setText(evalRelevanceRisks,renderLines(evaluation.relevance_risks,'No specific relevance risks.')); setText(evalTruthRisks,renderLines(evaluation.overclaim_risks,'No explicit overclaim risks flagged.')); setText(evalMissingChecks,renderLines(evaluation.missing_checks,'No missing checks flagged.')); setText(evalNextCheck,evaluation.recommended_next_check || 'No recommended next check.'); setText(evalRevise,`should_revise_report: ${evaluation.should_revise_report ? 'yes' : 'no'}`); setText(evalSummary,`Source quality: ${evaluation.source_quality_verdict} · Relevance: ${evaluation.relevance_verdict} · Truthfulness: ${evaluation.truthfulness_verdict}${evaluation.should_revise_report ? ' · Needs revision' : ''}`); }
       async function startJob() { try { const ownerId = ownerInput.value.trim().toLowerCase(); const query = queryInput.value.trim(); if (!ownerId) { showUiError('Start failed','owner_id is required'); setText(startDebug, 'Start debug: missing owner_id'); return; } if (!query) { showUiError('Start failed','query is required'); setText(startDebug, 'Start debug: missing query'); return; } ownerInput.value = ownerId; setText(startDebug, `Start debug: posting start request for owner=${ownerId}`); const { payload } = await jsonRequest('/api/research/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ owner_id: ownerId, query }) }); setText(startDebug, `Start debug: response status=${payload.status || 'n/a'} job_id=${payload.job && payload.job.job_id ? payload.job.job_id : 'missing'}`); if (payload.job && payload.job.job_id) { const jobId = payload.job.job_id; jobInput.value = jobId; setText(statusSummary, `Job created: ${jobId}`); const params = new URLSearchParams(window.location.search); params.set('owner_id', ownerId); params.set('job_id', jobId); if (query) params.set('query', query); window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`); await refreshStatus(); await listJobs(); return; } throw new Error('start response did not include job_id'); } catch (error) { setText(startDebug, `Start debug: error=${error instanceof Error ? error.message : String(error)}`); showUiError('Start failed', error); } }
       async function refreshStatus() { try { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Refresh failed', 'job_id is required'); return; } const { payload } = await jsonRequest(`/api/research/status/${jobId}`); renderStatusSummary(payload); } catch (error) { showUiError('Refresh failed', error); } }
@@ -2255,7 +2338,8 @@ def _render_research_console_html() -> str:
       async function runJob() { try { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Run failed', 'job_id is required'); return; } setText(statusSummary, `Running job ${jobId}…`); const { payload } = await jsonRequest(`/api/research/run/${jobId}`, { method:'POST' }); if (payload.job) { jobStatePill.textContent = `job: ${payload.job.status || 'done'}`; const status = payload.job.status || 'done'; const errorText = payload.job.error ? ` · ${payload.job.error}` : ''; setText(statusSummary, `Run completed: ${jobId} (${status})${errorText}`); } await refreshStatus(); await loadResult(); await listJobs(); } catch (error) { showUiError('Run failed', error); } }
       async function listJobs() { try { const ownerId = ownerInput.value.trim().toLowerCase(); if (!ownerId) { showUiError('List jobs failed', 'owner_id is required'); return; } ownerInput.value = ownerId; const { payload } = await jsonRequest(`/api/research/jobs?owner_id=${encodeURIComponent(ownerId)}`); renderJobsList(payload); } catch (error) { showUiError('List jobs failed', error); } }
       function loadStateFromQueryParams() { const params = new URLSearchParams(window.location.search); const ownerId=params.get('owner_id'); const jobId=params.get('job_id'); const query=params.get('query'); if (ownerId) ownerInput.value=ownerId; if (jobId) jobInput.value=jobId; if (query) queryInput.value=query; return { ownerId, jobId, query }; }
-      async function bootstrapFromQueryParams() { const state = loadStateFromQueryParams(); if (state.ownerId) await listJobs(); if (state.jobId) { await refreshStatus(); await loadResult(); } }
+      async function loadRuntimePosture() { try { const { payload } = await jsonRequest('/api/runtime'); renderResearchRuntime(payload); } catch (error) { runtimeNotice.textContent = `Research runtime status: failed to load (${error instanceof Error ? error.message : String(error)})`; runtimeNotice.style.background = 'rgba(255, 182, 72, 0.08)'; runtimeNotice.style.borderColor = 'rgba(255, 182, 72, 0.24)'; runtimeNotice.style.color = '#ffe7b8'; startButton.disabled = true; runButton.disabled = true; } }
+      async function bootstrapFromQueryParams() { const state = loadStateFromQueryParams(); if (state.ownerId && !startButton.disabled) await listJobs(); if (state.jobId && !startButton.disabled) { await refreshStatus(); await loadResult(); } }
       document.getElementById('start_btn').addEventListener('click', startJob);
       document.getElementById('run_btn').addEventListener('click', runJob);
       document.getElementById('refresh_btn').addEventListener('click', refreshStatus);
@@ -2264,8 +2348,8 @@ def _render_research_console_html() -> str:
       document.getElementById('html_btn').addEventListener('click', () => { const jobId = jobInput.value.trim(); if (!jobId) { showUiError('Open HTML failed', 'job_id is required'); return; } window.open(`/api/research/result/${jobId}.html`, '_blank', 'noopener,noreferrer'); });
       document.getElementById('preview_btn').addEventListener('click', () => { resultPreview.classList.remove('hidden'); resultBox.classList.add('hidden'); });
       document.getElementById('raw_btn').addEventListener('click', () => { resultPreview.classList.add('hidden'); resultBox.classList.remove('hidden'); });
-      bootstrapFromQueryParams().catch((error) => { showUiError('Bootstrap failed', error); });
-      if (!window.location.search.includes('owner_id=')) { listJobs(); }
+      loadRuntimePosture().then(() => bootstrapFromQueryParams()).catch((error) => { showUiError('Bootstrap failed', error); });
+      if (!window.location.search.includes('owner_id=') && !startButton.disabled) { listJobs(); }
     </script>
   </body>
 </html>"""

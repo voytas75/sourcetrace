@@ -40,6 +40,7 @@ from sourcetrace.domain.research import (
     ResearchSettings,
     ResearchSource,
     ResearchStats,
+    ResearchTerminationReason,
 )
 from sourcetrace.domain.retrieval import RetrievalHit, RetrievalQuery, RetrievalResultSet
 from sourcetrace.domain.types import (
@@ -99,6 +100,7 @@ __all__ = [
     "ResearchSettings",
     "ResearchSource",
     "ResearchStats",
+    "ResearchTerminationReason",
     "RetrievalHit",
     "RetrievalQuery",
     "RetrievalResultSet",
