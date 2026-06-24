@@ -30,6 +30,14 @@ class ResearchComplexity(str, Enum):
     HIGH = "high"
 
 
+class PlanningExecutionMode(str, Enum):
+    """How the runtime should treat planning before execution."""
+
+    DIRECT = "direct"
+    MULTI_STEP = "multi_step"
+    DISAMBIGUATE = "disambiguate"
+
+
 class ResearchPlanStrategy(str, Enum):
     """Small bounded planning strategy set for Deep Research."""
 
@@ -153,6 +161,33 @@ class ProblemAnalysis:
     focus_areas: tuple[str, ...] = ()
     constraints: tuple[str, ...] = ()
     analysis_version: str = "problem_analyzer_v1"
+
+
+@dataclass(frozen=True)
+class EntityHypothesis:
+    """Bounded candidate entity interpretation used during planning."""
+
+    surface_form: str
+    entity_type: str = "unknown"
+    canonical_name: str | None = None
+    candidate_meanings: tuple[str, ...] = ()
+    confidence: str = "low"
+    reasoning: str = ""
+
+
+@dataclass(frozen=True)
+class PlanningAnalysis:
+    """Deterministic planning-analysis artifact for planner input."""
+
+    query_class: ResearchQueryClass = ResearchQueryClass.GENERAL
+    complexity: ResearchComplexity = ResearchComplexity.MEDIUM
+    execution_mode: PlanningExecutionMode = PlanningExecutionMode.MULTI_STEP
+    goal: str = ""
+    focus_areas: tuple[str, ...] = ()
+    constraints: tuple[str, ...] = ()
+    entity_hypotheses: tuple[EntityHypothesis, ...] = ()
+    ambiguity_notes: tuple[str, ...] = ()
+    analysis_version: str = "planning_analysis_v1_fallback"
 
 
 @dataclass(frozen=True)
@@ -383,6 +418,9 @@ __all__ = [
     "CompiledResearchArtifactLintStatus",
     "CompiledResearchClaim",
     "CompiledResearchEvidenceRef",
+    "EntityHypothesis",
+    "PlanningAnalysis",
+    "PlanningExecutionMode",
     "ProblemAnalysis",
     "ResearchBranchEvaluation",
     "ResearchBranchProposal",

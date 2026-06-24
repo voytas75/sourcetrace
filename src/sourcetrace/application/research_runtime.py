@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 import json
+import re
 from urllib.error import URLError
 from dataclasses import dataclass, replace
 from collections import Counter
@@ -32,6 +33,9 @@ from sourcetrace.domain.research import (
     CompiledResearchArtifactLintStatus,
     CompiledResearchClaim,
     CompiledResearchEvidenceRef,
+    EntityHypothesis,
+    PlanningAnalysis,
+    PlanningExecutionMode,
     ProblemAnalysis,
     ResearchBranchEvaluation,
     ResearchBranchProposal,
@@ -59,12 +63,53 @@ from sourcetrace.domain.research import (
 from sourcetrace.storage.research import ResearchPersistence, create_in_memory_research_persistence
 
 
+class DeterministicPlanningAnalyzer:
+    """Deterministic fallback planning-analysis builder from current heuristics."""
+
+    def __call__(self, query: str) -> PlanningAnalysis:
+        return _build_fallback_planning_analysis(query)
+
+
 class StubResearchPlanner:
     """Deterministic planner stub for the bounded planner-v2 slice."""
 
-    def __call__(self, query: str, *, problem_analysis: ProblemAnalysis) -> ResearchExecutionPlan:
-        objective = problem_analysis.goal or query
-        query_class = problem_analysis.query_class
+    def __call__(
+        self,
+        query: str,
+        *,
+        problem_analysis: ProblemAnalysis,
+        planning_analysis: PlanningAnalysis | None = None,
+    ) -> ResearchExecutionPlan:
+        objective = (
+            planning_analysis.goal
+            if planning_analysis is not None and planning_analysis.goal
+            else problem_analysis.goal or query
+        )
+        query_class = planning_analysis.query_class if planning_analysis is not None else problem_analysis.query_class
+        if planning_analysis is not None and planning_analysis.execution_mode is PlanningExecutionMode.DISAMBIGUATE:
+            return ResearchExecutionPlan(
+                strategy=ResearchPlanStrategy.DIRECT_ANSWER,
+                objective=objective,
+                steps=(
+                    ResearchExecutionPlanStep(
+                        step_id="step-1",
+                        kind="analyze",
+                        objective="Disambiguate short or overloaded acronyms before locking onto one interpretation.",
+                    ),
+                    ResearchExecutionPlanStep(
+                        step_id="step-2",
+                        kind="search",
+                        objective="Collect evidence that distinguishes the most plausible meanings in context.",
+                        depends_on=("step-1",),
+                    ),
+                    ResearchExecutionPlanStep(
+                        step_id="step-3",
+                        kind="write",
+                        objective="Answer cautiously and surface unresolved ambiguity explicitly.",
+                        depends_on=("step-2",),
+                    ),
+                ),
+            )
         if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
             strategy = ResearchPlanStrategy.PROCEDURAL_RESEARCH
             steps = (
@@ -1444,22 +1489,20 @@ def _classify_query(query: str) -> ResearchQueryClass:
     return ResearchQueryClass.GENERAL
 
 
-def _derive_problem_analysis(query: str) -> ProblemAnalysis:
-    normalized = query.strip()
-    query_class = _classify_query(normalized)
-    lowered = normalized.lower()
-
+def _planning_complexity(query: str, *, query_class: ResearchQueryClass) -> ResearchComplexity:
+    lowered = query.lower()
     if query_class in {ResearchQueryClass.PROCEDURAL_ADMIN, ResearchQueryClass.MARKET_SYMBOL}:
-        complexity = ResearchComplexity.LOW
-    elif query_class is ResearchQueryClass.BROAD_CONCEPT:
-        complexity = ResearchComplexity.HIGH
-    elif query_class is ResearchQueryClass.CURRENT_NEWS:
-        complexity = ResearchComplexity.MEDIUM
-    elif any(token in lowered for token in ("compare", "vs", "tradeoff", "decision", "plan", "strategy")):
-        complexity = ResearchComplexity.HIGH
-    else:
-        complexity = ResearchComplexity.MEDIUM
+        return ResearchComplexity.LOW
+    if query_class is ResearchQueryClass.BROAD_CONCEPT:
+        return ResearchComplexity.HIGH
+    if query_class is ResearchQueryClass.CURRENT_NEWS:
+        return ResearchComplexity.MEDIUM
+    if any(token in lowered for token in ("compare", "vs", "tradeoff", "decision", "plan", "strategy")):
+        return ResearchComplexity.HIGH
+    return ResearchComplexity.MEDIUM
 
+
+def _planning_focus_areas(query_class: ResearchQueryClass) -> tuple[str, ...]:
     focus_areas_map: dict[ResearchQueryClass, tuple[str, ...]] = {
         ResearchQueryClass.PROCEDURAL_ADMIN: ("task_path", "required_controls", "validation"),
         ResearchQueryClass.BROAD_CONCEPT: ("definition", "system_shape", "key_tradeoffs"),
@@ -1467,6 +1510,10 @@ def _derive_problem_analysis(query: str) -> ProblemAnalysis:
         ResearchQueryClass.MARKET_SYMBOL: ("instrument_scope", "time_window", "market_signal"),
         ResearchQueryClass.GENERAL: ("main_question",),
     }
+    return focus_areas_map[query_class]
+
+
+def _planning_constraints(query_class: ResearchQueryClass) -> tuple[str, ...]:
     constraints: list[str] = []
     if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
         constraints.append("state_exact_steps_only_when_supported_by_evidence")
@@ -1474,14 +1521,94 @@ def _derive_problem_analysis(query: str) -> ProblemAnalysis:
         constraints.append("prefer_recent_attributed_evidence")
     if query_class is ResearchQueryClass.MARKET_SYMBOL:
         constraints.append("keep_instrument_and_time_window_consistent")
+    return tuple(constraints)
 
-    return ProblemAnalysis(
+
+def _detect_entity_hypotheses(query: str) -> tuple[EntityHypothesis, ...]:
+    short_form_groups = re.findall(r"\b([A-Z]{2,3}(?:/[A-Z]{2,3})+)\b", query)
+    if not short_form_groups:
+        return ()
+    candidate_meanings = {
+        "PO": ("product owner", "purchase order"),
+        "KO": ("kickoff", "knockout"),
+    }
+    hypotheses: list[EntityHypothesis] = []
+    seen: set[str] = set()
+    for group in short_form_groups:
+        for token in group.split("/"):
+            if token in seen:
+                continue
+            seen.add(token)
+            hypotheses.append(
+                EntityHypothesis(
+                    surface_form=token,
+                    entity_type="acronym",
+                    candidate_meanings=candidate_meanings.get(token, ()),
+                    confidence="low",
+                    reasoning="Short acronym appears without enough context to resolve safely.",
+                )
+            )
+    return tuple(hypotheses)
+
+
+def _planning_ambiguity_notes(entity_hypotheses: tuple[EntityHypothesis, ...]) -> tuple[str, ...]:
+    return tuple(
+        f"Ambiguous acronym '{hypothesis.surface_form}' appears without enough context to resolve safely."
+        for hypothesis in entity_hypotheses
+    )
+
+
+def _planning_execution_mode(
+    *,
+    query_class: ResearchQueryClass,
+    complexity: ResearchComplexity,
+    ambiguity_notes: tuple[str, ...],
+) -> PlanningExecutionMode:
+    if ambiguity_notes:
+        return PlanningExecutionMode.DISAMBIGUATE
+    if query_class in {ResearchQueryClass.BROAD_CONCEPT, ResearchQueryClass.CURRENT_NEWS}:
+        return PlanningExecutionMode.MULTI_STEP
+    if complexity is ResearchComplexity.HIGH:
+        return PlanningExecutionMode.MULTI_STEP
+    return PlanningExecutionMode.DIRECT
+
+
+def _build_fallback_planning_analysis(query: str) -> PlanningAnalysis:
+    normalized = query.strip()
+    query_class = _classify_query(normalized)
+    complexity = _planning_complexity(normalized, query_class=query_class)
+    entity_hypotheses = _detect_entity_hypotheses(normalized)
+    ambiguity_notes = _planning_ambiguity_notes(entity_hypotheses)
+    return PlanningAnalysis(
         query_class=query_class,
         complexity=complexity,
+        execution_mode=_planning_execution_mode(
+            query_class=query_class,
+            complexity=complexity,
+            ambiguity_notes=ambiguity_notes,
+        ),
         goal=normalized,
-        focus_areas=focus_areas_map[query_class],
-        constraints=tuple(constraints),
+        focus_areas=_planning_focus_areas(query_class),
+        constraints=_planning_constraints(query_class),
+        entity_hypotheses=entity_hypotheses,
+        ambiguity_notes=ambiguity_notes,
+        analysis_version="planning_analysis_v1_fallback",
     )
+
+
+def _planning_analysis_to_problem_analysis(planning_analysis: PlanningAnalysis) -> ProblemAnalysis:
+    return ProblemAnalysis(
+        query_class=planning_analysis.query_class,
+        complexity=planning_analysis.complexity,
+        goal=planning_analysis.goal,
+        focus_areas=planning_analysis.focus_areas,
+        constraints=planning_analysis.constraints,
+        analysis_version="problem_analyzer_v1",
+    )
+
+
+def _derive_problem_analysis(query: str) -> ProblemAnalysis:
+    return _planning_analysis_to_problem_analysis(_build_fallback_planning_analysis(query))
 
 
 def _evaluate_research_result(*, query: str, findings: tuple[ResearchFinding, ...], report: str, stats: ResearchStats) -> ResearchEvaluationArtifact:
@@ -2072,8 +2199,13 @@ class ResearchJobManager:
 
     def start_job(self, request: ResearchJobStartRequest) -> ResearchJobStartOutcome:
         now = _utcnow()
-        problem_analysis = _derive_problem_analysis(request.query)
-        execution_plan = StubResearchPlanner()(request.query, problem_analysis=problem_analysis)
+        planning_analysis = _build_fallback_planning_analysis(request.query)
+        problem_analysis = _planning_analysis_to_problem_analysis(planning_analysis)
+        execution_plan = StubResearchPlanner()(
+            request.query,
+            problem_analysis=problem_analysis,
+            planning_analysis=planning_analysis,
+        )
         job = ResearchJob(
             job_id=f"rj-{uuid4().hex[:12]}",
             owner_id=request.owner_id,
@@ -2163,8 +2295,13 @@ class FakeResearchWorker:
         running = replace(started, status=ResearchJobStatus.RUNNING)
         self.persistence.jobs.save_job(running)
 
-        problem_analysis = running.problem_analysis or _derive_problem_analysis(running.query)
-        plan = self.planner(running.query, problem_analysis=problem_analysis)
+        planning_analysis = _build_fallback_planning_analysis(running.query)
+        problem_analysis = running.problem_analysis or _planning_analysis_to_problem_analysis(planning_analysis)
+        plan = self.planner(
+            running.query,
+            problem_analysis=problem_analysis,
+            planning_analysis=planning_analysis,
+        )
         running = replace(running, problem_analysis=problem_analysis, execution_plan=plan)
         self.persistence.jobs.save_job(running)
         _emit_progress(self.persistence, job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.steps)} step(s) with strategy {plan.strategy.value}.")
@@ -2790,6 +2927,7 @@ def _utcnow() -> str:
 
 __all__ = [
     "build_provider_search_adapter",
+    "DeterministicPlanningAnalyzer",
     "ResearchSearchError",
     "build_search_adapter",
     "DeterministicStopRails",

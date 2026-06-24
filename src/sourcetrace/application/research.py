@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from sourcetrace.domain.research import (
+    PlanningAnalysis,
     ProblemAnalysis,
     ResearchExecutionPlan,
     ResearchJob,
@@ -84,7 +85,13 @@ class ResearchJobListOutcome:
 class ResearchPlanner(Protocol):
     """Execution seam for building a research plan from problem analysis."""
 
-    def __call__(self, query: str, *, problem_analysis: ProblemAnalysis) -> ResearchExecutionPlan:
+    def __call__(
+        self,
+        query: str,
+        *,
+        problem_analysis: ProblemAnalysis,
+        planning_analysis: PlanningAnalysis | None = None,
+    ) -> ResearchExecutionPlan:
         ...
 
 

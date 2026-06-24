@@ -10,15 +10,18 @@ from sourcetrace.application import (
     SearxNGSearchAdapter,
 )
 from sourcetrace.application.research_runtime import (
+    DeterministicPlanningAnalyzer,
     LlmResearchSynthesizer,
     ResearchSearchError,
     StubQueryGenerator,
     _authority_signal_score,
+    _build_fallback_planning_analysis,
     _build_research_report_prompt,
     _classify_query,
     _compile_research_artifact,
     _derive_branch_proposals,
     _derive_problem_analysis,
+    _planning_analysis_to_problem_analysis,
     _derive_reflection,
     _evaluate_branch_proposals,
     _evaluate_research_result,
@@ -45,6 +48,7 @@ from sourcetrace.domain import (
     CompiledResearchClaim,
     CompiledResearchArtifactLintStatus,
     CompiledResearchEvidenceRef,
+    PlanningExecutionMode,
     ProblemAnalysis,
     ResearchBranchEvaluation,
     ResearchBranchProposalSet,
@@ -789,6 +793,29 @@ def test_problem_analysis_derivation_for_broad_and_procedural_queries() -> None:
     assert "state_exact_steps_only_when_supported_by_evidence" in procedural.constraints
 
 
+def test_fallback_planning_analysis_derives_readable_ssot_from_current_heuristics() -> None:
+    planning = DeterministicPlanningAnalyzer()("deep research architecture")
+    problem_analysis = _planning_analysis_to_problem_analysis(planning)
+
+    assert planning.query_class is ResearchQueryClass.BROAD_CONCEPT
+    assert planning.complexity is ResearchComplexity.HIGH
+    assert planning.execution_mode is PlanningExecutionMode.MULTI_STEP
+    assert planning.goal == "deep research architecture"
+    assert "system_shape" in planning.focus_areas
+    assert planning.analysis_version == "planning_analysis_v1_fallback"
+    assert problem_analysis.goal == planning.goal
+    assert problem_analysis.query_class is planning.query_class
+
+
+def test_fallback_planning_analysis_surfaces_short_acronym_ambiguity() -> None:
+    planning = _build_fallback_planning_analysis("PO/KO escalation path")
+
+    assert planning.execution_mode is PlanningExecutionMode.DISAMBIGUATE
+    assert [item.surface_form for item in planning.entity_hypotheses] == ["PO", "KO"]
+    assert planning.ambiguity_notes
+    assert "PO" in planning.ambiguity_notes[0]
+
+
 def test_branch_proposals_are_only_eligible_for_broad_or_high_complexity_queries() -> None:
     broad_analysis = ProblemAnalysis(
         query_class=ResearchQueryClass.BROAD_CONCEPT,
@@ -890,6 +917,7 @@ def test_reflection_emits_bounded_follow_up_for_thin_broad_result() -> None:
 
 
 def test_stub_planner_uses_problem_analysis_to_build_execution_plan() -> None:
+    planning_analysis = _build_fallback_planning_analysis("How do I create configuration baselines in SCCM?")
     problem_analysis = ProblemAnalysis(
         query_class=ResearchQueryClass.PROCEDURAL_ADMIN,
         complexity=ResearchComplexity.LOW,
@@ -898,7 +926,11 @@ def test_stub_planner_uses_problem_analysis_to_build_execution_plan() -> None:
         constraints=("state_exact_steps_only_when_supported_by_evidence",),
     )
     from sourcetrace.application.research_runtime import StubResearchPlanner
-    plan = StubResearchPlanner()(problem_analysis.goal, problem_analysis=problem_analysis)
+    plan = StubResearchPlanner()(
+        problem_analysis.goal,
+        problem_analysis=problem_analysis,
+        planning_analysis=planning_analysis,
+    )
 
     assert plan.strategy is ResearchPlanStrategy.PROCEDURAL_RESEARCH
     assert plan.objective == problem_analysis.goal
