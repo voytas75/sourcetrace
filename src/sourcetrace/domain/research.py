@@ -19,7 +19,7 @@ class ResearchQueryClass(str, Enum):
     PROCEDURAL_ADMIN = "procedural_admin"
     BROAD_CONCEPT = "broad_concept"
     CURRENT_NEWS = "current_news"
-    UNKNOWN = "unknown"
+    GENERAL = "general"
 
 
 class ResearchComplexity(str, Enum):
@@ -138,7 +138,7 @@ class ResearchStats:
 class ProblemAnalysis:
     """Minimal structured problem framing derived for each research job."""
 
-    query_class: ResearchQueryClass = ResearchQueryClass.UNKNOWN
+    query_class: ResearchQueryClass = ResearchQueryClass.GENERAL
     complexity: ResearchComplexity = ResearchComplexity.MEDIUM
     goal: str = ""
     focus_areas: tuple[str, ...] = ()
@@ -171,7 +171,7 @@ class ResearchEvidencePack:
     """Durable grouped evidence pack used by synthesis."""
 
     pack_version: str = "evidence_pack_v1"
-    query_class: ResearchQueryClass = ResearchQueryClass.UNKNOWN
+    query_class: ResearchQueryClass = ResearchQueryClass.GENERAL
     core: tuple[ResearchFinding, ...] = ()
     supporting: tuple[ResearchFinding, ...] = ()
     background: tuple[ResearchFinding, ...] = ()
@@ -271,7 +271,7 @@ class ResearchProgressEvent:
 class ResearchEvaluationArtifact:
     """Structured post-result evaluation artifact for a completed research job."""
 
-    query_class: ResearchQueryClass = ResearchQueryClass.UNKNOWN
+    query_class: ResearchQueryClass = ResearchQueryClass.GENERAL
     source_quality_verdict: ResearchEvaluationVerdict = ResearchEvaluationVerdict.MIXED
     source_quality_reasons: tuple[str, ...] = ()
     relevance_verdict: ResearchEvaluationVerdict = ResearchEvaluationVerdict.MIXED

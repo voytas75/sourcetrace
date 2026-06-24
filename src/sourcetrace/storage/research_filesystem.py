@@ -271,7 +271,7 @@ def _problem_analysis_from_payload(payload: object) -> ProblemAnalysis | None:
     if not isinstance(payload, dict):
         return None
     return ProblemAnalysis(
-        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
+        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.GENERAL.value))),
         complexity=ResearchComplexity(str(payload.get("complexity", ResearchComplexity.MEDIUM.value))),
         goal=str(payload.get("goal", "")),
         focus_areas=tuple(str(item) for item in payload.get("focus_areas", [])),
@@ -345,7 +345,7 @@ def _evidence_pack_from_payload(payload: object) -> ResearchEvidencePack | None:
         )
     return ResearchEvidencePack(
         pack_version=str(payload.get("pack_version", "evidence_pack_v1")),
-        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
+        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.GENERAL.value))),
         core=_finding_tuple("core"),
         supporting=_finding_tuple("supporting"),
         background=_finding_tuple("background"),
@@ -467,7 +467,7 @@ def _evaluation_from_payload(payload: object) -> ResearchEvaluationArtifact | No
     if not isinstance(payload, dict):
         return None
     return ResearchEvaluationArtifact(
-        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
+        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.GENERAL.value))),
         source_quality_verdict=ResearchEvaluationVerdict(str(payload.get("source_quality_verdict", ResearchEvaluationVerdict.MIXED.value))),
         source_quality_reasons=tuple(str(item) for item in payload.get("source_quality_reasons", [])),
         relevance_verdict=ResearchEvaluationVerdict(str(payload.get("relevance_verdict", ResearchEvaluationVerdict.MIXED.value))),
@@ -603,7 +603,7 @@ def _compiled_research_artifact_from_payload(payload: dict[str, object]) -> Comp
         source_job_id=str(payload["source_job_id"]),
         owner_id=str(payload["owner_id"]),
         query=str(payload["query"]),
-        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.UNKNOWN.value))),
+        query_class=ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.GENERAL.value))),
         title=str(payload.get("title", "")),
         summary=str(payload.get("summary", "")),
         current_answer=str(payload.get("current_answer", "")),

@@ -37,6 +37,7 @@ from sourcetrace.application.research_runtime import (
 )
 from sourcetrace.domain import (
     CompiledResearchArtifact,
+    CompiledResearchClaim,
     CompiledResearchArtifactLintStatus,
     CompiledResearchEvidenceRef,
     ProblemAnalysis,
@@ -977,3 +978,58 @@ def test_file_backed_research_persistence_roundtrips_new_artifact_fields(tmp_pat
     assert compiled.execution_plan_snapshot is not None
     assert compiled.reflection_snapshot is not None
     assert lint is not None
+
+
+def test_general_query_class_replaces_unknown_for_broad_nonprocedural_question() -> None:
+    analysis = _derive_problem_analysis("Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku")
+
+    assert analysis.query_class is ResearchQueryClass.GENERAL
+    assert analysis.complexity is ResearchComplexity.MEDIUM
+
+
+def test_evidence_pack_uses_supporting_for_general_query_with_nonempty_findings() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://example.org/report",
+            title="Remote work and mental health report",
+            summary="Summary about the impact of remote work on employee mental health.",
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        findings=findings,
+    )
+
+    assert len(packed.core) == 0
+    assert len(packed.supporting) == 1
+
+
+def test_lint_flags_thin_evidence_base_when_reflection_reports_no_core_evidence() -> None:
+    artifact = CompiledResearchArtifact(
+        artifact_id="cra-thin",
+        source_job_id="rj-thin",
+        owner_id="user-1",
+        query="General research query",
+        query_class=ResearchQueryClass.GENERAL,
+        title="Thin artifact",
+        summary="Summary",
+        current_answer="Answer",
+        key_claims=(CompiledResearchClaim(text="Claim", evidence_refs=("https://example.org/report",)),),
+        supporting_evidence=(),
+        source_refs=(ResearchSource(url="https://example.org/report", title="Example"),),
+        reflection_snapshot=ResearchReflection(
+            goal_coverage="partial",
+            weak_evidence_areas=("no_core_evidence",),
+            should_follow_up=True,
+            recommended_follow_up="Gather stronger evidence.",
+        ),
+        evaluation_snapshot=ResearchEvaluationArtifact(query_class=ResearchQueryClass.GENERAL),
+        created_at="2026-06-24T00:00:00+00:00",
+    )
+
+    lint = _lint_compiled_research_artifact(artifact)
+
+    assert 'thin_evidence_base' in lint.risk_flags
+    assert 'claims_without_supporting_evidence' in lint.risk_flags
+    assert lint.recommended_next_action == 'revise_artifact'

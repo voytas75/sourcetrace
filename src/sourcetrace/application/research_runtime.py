@@ -997,6 +997,12 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
                 continue
             background.append(finding)
             continue
+        if query_class is ResearchQueryClass.GENERAL:
+            if len(supporting) < supporting_limit:
+                supporting.append(finding)
+            else:
+                background.append(finding)
+            continue
         if len(core) < core_limit:
             core.append(finding)
         elif len(supporting) < supporting_limit:
@@ -1004,9 +1010,9 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
         else:
             background.append(finding)
 
-    if not core and supporting:
+    if query_class is not ResearchQueryClass.GENERAL and not core and supporting:
         core.append(supporting.pop(0))
-    if not core and background:
+    if query_class is not ResearchQueryClass.GENERAL and not core and background:
         core.append(background.pop(0))
     return PackedEvidence(
         core=tuple(core),
@@ -1326,7 +1332,7 @@ def _classify_query(query: str) -> ResearchQueryClass:
         return ResearchQueryClass.CURRENT_NEWS
     if any(token in lowered for token in ("architecture", "design", "how it works", "workflow", "system shape")):
         return ResearchQueryClass.BROAD_CONCEPT
-    return ResearchQueryClass.UNKNOWN
+    return ResearchQueryClass.GENERAL
 
 
 def _derive_problem_analysis(query: str) -> ProblemAnalysis:
@@ -1350,7 +1356,7 @@ def _derive_problem_analysis(query: str) -> ProblemAnalysis:
         ResearchQueryClass.BROAD_CONCEPT: ("definition", "system_shape", "key_tradeoffs"),
         ResearchQueryClass.CURRENT_NEWS: ("recent_developments", "timeline", "source_recency"),
         ResearchQueryClass.MARKET_SYMBOL: ("instrument_scope", "time_window", "market_signal"),
-        ResearchQueryClass.UNKNOWN: ("main_question",),
+        ResearchQueryClass.GENERAL: ("main_question",),
     }
     constraints: list[str] = []
     if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
@@ -1837,7 +1843,11 @@ def _lint_compiled_research_artifact(artifact: CompiledResearchArtifact) -> Comp
     elif not artifact.open_questions or not artifact.next_checks:
         followup_verdict = ResearchEvaluationVerdict.MIXED
 
-    if artifact.execution_plan_snapshot is not None and len(artifact.execution_plan_snapshot.steps) < 2:
+    if artifact.execution_plan_snapshot is None:
+        missing_sections.append('execution_plan_snapshot')
+        recommended_repairs.append('Attach an execution plan snapshot to the compiled artifact.')
+        completeness_verdict = ResearchEvaluationVerdict.WEAK
+    elif len(artifact.execution_plan_snapshot.steps) < 2:
         risk_flags.append('shallow_execution_plan_snapshot')
         recommended_repairs.append('Expand the execution plan snapshot to include at least two meaningful steps.')
         if completeness_verdict is ResearchEvaluationVerdict.STRONG:
@@ -1853,6 +1863,15 @@ def _lint_compiled_research_artifact(artifact: CompiledResearchArtifact) -> Comp
             recommended_repairs.append('Add one explicit follow-up recommendation for weak reflection coverage.')
             if followup_verdict is ResearchEvaluationVerdict.STRONG:
                 followup_verdict = ResearchEvaluationVerdict.MIXED
+        if 'no_core_evidence' in artifact.reflection_snapshot.weak_evidence_areas:
+            risk_flags.append('thin_evidence_base')
+            recommended_repairs.append('Gather stronger evidence before treating the artifact as decision-ready.')
+            evidence_verdict = ResearchEvaluationVerdict.WEAK
+
+    if artifact.key_claims and not artifact.supporting_evidence:
+        risk_flags.append('claims_without_supporting_evidence')
+        recommended_repairs.append('Attach supporting evidence refs or reduce unsupported claim emphasis.')
+        evidence_verdict = ResearchEvaluationVerdict.WEAK
 
     if artifact.evaluation_snapshot is not None and artifact.reflection_snapshot is not None:
         if (
