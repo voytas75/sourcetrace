@@ -998,10 +998,10 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
             background.append(finding)
             continue
         if query_class is ResearchQueryClass.GENERAL:
-            if len(supporting) < supporting_limit:
+            if source_type in {'official_docs', 'docs', 'generic', 'vendor_docs', 'blog'} and len(supporting) < supporting_limit:
                 supporting.append(finding)
-            else:
-                background.append(finding)
+                continue
+            background.append(finding)
             continue
         if len(core) < core_limit:
             core.append(finding)
@@ -2263,7 +2263,8 @@ class FakeResearchWorker:
                 message=f"Extracted {len(findings)} finding(s) this round.",
             )
 
-            packed = _pack_evidence_for_synthesis(query=running.query, findings=findings)
+            cumulative_findings = tuple(all_findings)
+            packed = _pack_evidence_for_synthesis(query=running.query, findings=cumulative_findings)
             evidence_pack = _to_research_evidence_pack(query=running.query, packed=packed)
             packed_core_count = len(packed.core)
             packed_supporting_count = len(packed.supporting)

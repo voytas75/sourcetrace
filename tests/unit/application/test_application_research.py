@@ -32,6 +32,7 @@ from sourcetrace.application.research_runtime import (
     _project_source_refs,
     _research_report_prompt_overlay,
     _top_findings,
+    _to_research_evidence_pack,
     build_procedural_admin_unified_search_adapter,
     build_search_adapter,
 )
@@ -1046,3 +1047,31 @@ def test_file_backed_payload_load_maps_legacy_unknown_query_class_to_general() -
 
     assert analysis is not None
     assert analysis.query_class is ResearchQueryClass.GENERAL
+
+
+def test_pack_evidence_for_general_query_preserves_supporting_from_cumulative_findings() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://example.org/report-1",
+            title="Remote work and mental health report",
+            summary="Evidence summary one.",
+        ),
+        ExtractedFinding(
+            url="https://example.org/report-2",
+            title="Follow-up remote work analysis",
+            summary="Evidence summary two.",
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        findings=findings,
+    )
+    evidence_pack = _to_research_evidence_pack(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        packed=packed,
+    )
+
+    assert evidence_pack.query_class is ResearchQueryClass.GENERAL
+    assert len(evidence_pack.core) == 0
+    assert len(evidence_pack.supporting) >= 1
