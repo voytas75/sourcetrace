@@ -2000,6 +2000,7 @@ def _compile_research_artifact(result: ResearchResultArtifact) -> CompiledResear
         open_questions=open_questions,
         next_checks=next_checks,
         source_refs=source_refs,
+        planning_analysis_snapshot=result.planning_analysis,
         problem_analysis_snapshot=result.problem_analysis,
         execution_plan_snapshot=result.execution_plan,
         reflection_snapshot=result.reflection,
@@ -2213,6 +2214,7 @@ class ResearchJobManager:
             status=ResearchJobStatus.QUEUED,
             created_at=now,
             settings=request.settings,
+            planning_analysis=planning_analysis,
             problem_analysis=problem_analysis,
             execution_plan=execution_plan,
         )
@@ -2295,14 +2297,14 @@ class FakeResearchWorker:
         running = replace(started, status=ResearchJobStatus.RUNNING)
         self.persistence.jobs.save_job(running)
 
-        planning_analysis = _build_fallback_planning_analysis(running.query)
+        planning_analysis = running.planning_analysis or _build_fallback_planning_analysis(running.query)
         problem_analysis = running.problem_analysis or _planning_analysis_to_problem_analysis(planning_analysis)
         plan = self.planner(
             running.query,
             problem_analysis=problem_analysis,
             planning_analysis=planning_analysis,
         )
-        running = replace(running, problem_analysis=problem_analysis, execution_plan=plan)
+        running = replace(running, planning_analysis=planning_analysis, problem_analysis=problem_analysis, execution_plan=plan)
         self.persistence.jobs.save_job(running)
         _emit_progress(self.persistence, job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.steps)} step(s) with strategy {plan.strategy.value}.")
 
@@ -2624,6 +2626,7 @@ No report was produced."""
             stats=stats,
             sources=tuple(ResearchSource(url=hit.url, title=hit.title) for hit in all_hits),
             raw_findings=raw_findings,
+            planning_analysis=running.planning_analysis,
             problem_analysis=running.problem_analysis,
             execution_plan=running.execution_plan,
             evidence_pack=evidence_pack,
@@ -2659,6 +2662,7 @@ No report was produced."""
             stats=stats,
             sources=projected_sources,
             raw_findings=raw_findings,
+            planning_analysis=running.planning_analysis,
             problem_analysis=running.problem_analysis,
             execution_plan=running.execution_plan,
             evidence_pack=evidence_pack,
@@ -2774,6 +2778,7 @@ Partial salvage preserved."""
             stats=stats,
             sources=(ResearchSource(url="https://example.test/partial", title="Partial source"),),
             raw_findings=raw_findings,
+            planning_analysis=job.planning_analysis,
             problem_analysis=job.problem_analysis,
             execution_plan=job.execution_plan,
             evidence_pack=salvage_evidence_pack,

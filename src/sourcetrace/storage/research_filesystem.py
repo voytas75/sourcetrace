@@ -10,6 +10,9 @@ from sourcetrace.domain.research import (
     CompiledResearchArtifactLintStatus,
     CompiledResearchClaim,
     CompiledResearchEvidenceRef,
+    EntityHypothesis,
+    PlanningAnalysis,
+    PlanningExecutionMode,
     ProblemAnalysis,
     ResearchBranchEvaluation,
     ResearchBranchProposal,
@@ -261,6 +264,58 @@ def _query_class_from_payload(value: object) -> ResearchQueryClass:
     return ResearchQueryClass(normalized)
 
 
+def _planning_analysis_payload(analysis: PlanningAnalysis | None) -> dict[str, object] | None:
+    if analysis is None:
+        return None
+    return {
+        "query_class": analysis.query_class.value,
+        "complexity": analysis.complexity.value,
+        "execution_mode": analysis.execution_mode.value,
+        "goal": analysis.goal,
+        "focus_areas": list(analysis.focus_areas),
+        "constraints": list(analysis.constraints),
+        "entity_hypotheses": [
+            {
+                "surface_form": item.surface_form,
+                "entity_type": item.entity_type,
+                "canonical_name": item.canonical_name,
+                "candidate_meanings": list(item.candidate_meanings),
+                "confidence": item.confidence,
+                "reasoning": item.reasoning,
+            }
+            for item in analysis.entity_hypotheses
+        ],
+        "ambiguity_notes": list(analysis.ambiguity_notes),
+        "analysis_version": analysis.analysis_version,
+    }
+
+
+def _planning_analysis_from_payload(payload: object) -> PlanningAnalysis | None:
+    if not isinstance(payload, dict):
+        return None
+    return PlanningAnalysis(
+        query_class=_query_class_from_payload(payload.get("query_class", ResearchQueryClass.GENERAL.value)),
+        complexity=ResearchComplexity(str(payload.get("complexity", ResearchComplexity.MEDIUM.value))),
+        execution_mode=PlanningExecutionMode(str(payload.get("execution_mode", PlanningExecutionMode.MULTI_STEP.value))),
+        goal=str(payload.get("goal", "")),
+        focus_areas=tuple(str(item) for item in payload.get("focus_areas", [])),
+        constraints=tuple(str(item) for item in payload.get("constraints", [])),
+        entity_hypotheses=tuple(
+            EntityHypothesis(
+                surface_form=str(item.get("surface_form", "")),
+                entity_type=str(item.get("entity_type", "unknown")),
+                canonical_name=_optional_str(item.get("canonical_name")),
+                candidate_meanings=tuple(str(candidate) for candidate in item.get("candidate_meanings", [])),
+                confidence=str(item.get("confidence", "low")),
+                reasoning=str(item.get("reasoning", "")),
+            )
+            for item in payload.get("entity_hypotheses", []) if isinstance(item, dict)
+        ),
+        ambiguity_notes=tuple(str(item) for item in payload.get("ambiguity_notes", [])),
+        analysis_version=str(payload.get("analysis_version", "planning_analysis_v1_fallback")),
+    )
+
+
 def _problem_analysis_payload(analysis: ProblemAnalysis | None) -> dict[str, object] | None:
     if analysis is None:
         return None
@@ -496,6 +551,7 @@ def _research_job_payload(job: ResearchJob) -> dict[str, object]:
         "started_at": job.started_at,
         "completed_at": job.completed_at,
         "settings": asdict(job.settings),
+        "planning_analysis": _planning_analysis_payload(job.planning_analysis),
         "problem_analysis": _problem_analysis_payload(job.problem_analysis),
         "execution_plan": _execution_plan_payload(job.execution_plan),
         "error": job.error,
@@ -513,6 +569,7 @@ def _research_job_from_payload(payload: dict[str, object]) -> ResearchJob:
         started_at=_optional_str(payload.get("started_at")),
         completed_at=_optional_str(payload.get("completed_at")),
         settings=ResearchSettings(**{k: v for k, v in settings.items() if k in ResearchSettings.__dataclass_fields__}),
+        planning_analysis=_planning_analysis_from_payload(payload.get("planning_analysis")),
         problem_analysis=_problem_analysis_from_payload(payload.get("problem_analysis")),
         execution_plan=_execution_plan_from_payload(payload.get("execution_plan")),
         error=_optional_str(payload.get("error")),
@@ -532,6 +589,7 @@ def _research_result_payload(result: ResearchResultArtifact) -> dict[str, object
         "stats": asdict(result.stats),
         "sources": [asdict(source) for source in result.sources],
         "raw_findings": [asdict(finding) for finding in result.raw_findings],
+        "planning_analysis": _planning_analysis_payload(result.planning_analysis),
         "problem_analysis": _problem_analysis_payload(result.problem_analysis),
         "execution_plan": _execution_plan_payload(result.execution_plan),
         "evidence_pack": _evidence_pack_payload(result.evidence_pack),
@@ -559,6 +617,7 @@ def _compiled_research_artifact_payload(artifact: CompiledResearchArtifact) -> d
         "open_questions": list(artifact.open_questions),
         "next_checks": list(artifact.next_checks),
         "source_refs": [asdict(source) for source in artifact.source_refs],
+        "planning_analysis_snapshot": _planning_analysis_payload(artifact.planning_analysis_snapshot),
         "problem_analysis_snapshot": _problem_analysis_payload(artifact.problem_analysis_snapshot),
         "execution_plan_snapshot": _execution_plan_payload(artifact.execution_plan_snapshot),
         "reflection_snapshot": _reflection_payload(artifact.reflection_snapshot),
@@ -639,6 +698,7 @@ def _compiled_research_artifact_from_payload(payload: dict[str, object]) -> Comp
             )
             for item in payload.get("source_refs", []) if isinstance(item, dict)
         ),
+        planning_analysis_snapshot=_planning_analysis_from_payload(payload.get("planning_analysis_snapshot")),
         problem_analysis_snapshot=_problem_analysis_from_payload(payload.get("problem_analysis_snapshot")),
         execution_plan_snapshot=_execution_plan_from_payload(payload.get("execution_plan_snapshot")),
         reflection_snapshot=_reflection_from_payload(payload.get("reflection_snapshot")),
@@ -692,6 +752,7 @@ def _research_result_from_payload(payload: dict[str, object]) -> ResearchResultA
             )
             for item in payload.get("raw_findings", []) if isinstance(item, dict)
         ),
+        planning_analysis=_planning_analysis_from_payload(payload.get("planning_analysis")),
         problem_analysis=_problem_analysis_from_payload(payload.get("problem_analysis")),
         execution_plan=_execution_plan_from_payload(payload.get("execution_plan")),
         evidence_pack=_evidence_pack_from_payload(payload.get("evidence_pack")),

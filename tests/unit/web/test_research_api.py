@@ -76,6 +76,8 @@ def test_wsgi_research_job_flow() -> None:
     assert status_status == "200 OK"
     status_payload = json.loads(status_body)
     assert status_payload["job"]["job_id"] == job_id
+    assert status_payload["job"]["planning_analysis"]["analysis_version"] == "planning_analysis_v1_fallback"
+    assert status_payload["job"]["planning_analysis"]["execution_mode"]
     assert status_payload["job"]["problem_analysis"]["analysis_version"] == "problem_analyzer_v1"
     assert status_payload["job"]["execution_plan"]["plan_version"] == "planner_v2"
     assert pending_result_status == "202 Accepted"
@@ -87,6 +89,8 @@ def test_wsgi_research_job_flow() -> None:
     assert result_payload["job"]["termination_reason"] is None
     assert result_payload["result"]["completion_mode"] == "full"
     assert result_payload["result"]["termination_reason"] is None
+    assert result_payload["result"]["planning_analysis"]["goal"] == start_payload["job"]["query"]
+    assert result_payload["result"]["planning_analysis"]["analysis_version"] == "planning_analysis_v1_fallback"
     assert result_payload["result"]["problem_analysis"]["goal"] == start_payload["job"]["query"]
     assert result_payload["result"]["execution_plan"]["strategy"]
     assert result_payload["result"]["evidence_pack"]["pack_version"] == "evidence_pack_v1"
@@ -103,6 +107,7 @@ def test_wsgi_research_job_flow() -> None:
     assert compiled_status == "200 OK"
     compiled_payload = json.loads(compiled_body)
     assert compiled_payload["artifact"]["artifact_id"] == f"cra-{job_id}"
+    assert compiled_payload["artifact"]["planning_analysis_snapshot"]["analysis_version"] == "planning_analysis_v1_fallback"
     assert compiled_payload["artifact"]["problem_analysis_snapshot"]["analysis_version"] == "problem_analyzer_v1"
     assert compiled_payload["artifact"]["execution_plan_snapshot"]["plan_version"] == "planner_v2"
     assert compiled_payload["artifact"]["reflection_snapshot"]["reflection_version"] == "reflection_v1"

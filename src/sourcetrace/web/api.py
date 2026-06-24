@@ -50,6 +50,8 @@ from sourcetrace.application import SourceIngestionRequest
 from sourcetrace.domain.research import (
     CompiledResearchArtifact,
     CompiledResearchArtifactLint,
+    EntityHypothesis,
+    PlanningAnalysis,
     ResearchCompletionMode,
     ResearchJob,
     ResearchJobStatus,
@@ -1365,6 +1367,36 @@ def _research_settings_to_payload(settings: ResearchSettings) -> dict[str, objec
     }
 
 
+def _planning_analysis_to_payload(planning_analysis: PlanningAnalysis | None) -> dict[str, object] | None:
+    if planning_analysis is None:
+        return None
+    return {
+        "query_class": planning_analysis.query_class.value,
+        "complexity": planning_analysis.complexity.value,
+        "execution_mode": planning_analysis.execution_mode.value,
+        "goal": planning_analysis.goal,
+        "focus_areas": list(planning_analysis.focus_areas),
+        "constraints": list(planning_analysis.constraints),
+        "entity_hypotheses": [
+            _entity_hypothesis_to_payload(item)
+            for item in planning_analysis.entity_hypotheses
+        ],
+        "ambiguity_notes": list(planning_analysis.ambiguity_notes),
+        "analysis_version": planning_analysis.analysis_version,
+    }
+
+
+def _entity_hypothesis_to_payload(entity_hypothesis: EntityHypothesis) -> dict[str, object]:
+    return {
+        "surface_form": entity_hypothesis.surface_form,
+        "entity_type": entity_hypothesis.entity_type,
+        "canonical_name": entity_hypothesis.canonical_name,
+        "candidate_meanings": list(entity_hypothesis.candidate_meanings),
+        "confidence": entity_hypothesis.confidence,
+        "reasoning": entity_hypothesis.reasoning,
+    }
+
+
 def _problem_analysis_to_payload(problem_analysis: object | None) -> dict[str, object] | None:
     if problem_analysis is None:
         return None
@@ -1510,6 +1542,7 @@ def _research_job_to_payload(
         "started_at": job.started_at,
         "completed_at": job.completed_at,
         "settings": _research_settings_to_payload(job.settings),
+        "planning_analysis": _planning_analysis_to_payload(job.planning_analysis),
         "problem_analysis": _problem_analysis_to_payload(job.problem_analysis),
         "execution_plan": _execution_plan_to_payload(job.execution_plan),
         "error": job.error,
@@ -1576,6 +1609,7 @@ def _compiled_research_artifact_to_payload(artifact: CompiledResearchArtifact) -
             {"url": source.url, "title": source.title, "image": source.image}
             for source in artifact.source_refs
         ],
+        "planning_analysis_snapshot": _planning_analysis_to_payload(artifact.planning_analysis_snapshot),
         "problem_analysis_snapshot": _problem_analysis_to_payload(artifact.problem_analysis_snapshot),
         "execution_plan_snapshot": _execution_plan_to_payload(artifact.execution_plan_snapshot),
         "reflection_snapshot": _reflection_to_payload(artifact.reflection_snapshot),
@@ -1622,6 +1656,7 @@ def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, obj
             {"url": finding.url, "title": finding.title, "summary": finding.summary}
             for finding in result.raw_findings
         ],
+        "planning_analysis": _planning_analysis_to_payload(result.planning_analysis),
         "problem_analysis": _problem_analysis_to_payload(result.problem_analysis),
         "execution_plan": _execution_plan_to_payload(result.execution_plan),
         "evidence_pack": _evidence_pack_to_payload(result.evidence_pack),

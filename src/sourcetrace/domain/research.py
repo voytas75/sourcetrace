@@ -285,6 +285,7 @@ class ResearchJob:
     started_at: str | None = None
     completed_at: str | None = None
     settings: ResearchSettings = field(default_factory=ResearchSettings)
+    planning_analysis: PlanningAnalysis | None = None
     problem_analysis: ProblemAnalysis | None = None
     execution_plan: ResearchExecutionPlan | None = None
     error: str | None = None
@@ -361,6 +362,7 @@ class CompiledResearchArtifact:
     open_questions: tuple[str, ...] = ()
     next_checks: tuple[str, ...] = ()
     source_refs: tuple[ResearchSource, ...] = ()
+    planning_analysis_snapshot: PlanningAnalysis | None = None
     problem_analysis_snapshot: ProblemAnalysis | None = None
     execution_plan_snapshot: ResearchExecutionPlan | None = None
     reflection_snapshot: ResearchReflection | None = None
@@ -401,6 +403,7 @@ class ResearchResultArtifact:
     stats: ResearchStats = field(default_factory=ResearchStats)
     sources: tuple[ResearchSource, ...] = ()
     raw_findings: tuple[ResearchFinding, ...] = ()
+    planning_analysis: PlanningAnalysis | None = None
     problem_analysis: ProblemAnalysis | None = None
     execution_plan: ResearchExecutionPlan | None = None
     evidence_pack: ResearchEvidencePack | None = None

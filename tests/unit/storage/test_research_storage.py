@@ -1,4 +1,10 @@
-from sourcetrace.domain import ResearchJob, ResearchJobStatus, ResearchSettings
+from sourcetrace.domain import (
+    PlanningExecutionMode,
+    ResearchJob,
+    ResearchJobStatus,
+    ResearchSettings,
+)
+from sourcetrace.application import ResearchJobManager, ResearchJobStartRequest
 from sourcetrace.storage import (
     InMemoryCompiledResearchArtifactLintRepository,
     InMemoryCompiledResearchArtifactRepository,
@@ -48,6 +54,26 @@ def test_in_memory_research_job_repository_lists_owner_jobs() -> None:
     listed = repo.list_jobs_for_owner("user-1")
 
     assert listed == (job,)
+
+
+def test_file_backed_research_storage_roundtrips_job_planning_analysis(tmp_path) -> None:
+    persistence = create_file_backed_research_persistence(tmp_path)
+    manager = ResearchJobManager(persistence)
+
+    start = manager.start_job(
+        ResearchJobStartRequest(owner_id="user-1", query="PO/KO escalation path")
+    )
+
+    reloaded = create_file_backed_research_persistence(tmp_path)
+    persisted_job = reloaded.jobs.get_job(start.job.job_id)
+
+    assert persisted_job is not None
+    assert persisted_job.planning_analysis is not None
+    assert persisted_job.planning_analysis.analysis_version == "planning_analysis_v1_fallback"
+    assert persisted_job.planning_analysis.execution_mode is PlanningExecutionMode.DISAMBIGUATE
+    assert [item.surface_form for item in persisted_job.planning_analysis.entity_hypotheses] == ["PO", "KO"]
+    assert persisted_job.problem_analysis is not None
+    assert persisted_job.execution_plan is not None
 
 
 def test_recover_interrupted_research_jobs_marks_inflight_jobs_as_recovered_errors(tmp_path) -> None:
