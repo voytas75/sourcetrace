@@ -12,9 +12,11 @@ __pycache__/
 data/raw/*
 data/processed/*
 data/reports/*
+data/research/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/reports/.gitkeep
+!data/research/.gitkeep
 wiki/
 *.log
 *.pid
