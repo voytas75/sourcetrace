@@ -138,6 +138,14 @@ class StubQueryGenerator:
                 f"{objective} this week",
                 f"{objective} official update",
             )
+        if round_number == 1:
+            return (objective,)
+        if plan.strategy is ResearchPlanStrategy.DIRECT_ANSWER:
+            return (
+                f"{objective} report study",
+                f"{objective} analysis findings",
+                f"{objective} workplace health research",
+            )
         return (objective,)
 
 
@@ -200,12 +208,12 @@ class SearxNGSearchAdapter:
         self.timeout_seconds = timeout_seconds
 
     def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
-        del round_number
+        per_query_count = self.count if round_number <= 1 else max(self.count, 6)
         hits: list[SearchHit] = []
         seen: set[str] = set()
         try:
             for query in queries:
-                for item in self._fetch(query):
+                for item in self._fetch(query, count=per_query_count):
                     url = str(item.get("url") or "").strip()
                     title = str(item.get("title") or query).strip() or query
                     snippet = str(item.get("content") or item.get("snippet") or "").strip()
@@ -217,7 +225,7 @@ class SearxNGSearchAdapter:
             raise ResearchSearchError(f"SearxNG search failed: {type(exc).__name__}: {exc}") from exc
         return tuple(hits)
 
-    def _fetch(self, query: str) -> list[dict[str, object]]:
+    def _fetch(self, query: str, *, count: int | None = None) -> list[dict[str, object]]:
         params = urlencode({
             "q": query,
             "format": "json",
@@ -232,7 +240,8 @@ class SearxNGSearchAdapter:
         results = payload.get("results")
         if not isinstance(results, list):
             return []
-        return [item for item in results[: self.count] if isinstance(item, dict)]
+        limit = count if count is not None else self.count
+        return [item for item in results[: limit] if isinstance(item, dict)]
 
 class WebSearchBackedSearchAdapter:
     """Small real search adapter using a caller-supplied web search function."""
@@ -249,7 +258,7 @@ class WebSearchBackedSearchAdapter:
         self.count = count
 
     def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
-        del round_number
+        per_query_count = self.count if round_number <= 1 else max(self.count, 6)
         hits: list[SearchHit] = []
         seen: set[str] = set()
         for query in queries:
@@ -744,11 +753,23 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
     if _procedural_query_bias(query):
         if _looks_like_listing_page(hit) or _looks_like_weak_general_source(hit):
             return False
+        if matched >= 2 or _general_relevance_score(query=query, hit=hit) >= 4:
+            return True
+        return False
+    if _looks_like_listing_page(hit) or _looks_like_weak_general_source(hit):
+        return False
     if matched >= 2 or _general_relevance_score(query=query, hit=hit) >= 4:
         return True
-    if not _procedural_query_bias(query) and matched >= 1:
-        source_type = _source_type(hit.url, hit.title)
-        if source_type in {'generic', 'docs', 'official_docs', 'vendor_docs'}:
+    source_type = _source_type(hit.url, hit.title)
+    if matched >= 1 and source_type in {'generic', 'docs', 'official_docs', 'vendor_docs', 'analysis', 'data'}:
+        return True
+    score = _general_relevance_score(query=query, hit=hit)
+    if source_type in {'generic', 'docs', 'analysis', 'data'} and score >= 3:
+        return True
+    if source_type in {'generic', 'docs', 'analysis', 'data'} and score >= 2:
+        title_len = len(hit.title.strip())
+        snippet_len = len(hit.snippet.strip())
+        if title_len >= 45 and snippet_len >= 90:
             return True
     return False
 
@@ -959,8 +980,8 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
 def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding, ...]) -> PackedEvidence:
     ranked = _top_findings(findings, limit=max(6, len(findings)), query=query)
     query_class = _classify_query(query)
-    core_limit = 2 if query_class is ResearchQueryClass.PROCEDURAL_ADMIN else 2
-    supporting_limit = 2 if query_class is ResearchQueryClass.PROCEDURAL_ADMIN else 2
+    core_limit = 2
+    supporting_limit = 2 if query_class is ResearchQueryClass.PROCEDURAL_ADMIN else (3 if query_class is ResearchQueryClass.GENERAL else 2)
     core: list[ExtractedFinding] = []
     supporting: list[ExtractedFinding] = []
     background: list[ExtractedFinding] = []
@@ -2048,7 +2069,7 @@ class FakeResearchWorker:
 
         started = replace(job, status=ResearchJobStatus.PROBING, started_at=_utcnow())
         self.persistence.jobs.save_job(started)
-        self._emit(job_id, ResearchJobStatus.PROBING, ResearchPhase.PROBING, message="Probing runtime configuration.")
+        _emit_progress(self.persistence, job_id, ResearchJobStatus.PROBING, ResearchPhase.PROBING, message="Probing runtime configuration.")
 
         running = replace(started, status=ResearchJobStatus.RUNNING)
         self.persistence.jobs.save_job(running)
@@ -2057,7 +2078,7 @@ class FakeResearchWorker:
         plan = self.planner(running.query, problem_analysis=problem_analysis)
         running = replace(running, problem_analysis=problem_analysis, execution_plan=plan)
         self.persistence.jobs.save_job(running)
-        self._emit(job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.steps)} step(s) with strategy {plan.strategy.value}.")
+        _emit_progress(self.persistence, job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.steps)} step(s) with strategy {plan.strategy.value}.")
 
         round_number = 0
         total_urls = 0
@@ -2090,7 +2111,7 @@ class FakeResearchWorker:
 
             queries = self.query_generator(plan, round_number=round_number)
             provider_names = _resolve_search_provider_names(self.search, configured_provider=None)
-            self._emit(
+            _emit_progress(self.persistence, 
                 job_id,
                 ResearchJobStatus.RUNNING,
                 ResearchPhase.SEARCHING,
@@ -2104,7 +2125,7 @@ class FakeResearchWorker:
             try:
                 hits = self.search(queries, round_number=round_number)
             except ResearchSearchError as exc:
-                self._emit(
+                _emit_progress(self.persistence, 
                     job_id,
                     ResearchJobStatus.RUNNING,
                     ResearchPhase.WARNING,
@@ -2118,7 +2139,7 @@ class FakeResearchWorker:
                         job_id,
                         mode=ResearchCompletionMode.PARTIAL_ERROR,
                     )
-                self._emit(
+                _emit_progress(self.persistence, 
                     job_id,
                     ResearchJobStatus.ERROR,
                     ResearchPhase.ERROR,
@@ -2142,9 +2163,20 @@ class FakeResearchWorker:
                 )
                 self.persistence.jobs.save_job(errored)
                 return None
-            new_hits = self._dedupe_hits(all_hits, hits, query=running.query)
+            rejection_summary = _search_rejection_summary(query=running.query, existing_hits=all_hits, candidate_hits=hits)
+            new_hits = _dedupe_hits(all_hits, hits, query=running.query)
             all_hits.extend(new_hits)
             total_urls = len(all_hits)
+            _emit_progress(self.persistence, 
+                job_id,
+                ResearchJobStatus.RUNNING,
+                ResearchPhase.WARNING,
+                round=round_number,
+                queries=len(queries),
+                total_sources=total_urls,
+                new_sources=len(new_hits),
+                message=f"Search narrowing: raw_hits={len(hits)}, {rejection_summary}",
+            )
             if new_hits:
                 consecutive_empty_rounds = 0
             else:
@@ -2152,7 +2184,7 @@ class FakeResearchWorker:
                 if len(all_hits) == 0 and round_number == 1 and not _procedural_query_bias(running.query) and self.llm_query_generator is not None:
                     refined_queries = self.llm_query_generator(running.query)
                     if refined_queries:
-                        self._emit(
+                        _emit_progress(self.persistence, 
                             job_id,
                             ResearchJobStatus.RUNNING,
                             ResearchPhase.SEARCHING,
@@ -2164,14 +2196,25 @@ class FakeResearchWorker:
                             message="No usable hits from the original query. Retrying search with LLM-refined queries.",
                         )
                         retry_hits = self.search(tuple(refined_queries), round_number=round_number)
-                        retry_new_hits = self._dedupe_hits(all_hits, retry_hits, query=running.query)
+                        retry_summary = _search_rejection_summary(query=running.query, existing_hits=all_hits, candidate_hits=retry_hits)
+                        retry_new_hits = _dedupe_hits(all_hits, retry_hits, query=running.query)
                         all_hits.extend(retry_new_hits)
                         total_urls = len(all_hits)
+                        _emit_progress(self.persistence, 
+                            job_id,
+                            ResearchJobStatus.RUNNING,
+                            ResearchPhase.WARNING,
+                            round=round_number,
+                            queries=len(refined_queries),
+                            total_sources=total_urls,
+                            new_sources=len(retry_new_hits),
+                            message=f"Search narrowing after retry: raw_hits={len(retry_hits)}, {retry_summary}",
+                        )
                         if retry_new_hits:
                             consecutive_empty_rounds = 0
                             new_hits = retry_new_hits
                         else:
-                            self._emit(
+                            _emit_progress(self.persistence, 
                                 job_id,
                                 ResearchJobStatus.ERROR,
                                 ResearchPhase.ERROR,
@@ -2188,7 +2231,7 @@ class FakeResearchWorker:
                             self.persistence.jobs.save_job(errored)
                             return None
                     else:
-                        self._emit(
+                        _emit_progress(self.persistence, 
                             job_id,
                             ResearchJobStatus.ERROR,
                             ResearchPhase.ERROR,
@@ -2205,7 +2248,7 @@ class FakeResearchWorker:
                         self.persistence.jobs.save_job(errored)
                         return None
                 elif len(all_hits) == 0 and round_number == 1:
-                    self._emit(
+                    _emit_progress(self.persistence, 
                         job_id,
                         ResearchJobStatus.ERROR,
                         ResearchPhase.ERROR,
@@ -2239,7 +2282,7 @@ class FakeResearchWorker:
             authority_filter_fallback_used = authority_filter_fallback_used or filter_outcome.fallback_used
             dropped_source_types_seen.extend(filter_outcome.dropped_source_types)
 
-            self._emit(
+            _emit_progress(self.persistence, 
                 job_id,
                 ResearchJobStatus.RUNNING,
                 ResearchPhase.READING,
@@ -2253,7 +2296,7 @@ class FakeResearchWorker:
 
             findings = self.extract(tuple(filtered_hits))
             all_findings.extend(findings)
-            self._emit(
+            _emit_progress(self.persistence, 
                 job_id,
                 ResearchJobStatus.RUNNING,
                 ResearchPhase.ANALYZING,
@@ -2282,7 +2325,7 @@ class FakeResearchWorker:
                 previous_report=evolving_report,
             )
             evolving_report = synthesis.report_markdown
-            self._emit(
+            _emit_progress(self.persistence, 
                 job_id,
                 ResearchJobStatus.RUNNING,
                 ResearchPhase.WRITING,
@@ -2385,7 +2428,7 @@ No report was produced."""
         self.persistence.compiled_lint.save_lint(_lint_compiled_research_artifact(compiled_artifact))
         done = replace(running, status=ResearchJobStatus.DONE, completed_at=completed_at)
         self.persistence.jobs.save_job(done)
-        self._emit(
+        _emit_progress(self.persistence, 
             job_id,
             ResearchJobStatus.DONE,
             ResearchPhase.WRITING,
@@ -2485,7 +2528,7 @@ Partial salvage preserved."""
         self.persistence.compiled_lint.save_lint(_lint_compiled_research_artifact(compiled_artifact))
         done = replace(job, status=ResearchJobStatus.DONE, completed_at=completed_at)
         self.persistence.jobs.save_job(done)
-        self._emit(
+        _emit_progress(self.persistence, 
             job_id,
             ResearchJobStatus.DONE,
             ResearchPhase.ERROR,
@@ -2496,71 +2539,110 @@ Partial salvage preserved."""
         )
         return result
 
-    def _dedupe_hits(
-        self,
-        existing_hits: list[SearchHit],
-        candidate_hits: tuple[SearchHit, ...],
-        *,
-        query: str,
-    ) -> list[SearchHit]:
-        seen = {hit.url for hit in existing_hits}
-        domain_counts: dict[str, int] = {}
-        for hit in existing_hits:
-            domain = _normalized_domain(hit.url)
-            domain_counts[domain] = domain_counts.get(domain, 0) + 1
-        deduped: list[SearchHit] = []
-        for hit in candidate_hits:
-            if hit.url in seen:
-                continue
-            if not _is_relevant_hit(query=query, hit=hit):
-                continue
-            domain = _normalized_domain(hit.url)
-            limit = _max_hits_per_domain(query, domain)
-            if domain_counts.get(domain, 0) >= limit:
-                continue
-            seen.add(hit.url)
-            domain_counts[domain] = domain_counts.get(domain, 0) + 1
-            deduped.append(hit)
-        return deduped
+    
 
-    def _emit(
-        self,
-        job_id: str,
-        status: ResearchJobStatus,
-        phase: ResearchPhase,
-        *,
-        round: int = 0,
-        queries: int = 0,
-        query_preview: str | None = None,
-        query_list: tuple[str, ...] = (),
-        providers_attempted: tuple[str, ...] = (),
-        total_sources: int = 0,
-        new_sources: int = 0,
-        total_findings: int = 0,
-        url: str | None = None,
-        title: str | None = None,
-        message: str | None = None,
-        final: bool = False,
-    ) -> None:
-        self.persistence.progress.append_event(
-            ResearchProgressEvent(
-                job_id=job_id,
-                status=status,
-                phase=phase,
-                round=round,
-                queries=queries,
-                query_preview=query_preview,
-                query_list=query_list,
-                providers_attempted=providers_attempted,
-                total_sources=total_sources,
-                new_sources=new_sources,
-                total_findings=total_findings,
-                url=url,
-                title=title,
-                message=message,
-                final=final,
-            )
+
+def _emit_progress(
+    persistence: ResearchPersistence,
+    job_id: str,
+    status: ResearchJobStatus,
+    phase: ResearchPhase,
+    *,
+    round: int = 0,
+    queries: int = 0,
+    query_preview: str | None = None,
+    query_list: tuple[str, ...] = (),
+    providers_attempted: tuple[str, ...] = (),
+    total_sources: int = 0,
+    new_sources: int = 0,
+    total_findings: int = 0,
+    url: str | None = None,
+    title: str | None = None,
+    message: str | None = None,
+    final: bool = False,
+) -> None:
+    persistence.progress.append_event(
+        ResearchProgressEvent(
+            job_id=job_id,
+            status=status,
+            phase=phase,
+            round=round,
+            queries=queries,
+            query_preview=query_preview,
+            query_list=query_list,
+            providers_attempted=providers_attempted,
+            total_sources=total_sources,
+            new_sources=new_sources,
+            total_findings=total_findings,
+            url=url,
+            title=title,
+            message=message,
+            final=final,
         )
+    )
+
+
+def _dedupe_hits(
+    existing_hits: list[SearchHit],
+    candidate_hits: tuple[SearchHit, ...],
+    *,
+    query: str,
+) -> list[SearchHit]:
+    seen = {hit.url for hit in existing_hits}
+    domain_counts: dict[str, int] = {}
+    for hit in existing_hits:
+        domain = _normalized_domain(hit.url)
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+    deduped: list[SearchHit] = []
+    for hit in candidate_hits:
+        if hit.url in seen:
+            continue
+        if not _is_relevant_hit(query=query, hit=hit):
+            continue
+        domain = _normalized_domain(hit.url)
+        limit = _max_hits_per_domain(query, domain)
+        if domain_counts.get(domain, 0) >= limit:
+            continue
+        seen.add(hit.url)
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        deduped.append(hit)
+    return deduped
+
+
+
+def _search_rejection_summary(*, query: str, existing_hits: list[SearchHit], candidate_hits: tuple[SearchHit, ...]) -> str:
+    seen = {hit.url for hit in existing_hits}
+    domain_counts: dict[str, int] = {}
+    for hit in existing_hits:
+        domain = _normalized_domain(hit.url)
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+    reasons = {
+        'duplicate': 0,
+        'low_relevance': 0,
+        'domain_limit': 0,
+    }
+    accepted = 0
+    for hit in candidate_hits:
+        if hit.url in seen:
+            reasons['duplicate'] += 1
+            continue
+        if not _is_relevant_hit(query=query, hit=hit):
+            reasons['low_relevance'] += 1
+            continue
+        domain = _normalized_domain(hit.url)
+        limit = _max_hits_per_domain(query, domain)
+        if domain_counts.get(domain, 0) >= limit:
+            reasons['domain_limit'] += 1
+            continue
+        seen.add(hit.url)
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        accepted += 1
+    parts = [f"accepted={accepted}"]
+    for key in ('duplicate', 'low_relevance', 'domain_limit'):
+        value = reasons[key]
+        if value:
+            parts.append(f"{key}={value}")
+    return ', '.join(parts)
 
 
 def build_research_execution(*, persistence: ResearchPersistence | None = None) -> ResearchExecution:

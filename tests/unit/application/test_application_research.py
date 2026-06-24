@@ -6,6 +6,7 @@ from sourcetrace.application import (
     StubExtractor,
     StubQueryGenerator,
     SearchHit,
+    SearxNGSearchAdapter,
 )
 from sourcetrace.application.research_runtime import (
     LlmResearchSynthesizer,
@@ -25,6 +26,7 @@ from sourcetrace.application.research_runtime import (
     _lint_compiled_research_artifact,
     _looks_like_listing_page,
     _pack_evidence_for_synthesis,
+    _search_rejection_summary,
     _procedural_query_bias,
     _procedural_directness_score,
     _procedural_query_variants,
@@ -1075,3 +1077,104 @@ def test_pack_evidence_for_general_query_preserves_supporting_from_cumulative_fi
     assert evidence_pack.query_class is ResearchQueryClass.GENERAL
     assert len(evidence_pack.core) == 0
     assert len(evidence_pack.supporting) >= 1
+
+
+def test_stub_query_generator_expands_direct_answer_queries_after_first_round() -> None:
+    generator = StubQueryGenerator()
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.DIRECT_ANSWER,
+        objective="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather evidence."),),
+    )
+
+    first_round = generator(plan, round_number=1)
+    second_round = generator(plan, round_number=2)
+
+    assert first_round == ("Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",)
+    assert len(second_round) == 3
+    assert any("report study" in query for query in second_round)
+
+
+def test_general_relevance_retains_nonprocedural_analysis_hit_with_strong_context() -> None:
+    hit = SearchHit(
+        url="https://example.org/remote-work-mental-health-analysis",
+        title="Remote work mental health analysis after 2023",
+        snippet="Detailed research findings and survey evidence about employee mental health in remote work.",
+    )
+
+    assert _is_relevant_hit(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        hit=hit,
+    ) is True
+
+
+def test_searxng_adapter_uses_higher_per_query_count_after_first_round() -> None:
+    adapter = SearxNGSearchAdapter(base_url="http://example.test", count=3)
+
+    seen_counts: list[int] = []
+
+    def fake_fetch(query: str, *, count: int | None = None) -> list[dict[str, object]]:
+        seen_counts.append(count or 0)
+        return [
+            {"url": f"https://example.test/{i}", "title": f"Result {i}", "snippet": "Snippet"}
+            for i in range(count or 0)
+        ]
+
+    adapter._fetch = fake_fetch  # type: ignore[method-assign]
+
+    round_one = adapter(("query",), round_number=1)
+    round_two = adapter(("query",), round_number=2)
+
+    assert len(round_one) == 3
+    assert len(round_two) == 6
+    assert seen_counts == [3, 6]
+
+
+def test_search_rejection_summary_reports_duplicate_and_low_relevance_counts() -> None:
+    existing = [SearchHit(url="https://example.org/a", title="A", snippet="")]
+    candidates = (
+        SearchHit(url="https://example.org/a", title="A", snippet=""),
+        SearchHit(url="https://example.org/b", title="Unrelated", snippet="Nothing relevant here"),
+        SearchHit(url="https://example.org/c", title="Remote work mental health analysis 2024", snippet="Research findings"),
+    )
+
+    summary = _search_rejection_summary(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        existing_hits=existing,
+        candidate_hits=candidates,
+    )
+
+    assert 'accepted=' in summary
+    assert 'duplicate=1' in summary
+
+
+def test_general_relevance_retains_context_rich_hit_even_with_limited_keyword_overlap() -> None:
+    hit = SearchHit(
+        url="https://example.org/workplace-wellbeing-study",
+        title="Workplace wellbeing study on distributed workforces after 2023",
+        snippet="Long-form research summary covering employee stress, isolation, wellbeing outcomes, and survey findings across remote and hybrid work settings.",
+    )
+
+    assert _is_relevant_hit(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        hit=hit,
+    ) is True
+
+
+def test_general_evidence_pack_allows_up_to_three_supporting_findings() -> None:
+    findings = tuple(
+        ExtractedFinding(
+            url=f"https://example.org/report-{i}",
+            title=f"Remote work mental health report {i}",
+            summary=f"Evidence summary {i} about remote work and mental health after 2023.",
+        )
+        for i in range(1, 5)
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        findings=findings,
+    )
+
+    assert len(packed.core) == 0
+    assert len(packed.supporting) == 3
