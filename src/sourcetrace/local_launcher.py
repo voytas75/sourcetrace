@@ -1,6 +1,7 @@
 """Local launcher that wires runtime_config into the stdlib web server."""
 
 from collections.abc import Callable
+from importlib import import_module
 from os import environ
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,10 @@ from sourcetrace.application import (
     build_research_execution,
     build_search_adapter,
 )
-from sourcetrace.application.research_runtime import LlmQueryGenerator
+from sourcetrace.application.research_runtime import LlmQueryGenerator, StubPdfIngestor
+from sourcetrace.runtime_pdf_ingest import build_research_pdf_analyzer
+from sourcetrace.runtime_pdf_backend_openclaw import build_native_pdf_ingestor_with_llm
+from sourcetrace.runtime_pdf_ingest_llm import build_pdf_llm_judge
 from sourcetrace.domain import Claim, ClaimEvidenceLink, Document, DocumentChunk, DocumentCredibilityAssessment
 from sourcetrace.domain.types import CredibilityBand, ProvenanceDistance, VerificationVerdict
 from sourcetrace.llm import build_llm_runtime
@@ -91,6 +95,24 @@ def _resolve_server_bind() -> tuple[str, int]:
 def _resolve_searxng_base_url() -> str | None:
     raw = environ.get("SOURCETRACE_SEARXNG_BASE_URL", "").strip()
     return raw or None
+
+
+def _load_runtime_pdf_capability() -> Callable[..., object] | None:
+    spec = environ.get("SOURCETRACE_RUNTIME_PDF_ANALYZER", "").strip()
+    if not spec:
+        spec = "sourcetrace.runtime_pdf_backend_openclaw:openclaw_pdf_capability"
+    module_name, sep, attr_name = spec.partition(":")
+    if not sep or not module_name or not attr_name:
+        raise ValueError(
+            "SOURCETRACE_RUNTIME_PDF_ANALYZER must use 'module.path:callable_name' format."
+        )
+    module = import_module(module_name)
+    capability = getattr(module, attr_name, None)
+    if capability is None or not callable(capability):
+        raise ValueError(
+            "SOURCETRACE_RUNTIME_PDF_ANALYZER must point to a callable."
+        )
+    return capability
 
 
 def _resolve_research_persistence_root_dir() -> Path | None:
@@ -254,6 +276,7 @@ def build_local_server_runtime(
     *,
     completion_fn: Callable[..., dict[str, Any]] | None = None,
     research_search_web: Callable[..., list[dict[str, object]]] | None = None,
+    research_pdf_analyzer: Callable[..., object] | None = None,
 ):
     """Build the local web server runtime using the repo-owned runtime config."""
 
@@ -274,13 +297,16 @@ def build_local_server_runtime(
     )
     searxng_base_url = _resolve_searxng_base_url()
     research = None
+    resolved_research_pdf_analyzer = research_pdf_analyzer or _load_runtime_pdf_capability()
     if searxng_base_url:
         from sourcetrace.application import (
+            ExternalPdfAnalyzerAdapter,
             FakeResearchWorker,
             LlmResearchSynthesizer,
             ResearchExecution,
             ResearchJobManager,
         )
+        from sourcetrace.application.research_runtime import LlmPlanningAnalyzer
         from sourcetrace.storage import (
             create_file_backed_research_persistence,
             create_in_memory_research_persistence,
@@ -296,7 +322,8 @@ def build_local_server_runtime(
         if research_root is not None:
             recover_interrupted_research_jobs(research_root)
             research_persistence = create_file_backed_research_persistence(research_root)
-        research_manager = ResearchJobManager(research_persistence)
+        planning_analyzer = LlmPlanningAnalyzer(llm_runtime.research_synthesis)
+        research_manager = ResearchJobManager(research_persistence, planning_analyzer=planning_analyzer)
         research_synthesizer = LlmResearchSynthesizer(
             _research_synthesis_with_markdown_fallback(llm_runtime.research_synthesis)
         )
@@ -310,11 +337,23 @@ def build_local_server_runtime(
             current_search=base_search,
             unified_search_web=unified_search_web,
         )
+        native_pdf_debug_ingestor = build_native_pdf_ingestor_with_llm(
+            llm_judge=build_pdf_llm_judge(
+                llm_runtime.research_synthesis
+            )
+        )
+        pdf_ingest_backend = (
+            build_research_pdf_analyzer(resolved_research_pdf_analyzer)
+            if resolved_research_pdf_analyzer is not None
+            else native_pdf_debug_ingestor
+        )
+        research_pdf_debug_ingest = native_pdf_debug_ingestor
         research_worker = FakeResearchWorker(
             research_persistence,
             llm_query_generator=LlmQueryGenerator(llm_runtime.research_synthesis),
             search=search_adapter,
             synthesize=research_synthesizer,
+            pdf_ingest=pdf_ingest_backend,
         )
         research = ResearchExecution(
             start_job=research_manager.start_job,
@@ -347,6 +386,7 @@ def build_local_server_runtime(
             else "unavailable"
         ),
         research_search_configured=bool((('unified_search_web' in locals()) and unified_search_web) or searxng_base_url),
+        research_pdf_debug_ingest=(research_pdf_debug_ingest if 'research_pdf_debug_ingest' in locals() else None),
     )
     host, port = _resolve_server_bind()
     return run_local_server(host=host, port=port, delivery=delivery)

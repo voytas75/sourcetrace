@@ -151,6 +151,8 @@ class SourceTraceWSGIApp:
                 "200 OK",
                 self.delivery.runtime_payload(),
             )
+        if method == "POST" and path == "/api/research/debug/pdf-ingest":
+            return self._debug_research_pdf_ingest(environ, start_response)
         if method == "GET" and path == "/api/capabilities":
             return _json_response(
                 start_response,
@@ -1223,6 +1225,46 @@ class SourceTraceWSGIApp:
         )
 
 
+    def _debug_research_pdf_ingest(
+        self,
+        environ: WsgiEnviron,
+        start_response: StartResponse,
+    ) -> Iterable[bytes]:
+        payload = _read_json(environ)
+        result = self.delivery.debug_research_pdf_ingest(
+            query=_required_str(payload, "query"),
+            pdf_url=_required_str(payload, "pdf_url"),
+            title=_required_str(payload, "title"),
+            triage_verdict=_optional_str(payload.get("triage_verdict")) or "relevant",
+        )
+        if result is None:
+            return _json_response(
+                start_response,
+                "501 Not Implemented",
+                {"error": "research_pdf_debug_ingest_not_available", "status": "unsupported"},
+            )
+        debug = result.get("debug") if isinstance(result, dict) else None
+        outcome = result.get("result") if isinstance(result, dict) else result
+        return _json_response(
+            start_response,
+            "200 OK",
+            {
+                "relevant": outcome.relevant,
+                "confidence": outcome.confidence,
+                "document_scope": outcome.document_scope,
+                "entity_match_summary": outcome.entity_match_summary,
+                "key_findings": list(outcome.key_findings),
+                "evidence_pages": list(outcome.evidence_pages),
+                "debug": ({
+                    "fallback_used": debug.fallback_used,
+                    "raw_text": debug.raw_text,
+                    "parsed_json": debug.parsed_json,
+                    "snippets": list(debug.snippets),
+                    "candidate_pages": list(debug.candidate_pages),
+                } if debug is not None else None),
+            },
+        )
+
     def _render_research_result_html(
         self,
         path: str,
@@ -1564,6 +1606,7 @@ def _research_progress_to_payload(event: ResearchProgressEvent) -> dict[str, obj
         "url": event.url,
         "title": event.title,
         "message": event.message,
+        "details": event.details,
         "final": event.final,
     }
 
@@ -1647,6 +1690,15 @@ def _research_result_to_payload(result: ResearchResultArtifact) -> dict[str, obj
             "urls": result.stats.urls,
             "model": result.stats.model,
             "search_providers": list(result.stats.search_providers),
+            "pre_extraction_sources_seen": result.stats.pre_extraction_sources_seen,
+            "pre_extraction_sources_kept": result.stats.pre_extraction_sources_kept,
+            "pre_extraction_sources_dropped": result.stats.pre_extraction_sources_dropped,
+            "authority_policy_applied": result.stats.authority_policy_applied,
+            "authority_filter_fallback_used": result.stats.authority_filter_fallback_used,
+            "dropped_source_types": list(result.stats.dropped_source_types),
+            "packed_core_count": result.stats.packed_core_count,
+            "packed_supporting_count": result.stats.packed_supporting_count,
+            "packed_background_count": result.stats.packed_background_count,
         },
         "sources": [
             {"url": source.url, "title": source.title, "image": source.image}

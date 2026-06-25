@@ -9,6 +9,7 @@ import pytest
 
 from sourcetrace.domain import Document, DocumentChunk
 from sourcetrace.local_launcher import (
+    _load_runtime_pdf_capability,
     _missing_litellm_completion,
     _resolve_continuity_pack_root_dir,
     _resolve_server_bind,

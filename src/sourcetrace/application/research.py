@@ -30,6 +30,8 @@ class ExtractedFinding:
     url: str
     title: str
     summary: str
+    pdf_triage_verdict: str | None = None
+    pdf_triage_notes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,18 @@ class SynthesisResult:
     report_markdown: str
     answer_summary: str
     should_continue: bool
+
+
+@dataclass(frozen=True)
+class PdfIngestResult:
+    """Structured result returned by an optional PDF ingest backend."""
+
+    relevant: bool
+    confidence: float
+    document_scope: str
+    entity_match_summary: str
+    key_findings: tuple[str, ...] = ()
+    evidence_pages: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -82,6 +96,13 @@ class ResearchJobListOutcome:
     jobs: tuple[ResearchJob, ...]
 
 
+class ResearchPlanningAnalyzer(Protocol):
+    """Execution seam for deriving planning analysis from the raw user query."""
+
+    def __call__(self, query: str) -> PlanningAnalysis:
+        ...
+
+
 class ResearchPlanner(Protocol):
     """Execution seam for building a research plan from problem analysis."""
 
@@ -98,7 +119,13 @@ class ResearchPlanner(Protocol):
 class ResearchQueryGenerator(Protocol):
     """Execution seam for generating search queries from a plan."""
 
-    def __call__(self, plan: ResearchExecutionPlan, *, round_number: int) -> tuple[str, ...]:
+    def __call__(
+        self,
+        plan: ResearchExecutionPlan,
+        *,
+        round_number: int,
+        planning_analysis: PlanningAnalysis | None = None,
+    ) -> tuple[str, ...]:
         ...
 
 
@@ -127,6 +154,34 @@ class ResearchSynthesizer(Protocol):
         findings: tuple[ExtractedFinding, ...],
         previous_report: str | None,
     ) -> SynthesisResult:
+        ...
+
+
+class ResearchPdfIngestor(Protocol):
+    """Optional execution seam for ingesting a verified PDF artifact."""
+
+    def __call__(
+        self,
+        *,
+        query: str,
+        url: str,
+        title: str,
+        triage_verdict: str,
+    ) -> PdfIngestResult:
+        ...
+
+
+class ExternalPdfAnalyzer(Protocol):
+    """External analyzer contract for reading a PDF URL and returning structured evidence."""
+
+    def __call__(
+        self,
+        *,
+        query: str,
+        url: str,
+        title: str,
+        triage_verdict: str,
+    ) -> PdfIngestResult:
         ...
 
 
@@ -198,6 +253,7 @@ __all__ = [
     "ResearchJobStarter",
     "ResearchJobStatusOutcome",
     "ResearchJobStatusReader",
+    "ResearchPlanningAnalyzer",
     "ResearchPlanner",
     "ResearchQueryGenerator",
     "ResearchSearchAdapter",

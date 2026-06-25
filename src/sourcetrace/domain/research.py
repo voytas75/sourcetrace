@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class ResearchEvaluationVerdict(str, Enum):
@@ -309,6 +310,7 @@ class ResearchProgressEvent:
     url: str | None = None
     title: str | None = None
     message: str | None = None
+    details: dict[str, Any] | None = None
     final: bool = False
 
 

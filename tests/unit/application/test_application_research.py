@@ -1,16 +1,20 @@
 from sourcetrace.application import (
     ChainedSearchAdapter,
+    ExternalPdfAnalyzerAdapter,
     ExtractedFinding,
     FakeResearchWorker,
+    PdfIngestResult,
     ResearchJobManager,
     ResearchJobStartRequest,
     StubExtractor,
     StubQueryGenerator,
     SearchHit,
     SearxNGSearchAdapter,
+    StubSynthesizer,
 )
 from sourcetrace.application.research_runtime import (
     DeterministicPlanningAnalyzer,
+    LlmPlanningAnalyzer,
     LlmResearchSynthesizer,
     ResearchSearchError,
     StubQueryGenerator,
@@ -30,7 +34,10 @@ from sourcetrace.application.research_runtime import (
     _lint_compiled_research_artifact,
     _looks_like_listing_page,
     _pack_evidence_for_synthesis,
+    _pdf_ingest_summary,
+    _planning_audit_institutional_query_variants,
     _search_rejection_summary,
+    _triage_official_pdf_candidate,
     _source_type,
     _procedural_query_bias,
     _procedural_directness_score,
@@ -41,6 +48,7 @@ from sourcetrace.application.research_runtime import (
     _top_findings,
     _to_research_evidence_pack,
     build_procedural_admin_unified_search_adapter,
+    build_provider_search_adapter,
     build_search_adapter,
 )
 from sourcetrace.domain import (
@@ -48,6 +56,8 @@ from sourcetrace.domain import (
     CompiledResearchClaim,
     CompiledResearchArtifactLintStatus,
     CompiledResearchEvidenceRef,
+    EntityHypothesis,
+    PlanningAnalysis,
     PlanningExecutionMode,
     ProblemAnalysis,
     ResearchBranchEvaluation,
@@ -699,6 +709,24 @@ def test_procedural_admin_unified_search_adapter_falls_back_when_unified_hits_la
     assert hits[0].url.startswith('https://learn.microsoft.com/')
 
 
+def test_procedural_admin_unified_search_adapter_bypasses_unified_search_for_non_procedural_queries() -> None:
+    current = build_search_adapter(search_web=lambda query, count=3: [
+        {'url': 'https://nik.gov.pl/aktualnosci/szpital-poludniowy.html', 'title': 'NIK - Szpital Południowy', 'snippet': 'Official audit update'}
+    ])
+    unified = build_procedural_admin_unified_search_adapter(
+        current_search=current,
+        unified_search_web=lambda query, count=10: [
+            {'url': 'https://example.test/media-story', 'title': 'Media story', 'snippet': 'Secondary report'}
+        ],
+    )
+
+    hits = unified(("Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",), round_number=1)
+
+    assert hits
+    assert hits[0].url.startswith('https://nik.gov.pl/')
+    assert getattr(unified, 'last_provider_names', ()) == ('web_search',)
+
+
 def test_general_relevance_prefers_procedural_docs_over_loose_noise() -> None:
     query = "jak działa configuration baseline w sccm po wdrożeniu na kolekcję komputerów"
     strong_hit = SearchHit(
@@ -807,6 +835,31 @@ def test_fallback_planning_analysis_derives_readable_ssot_from_current_heuristic
     assert problem_analysis.query_class is planning.query_class
 
 
+def test_institutional_audit_query_does_not_classify_as_procedural_admin() -> None:
+    planning = _build_fallback_planning_analysis("Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?")
+
+    assert planning.query_class is ResearchQueryClass.GENERAL
+
+
+def test_stub_query_generator_does_not_emit_microsoft_procedural_queries_for_institutional_audit_query() -> None:
+    planning = _build_fallback_planning_analysis("Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?")
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.DIRECT_ANSWER,
+        objective=planning.goal,
+        steps=(
+            ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather the strongest relevant evidence."),
+            ResearchExecutionPlanStep(step_id="step-2", kind="write", objective="Answer directly and surface missing verification.", depends_on=("step-1",)),
+        ),
+    )
+
+    queries = StubQueryGenerator()(plan, round_number=1, planning_analysis=planning)
+    joined = " || ".join(queries).lower()
+
+    assert 'learn.microsoft.com' not in joined
+    assert 'microsoft learn' not in joined
+    assert 'configuration manager' not in joined
+
+
 def test_fallback_planning_analysis_surfaces_short_acronym_ambiguity() -> None:
     planning = _build_fallback_planning_analysis("PO/KO escalation path")
 
@@ -814,6 +867,92 @@ def test_fallback_planning_analysis_surfaces_short_acronym_ambiguity() -> None:
     assert [item.surface_form for item in planning.entity_hypotheses] == ["PO", "KO"]
     assert planning.ambiguity_notes
     assert "PO" in planning.ambiguity_notes[0]
+
+
+def test_llm_planning_analyzer_accepts_valid_structured_payload() -> None:
+    class StubSynthesis:
+        def __call__(self, prompt: str):
+            from types import SimpleNamespace
+            return SimpleNamespace(text='''{
+                "query_class": "current_news",
+                "complexity": "high",
+                "execution_mode": "multi_step",
+                "goal": "Zbadaj najnowsze oficjalne ustalenia o problemach z SOR w Szpitalu Południowym.",
+                "focus_areas": ["official_findings", "hospital_position", "city_position"],
+                "constraints": ["prefer_official_sources_first"],
+                "entity_hypotheses": [{"surface_form": "Szpital Południowy", "entity_type": "hospital", "canonical_name": "Szpital Południowy w Warszawie", "candidate_meanings": ["public hospital in Warsaw"], "confidence": "high", "reasoning": "Named institution in query."}],
+                "ambiguity_notes": []
+            }''')
+
+    planning = LlmPlanningAnalyzer(StubSynthesis())(
+        "Jakie są najnowsze informacje o problemach z SOR w Szpitalu Południowym w Warszawie?"
+    )
+
+    assert planning.analysis_version == "planning_analysis_v1_llm"
+    assert planning.query_class is ResearchQueryClass.CURRENT_NEWS
+    assert planning.execution_mode is PlanningExecutionMode.MULTI_STEP
+    assert "official_findings" in planning.focus_areas
+    assert planning.entity_hypotheses[0].surface_form == "Szpital Południowy"
+
+
+def test_llm_planning_analyzer_normalizes_free_text_focus_and_constraints() -> None:
+    class StubSynthesis:
+        def __call__(self, prompt: str):
+            from types import SimpleNamespace
+            return SimpleNamespace(text='''{
+                "query_class": "current_news",
+                "complexity": "high",
+                "execution_mode": "multi_step",
+                "goal": "Sprawdź oficjalne ustalenia i stanowiska.",
+                "focus_areas": ["wyniki kontroli", "oficjalne stanowiska", "chronologia komunikatów", "zalecenia pokontrolne"],
+                "constraints": ["prefer official/institutional sources first"],
+                "entity_hypotheses": [{"surface_form": "NIK", "entity_type": "audit_body", "canonical_name": "Najwyższa Izba Kontroli", "candidate_meanings": ["state audit body"], "confidence": "high", "reasoning": "Named audit institution."}],
+                "ambiguity_notes": []
+            }''')
+
+    planning = LlmPlanningAnalyzer(StubSynthesis())("Co ustaliła NIK?")
+
+    assert planning.focus_areas == (
+        "official_findings",
+        "official_position",
+        "timeline",
+        "recommendations",
+    )
+    assert planning.constraints == ("prefer_official_sources_first",)
+
+
+def test_llm_planning_analyzer_overrides_procedural_admin_for_institutional_audit_query() -> None:
+    class StubSynthesis:
+        def __call__(self, prompt: str):
+            from types import SimpleNamespace
+            return SimpleNamespace(text='''{
+                "query_class": "procedural_admin",
+                "complexity": "medium",
+                "execution_mode": "multi_step",
+                "goal": "Ustalić, co NIK stwierdziła w sprawie Szpitala Południowego w Warszawie.",
+                "focus_areas": ["wyniki kontroli", "oficjalne stanowiska"],
+                "constraints": ["prefer official/institutional sources first"],
+                "entity_hypotheses": [{"surface_form": "NIK", "entity_type": "audit_body", "canonical_name": "Najwyższa Izba Kontroli", "candidate_meanings": ["state audit body"], "confidence": "high", "reasoning": "Named audit institution."}],
+                "ambiguity_notes": []
+            }''')
+
+    planning = LlmPlanningAnalyzer(StubSynthesis())("Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?")
+
+    assert planning.query_class is ResearchQueryClass.GENERAL
+
+
+def test_llm_planning_analyzer_falls_back_on_invalid_payload() -> None:
+    class StubSynthesis:
+        def __call__(self, prompt: str):
+            from types import SimpleNamespace
+            return SimpleNamespace(text='{"query_class": "not_real"}')
+
+    query = "PO/KO escalation path"
+    planning = LlmPlanningAnalyzer(StubSynthesis())(query)
+
+    assert planning.analysis_version == "planning_analysis_v1_fallback"
+    assert planning.execution_mode is PlanningExecutionMode.DISAMBIGUATE
+    assert [item.surface_form for item in planning.entity_hypotheses] == ["PO", "KO"]
 
 
 def test_branch_proposals_are_only_eligible_for_broad_or_high_complexity_queries() -> None:
@@ -1228,6 +1367,263 @@ def test_stub_query_generator_uses_research_shaped_expansion_for_remote_mental_h
     assert any("remote hybrid work mental health study" in query for query in second_round)
 
 
+def test_stub_query_generator_uses_planning_analysis_for_current_news_first_round() -> None:
+    generator = StubQueryGenerator()
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.NEWS_RESEARCH,
+        objective="Jakie sa najnowsze informacje o problemach z SOR w Szpitalu Poludniowym w Warszawie?",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather recent attributed developments."),),
+    )
+    planning_analysis = PlanningAnalysis(
+        query_class=ResearchQueryClass.CURRENT_NEWS,
+        complexity=ResearchComplexity.HIGH,
+        execution_mode=PlanningExecutionMode.MULTI_STEP,
+        goal=plan.objective,
+        focus_areas=("official_findings", "hospital_position", "city_position", "announcements"),
+        constraints=("prefer_official_sources_first",),
+        entity_hypotheses=(
+            EntityHypothesis(
+                surface_form="Szpital Poludniowy",
+                entity_type="hospital",
+                canonical_name="Szpital Poludniowy w Warszawie",
+                confidence="high",
+                reasoning="Named public hospital in the query.",
+            ),
+            EntityHypothesis(
+                surface_form="Warszawa",
+                entity_type="city",
+                canonical_name="Warszawa",
+                confidence="medium",
+                reasoning="Relevant city owner/governing context for the hospital.",
+            ),
+        ),
+        analysis_version="planning_analysis_v1_llm",
+    )
+
+    first_round = generator(plan, round_number=1, planning_analysis=planning_analysis)
+
+    assert first_round[0] == plan.objective
+    assert any("official statement" in query for query in first_round)
+    assert any("site:gov.pl" in query for query in first_round)
+    assert any("hospital statement" in query for query in first_round)
+    assert any("komunikat" in query or "komunikaty" in query for query in first_round)
+    assert len(first_round) <= 8
+
+
+def test_stub_query_generator_uses_planning_analysis_for_current_news_follow_up_round() -> None:
+    generator = StubQueryGenerator()
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.NEWS_RESEARCH,
+        objective="Jakie sa najnowsze informacje o problemach z SOR w Szpitalu Poludniowym w Warszawie?",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather recent attributed developments."),),
+    )
+    planning_analysis = PlanningAnalysis(
+        query_class=ResearchQueryClass.CURRENT_NEWS,
+        complexity=ResearchComplexity.HIGH,
+        execution_mode=PlanningExecutionMode.MULTI_STEP,
+        goal=plan.objective,
+        focus_areas=("official_findings", "hospital_position", "city_position", "timeline"),
+        constraints=("prefer_official_sources_first",),
+        entity_hypotheses=(
+            EntityHypothesis(
+                surface_form="Szpital Poludniowy",
+                entity_type="hospital",
+                canonical_name="Szpital Poludniowy w Warszawie",
+                confidence="high",
+                reasoning="Named public hospital in the query.",
+            ),
+        ),
+        analysis_version="planning_analysis_v1_llm",
+    )
+
+    second_round = generator(plan, round_number=2, planning_analysis=planning_analysis)
+
+    assert any("official statement" in query or "official update" in query for query in second_round)
+    assert any("hospital statement" in query for query in second_round)
+    assert any("komunikat" in query or "stanowisko" in query for query in second_round)
+    assert len(second_round) <= 6
+
+
+def test_stub_query_generator_uses_entity_aware_official_variants_for_general_institutional_query() -> None:
+    generator = StubQueryGenerator()
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.DIRECT_ANSWER,
+        objective="Co ustalila NIK w sprawie Szpitala Poludniowego w Warszawie?",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather official institutional findings."),),
+    )
+    planning_analysis = PlanningAnalysis(
+        query_class=ResearchQueryClass.GENERAL,
+        complexity=ResearchComplexity.HIGH,
+        execution_mode=PlanningExecutionMode.MULTI_STEP,
+        goal=plan.objective,
+        focus_areas=("recommendations", "timeline", "official_findings"),
+        constraints=("prefer_official_sources_first",),
+        entity_hypotheses=(
+            EntityHypothesis(
+                surface_form="NIK",
+                entity_type="audit_body",
+                canonical_name="Najwyzsza Izba Kontroli",
+                confidence="high",
+                reasoning="The query explicitly asks about NIK findings.",
+            ),
+        ),
+        analysis_version="planning_analysis_v1_llm",
+    )
+
+    first_round = generator(plan, round_number=1, planning_analysis=planning_analysis)
+    joined = " || ".join(first_round).lower()
+
+    assert "site:nik.gov.pl" in joined or "site:gov.pl" in joined
+    assert "informacja o wynikach kontroli" in joined or "raport" in joined
+    assert "komunikat" in joined or "stanowisko" in joined
+    assert first_round[0] == plan.objective
+    assert len(first_round) <= 8
+
+
+def test_stub_query_generator_uses_institutional_follow_up_variants_for_general_official_query() -> None:
+    generator = StubQueryGenerator()
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.DIRECT_ANSWER,
+        objective="Co ustalila NIK w sprawie Szpitala Poludniowego w Warszawie?",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather official institutional findings."),),
+    )
+    planning_analysis = PlanningAnalysis(
+        query_class=ResearchQueryClass.GENERAL,
+        complexity=ResearchComplexity.MEDIUM,
+        execution_mode=PlanningExecutionMode.MULTI_STEP,
+        goal="Ustalić, co NIK stwierdziła w sprawie Szpitala Południowego w Warszawie, najlepiej na podstawie oficjalnych materiałów pokontrolnych i komunikatów.",
+        focus_areas=("official_findings", "timeline", "recommendations"),
+        constraints=("prefer_official_sources_first",),
+        entity_hypotheses=(
+            EntityHypothesis(
+                surface_form="NIK",
+                entity_type="audit_body",
+                canonical_name="Najwyzsza Izba Kontroli",
+                confidence="high",
+                reasoning="Named audit institution.",
+            ),
+            EntityHypothesis(
+                surface_form="Szpital Poludniowy",
+                entity_type="hospital",
+                canonical_name="Szpital Poludniowy w Warszawie",
+                confidence="high",
+                reasoning="Named hospital.",
+            ),
+            EntityHypothesis(
+                surface_form="Warszawa",
+                entity_type="city",
+                canonical_name="Warszawa",
+                confidence="medium",
+                reasoning="Named city.",
+            ),
+        ),
+        analysis_version="planning_analysis_v1_llm",
+    )
+
+    second_round = generator(plan, round_number=2, planning_analysis=planning_analysis)
+
+    joined = " || ".join(second_round).lower()
+    assert "site:nik.gov.pl" in joined or "site:gov.pl" in joined
+    assert "informacja o wynikach kontroli" in joined or "raport" in joined
+    assert "komunikat" in joined or "stanowisko" in joined
+    assert "report study" not in joined
+    assert "analysis findings" not in joined
+    assert "workplace health research" not in joined
+
+
+def test_stub_query_generator_uses_institutional_follow_up_variants_for_real_live_nik_payload_shape() -> None:
+    generator = StubQueryGenerator()
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.DIRECT_ANSWER,
+        objective="Ustalić, co NIK stwierdziła w sprawie Szpitala Południowego w Warszawie, najlepiej na podstawie oficjalnych materiałów pokontrolnych i komunikatów.",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather official institutional findings."),),
+    )
+    planning_analysis = PlanningAnalysis(
+        query_class=ResearchQueryClass.GENERAL,
+        complexity=ResearchComplexity.MEDIUM,
+        execution_mode=PlanningExecutionMode.MULTI_STEP,
+        goal=plan.objective,
+        focus_areas=(
+            "ustalenia_nik_i_główne_zarzuty/wnioski",
+            "oficjalny_raport,_informacja_o_wynikach_kontroli,_komunikaty_prasowe",
+            "zakres_sprawy:_szpital_południowy_w_warszawie",
+        ),
+        constraints=(
+            "preferuj_oficjalne_źródła_nik_i_dokumenty_urzędowe",
+            "uwzględnij_możliwość,_że_sprawa_dotyczy_konkretnej_kontroli_lub_okresu",
+            "krótko_odróżnij_ustalenia_od_komentarzy_medialnych",
+        ),
+        entity_hypotheses=(
+            EntityHypothesis(
+                surface_form="NIK",
+                entity_type="institution",
+                canonical_name="Najwyższa Izba Kontroli",
+                confidence="0.99",
+                reasoning="W polskim kontekście publicznym skrót NIK niemal zawsze oznacza organ kontroli państwowej.",
+            ),
+            EntityHypothesis(
+                surface_form="Szpital Południowy w Warszawie",
+                entity_type="institution",
+                canonical_name="Szpital Południowy w Warszawie",
+                confidence="0.9",
+                reasoning="To konkretna warszawska placówka publiczna.",
+            ),
+            EntityHypothesis(
+                surface_form="w sprawie",
+                entity_type="event",
+                canonical_name="kontrola lub postępowanie dotyczące Szpitala Południowego",
+                confidence="0.76",
+                reasoning="Pytanie sugeruje ustalenia organu kontrolnego.",
+            ),
+        ),
+        analysis_version="planning_analysis_v1_llm",
+    )
+
+    second_round = generator(plan, round_number=2, planning_analysis=planning_analysis)
+    joined = " || ".join(second_round).lower()
+
+    assert "site:nik.gov.pl" in joined or "site:gov.pl" in joined
+    assert "informacja o wynikach kontroli" in joined or "raport" in joined
+    assert "komunikat" in joined or "stanowisko" in joined
+    assert "report study" not in joined
+    assert "analysis findings" not in joined
+    assert "workplace health research" not in joined
+
+
+def test_stub_query_generator_uses_polish_official_shaping_from_normalized_focus() -> None:
+    generator = StubQueryGenerator()
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.NEWS_RESEARCH,
+        objective="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        steps=(ResearchExecutionPlanStep(step_id="step-1", kind="search", objective="Gather official institutional findings."),),
+    )
+    planning_analysis = PlanningAnalysis(
+        query_class=ResearchQueryClass.CURRENT_NEWS,
+        complexity=ResearchComplexity.HIGH,
+        execution_mode=PlanningExecutionMode.MULTI_STEP,
+        goal=plan.objective,
+        focus_areas=("wyniki kontroli", "oficjalne stanowiska", "chronologia komunikatów", "zalecenia pokontrolne"),
+        constraints=("prefer official/institutional sources first",),
+        entity_hypotheses=(
+            EntityHypothesis(
+                surface_form="NIK",
+                entity_type="audit_body",
+                canonical_name="Najwyższa Izba Kontroli",
+                confidence="high",
+                reasoning="Named audit body.",
+            ),
+        ),
+        analysis_version="planning_analysis_v1_llm",
+    )
+
+    first_round = generator(plan, round_number=1, planning_analysis=planning_analysis)
+
+    assert any("Najwyższa Izba Kontroli informacja o wynikach kontroli" in query for query in first_round)
+    assert any("Najwyższa Izba Kontroli official statement" in query for query in first_round)
+    assert any("site:nik.gov.pl" in query for query in first_round)
+    assert len(first_round) <= 8
+
+
 def test_general_relevance_retains_nonprocedural_analysis_hit_with_strong_context() -> None:
     hit = SearchHit(
         url="https://example.org/remote-work-mental-health-analysis",
@@ -1261,6 +1657,128 @@ def test_searxng_adapter_uses_higher_per_query_count_after_first_round() -> None
     assert len(round_one) == 3
     assert len(round_two) == 6
     assert seen_counts == [3, 6]
+
+
+def test_build_provider_search_adapter_prefers_unified_search_before_searxng() -> None:
+    def search_web(query: str, *, count: int) -> list[dict[str, object]]:
+        return [{"url": "https://unified.example/result", "title": query, "snippet": "unified"}]
+
+    adapter = build_provider_search_adapter(
+        search_web=search_web,
+        searxng_base_url="http://example.test",
+    )
+
+    assert isinstance(adapter, ChainedSearchAdapter)
+    assert [getattr(item, 'provider_name', '?') for item in adapter.adapters] == ['web_search', 'searxng']
+
+
+def test_procedural_admin_unified_search_adapter_uses_unified_first_for_institutional_general_query() -> None:
+    searx_calls: list[tuple[str, ...]] = []
+
+    class CurrentSearch:
+        provider_name = 'searxng'
+        active_provider_names = ('searxng',)
+
+        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+            searx_calls.append(queries)
+            return (SearchHit(url='https://fallback.example', title='Fallback', snippet='Fallback'),)
+
+    def unified_search_web(query: str, count: int = 10) -> list[dict[str, object]]:
+        return [
+            {
+                'url': 'https://www.nik.gov.pl/aktualnosci/dzialania-nik-w-obszarze-ochrony-zdrowia.html',
+                'title': 'Działania NIK w obszarze ochrony zdrowia',
+                'snippet': 'Zapowiedź publikacji wyników kontroli dotyczącej Warszawskiego Szpitala Południowego.',
+            }
+        ]
+
+    adapter = build_procedural_admin_unified_search_adapter(
+        current_search=CurrentSearch(),
+        unified_search_web=unified_search_web,
+    )
+
+    hits = adapter(("Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",), round_number=1)
+
+    assert hits
+    assert hits[0].url == 'https://www.nik.gov.pl/aktualnosci/dzialania-nik-w-obszarze-ochrony-zdrowia.html'
+    assert searx_calls == []
+
+
+def test_triage_official_pdf_candidate_marks_subject_matching_pdf_as_relevant() -> None:
+    hit = SearchHit(
+        url='https://www.nik.gov.pl/kontrole/wyniki-kontroli-nik/pobierz,lwa~d_21_505_202301131327521673612872~id0~01,typ,kj.pdf',
+        title='Wystąpienie pokontrolne',
+        snippet='Dokument zawiera odniesienia do Szpitala Południowego w Warszawie oraz ustaleń kontroli.',
+    )
+
+    verdict, notes = _triage_official_pdf_candidate(
+        query='Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?',
+        hit=hit,
+    )
+
+    assert verdict == 'relevant'
+    assert notes == 'subject_anchor_match'
+
+
+def test_stub_extractor_adds_pdf_triage_prefix_for_official_pdf() -> None:
+    extractor = StubExtractor(query='Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?')
+    findings = extractor((
+        SearchHit(
+            url='https://www.nik.gov.pl/kontrole/wyniki-kontroli-nik/pobierz,lwa~d_21_505_202301131327521673612872~id0~01,typ,kj.pdf',
+            title='Wystąpienie pokontrolne',
+            snippet='Szpital Południowy w Warszawie i ustalenia kontroli.',
+        ),
+    ))
+
+    assert len(findings) == 1
+    assert findings[0].pdf_triage_verdict in {'relevant', 'uncertain'}
+    assert findings[0].pdf_triage_notes in {'subject_anchor_match', 'entity_match_without_anchor'}
+    assert findings[0].summary.startswith(f'[official_pdf_triage:{findings[0].pdf_triage_verdict}]')
+
+
+def test_pdf_ingest_result_can_be_rendered_into_verified_summary() -> None:
+    result = PdfIngestResult(
+        relevant=True,
+        confidence=0.91,
+        document_scope='NIK official control document',
+        entity_match_summary='Szpital Południowy w Warszawie',
+        key_findings=('Potwierdzono nieprawidłowości',),
+        evidence_pages=(3, 4),
+    )
+
+    summary = _pdf_ingest_summary(result)
+
+    assert 'scope=NIK official control document' in summary
+    assert 'entity=Szpital Południowy w Warszawie' in summary
+    assert 'pages=3,4' in summary
+    assert 'Potwierdzono nieprawidłowości' in summary
+
+
+def test_external_pdf_analyzer_adapter_delegates_to_analyzer() -> None:
+    seen: dict[str, object] = {}
+
+    def analyzer(**kwargs):
+        seen.update(kwargs)
+        return PdfIngestResult(
+            relevant=True,
+            confidence=0.88,
+            document_scope='external analyzer result',
+            entity_match_summary='Szpital Południowy',
+            key_findings=('Zewnętrzny analyzer działa',),
+            evidence_pages=(2,),
+        )
+
+    adapter = ExternalPdfAnalyzerAdapter(analyzer)
+    result = adapter(
+        query='Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?',
+        url='https://example.test/report.pdf',
+        title='Raport PDF',
+        triage_verdict='relevant',
+    )
+
+    assert seen['url'] == 'https://example.test/report.pdf'
+    assert result.relevant is True
+    assert result.document_scope == 'external analyzer result'
 
 
 def test_search_rejection_summary_reports_duplicate_and_low_relevance_counts() -> None:
@@ -1331,6 +1849,227 @@ def test_source_type_recognizes_longitudinal_title_as_analysis() -> None:
     ) == "analysis"
 
 
+def test_source_type_recognizes_gov_and_pubmed_as_official_docs() -> None:
+    assert _source_type(
+        "https://www.nik.gov.pl/aktualnosci/szpital-poludniowy.html",
+        "Wyniki kontroli NIK",
+    ) == "official_docs"
+    assert _source_type(
+        "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+        "Remote work and mental health after 2023",
+    ) == "official_docs"
+
+
+def test_filter_hits_preserves_official_candidate_for_institutional_query() -> None:
+    official = SearchHit(
+        url="https://www.nik.gov.pl/aktualnosci/szpital-poludniowy.html",
+        title="Wyniki kontroli NIK",
+        snippet="Oficjalny komunikat o wynikach kontroli.",
+    )
+    generic = SearchHit(
+        url="https://example.org/news-wrap",
+        title="Remote work and mental health trends",
+        snippet="General article.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        hits=(generic, official),
+    )
+
+    urls = [hit.url for hit in outcome.kept_hits]
+    assert official.url in urls
+    assert outcome.authority_policy_applied is True
+
+
+def test_filter_hits_preserves_scientific_candidate_for_scientific_query() -> None:
+    scientific = SearchHit(
+        url="https://pubmed.ncbi.nlm.nih.gov/12345678/",
+        title="Systematic review of remote work and mental health after 2023",
+        snippet="Peer-reviewed synthesis.",
+    )
+    generic = SearchHit(
+        url="https://example.org/news-wrap",
+        title="Remote work and mental health trends",
+        snippet="General article.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        hits=(generic, scientific),
+    )
+
+    urls = [hit.url for hit in outcome.kept_hits]
+    assert scientific.url in urls
+    assert outcome.authority_policy_applied is True
+
+
+def test_institutional_weighting_orders_official_before_generic_media() -> None:
+    official = SearchHit(
+        url="https://www.nik.gov.pl/aktualnosci/szpital-poludniowy.html",
+        title="Wyniki kontroli NIK",
+        snippet="Oficjalny komunikat o wynikach kontroli.",
+    )
+    media = SearchHit(
+        url="https://example.org/media-story",
+        title="Głośna sprawa szpitala południowego",
+        snippet="Wtórne omówienie medialne.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        hits=(media, official),
+    )
+
+    assert outcome.kept_hits[0].url == official.url
+
+
+def test_institutional_entity_match_prefers_exact_official_subject_over_broad_official_page() -> None:
+    exact = SearchHit(
+        url="https://www.nik.gov.pl/kontrole/szpital-poludniowy-w-warszawie.html",
+        title="Wyniki kontroli NIK - Szpital Południowy w Warszawie",
+        snippet="Oficjalna informacja o wynikach kontroli dotyczącej Szpitala Południowego w Warszawie.",
+    )
+    broad = SearchHit(
+        url="https://www.nik.gov.pl/aktualnosci/dzialania-nik-w-obszarze-ochrony-zdrowia.html",
+        title="Działania NIK w obszarze ochrony zdrowia",
+        snippet="Zbiorcza strona o działaniach NIK w sektorze zdrowia.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        hits=(broad, exact),
+    )
+
+    assert outcome.kept_hits[0].url == exact.url
+
+
+def test_institutional_entity_match_prefers_exact_school_subject_over_broad_ministry_page() -> None:
+    exact = SearchHit(
+        url="https://www.gov.pl/web/edukacja/zespol-szkol-nr-2-w-radomiu-wyniki-kontroli",
+        title="Wyniki kontroli - Zespół Szkół nr 2 w Radomiu",
+        snippet="Oficjalna informacja dotycząca konkretnej szkoły i wyników kontroli.",
+    )
+    broad = SearchHit(
+        url="https://www.gov.pl/web/edukacja/kontrole-w-oswiacie",
+        title="Kontrole w oświacie - Ministerstwo Edukacji",
+        snippet="Przegląd działań kontrolnych w sektorze edukacji.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Co wykazała kontrola ministerstwa w Zespole Szkół nr 2 w Radomiu?",
+        hits=(broad, exact),
+    )
+
+    assert outcome.kept_hits[0].url == exact.url
+
+
+def test_institutional_off_topic_official_hit_is_dropped_before_extraction() -> None:
+    exact = SearchHit(
+        url="https://www.nik.gov.pl/kontrole/szpital-poludniowy-w-warszawie.html",
+        title="Wyniki kontroli NIK - Szpital Południowy w Warszawie",
+        snippet="Oficjalna informacja o wynikach kontroli dotyczącej Szpitala Południowego w Warszawie.",
+    )
+    broad = SearchHit(
+        url="https://www.nik.gov.pl/aktualnosci/dzialania-nik-w-obszarze-ochrony-zdrowia.html",
+        title="Działania NIK w obszarze ochrony zdrowia",
+        snippet="Zbiorcza strona o działaniach NIK w sektorze zdrowia.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        hits=(broad, exact),
+    )
+
+    urls = [hit.url for hit in outcome.kept_hits]
+    assert exact.url in urls
+    assert broad.url not in urls
+
+
+def test_institutional_short_official_slug_is_not_dropped_as_off_topic() -> None:
+    official = SearchHit(
+        url="https://www.nik.gov.pl/aktualnosci/szpital-poludniowy.html",
+        title="Wyniki kontroli NIK",
+        snippet="Oficjalny komunikat o wynikach kontroli.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        hits=(official,),
+    )
+
+    assert [hit.url for hit in outcome.kept_hits] == [official.url]
+
+
+def test_institutional_relevant_hit_admits_short_official_subject_slug() -> None:
+    official = SearchHit(
+        url="https://www.nik.gov.pl/aktualnosci/szpital-poludniowy.html",
+        title="Wyniki kontroli NIK",
+        snippet="Oficjalny komunikat o wynikach kontroli.",
+    )
+
+    assert _is_relevant_hit(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        hit=official,
+    ) is True
+
+
+def test_institutional_relevant_hit_rejects_official_surface_overlap_without_subject_anchor() -> None:
+    official = SearchHit(
+        url="https://www.nik.gov.pl/aktualnosci/spojnosc-i-infrastruktura/poludniowa-obwodnica-warszawy-s2.html",
+        title="NIK o realizacji i odbiorze budowy fragmentu Południowej Obwodnicy Warszawy",
+        snippet="Kontrola dotyczy inwestycji drogowej.",
+    )
+
+    assert _is_relevant_hit(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        hit=official,
+    ) is False
+
+
+def test_planning_audit_query_variants_include_subject_specific_nik_artifact_queries() -> None:
+    planning = PlanningAnalysis(
+        query_class=ResearchQueryClass.GENERAL,
+        goal="Ustalić, co NIK stwierdziła w sprawie Szpitala Południowego w Warszawie.",
+        focus_areas=("official_findings",),
+        constraints=("preferować_oficjalne_źródła_publiczne_w_pierwszej_kolejności",),
+        entity_hypotheses=(
+            EntityHypothesis(surface_form="NIK", canonical_name="Najwyższa Izba Kontroli", entity_type="institution"),
+            EntityHypothesis(surface_form="Szpital Południowy", canonical_name="Szpital Południowy w Warszawie", entity_type="hospital"),
+        ),
+    )
+
+    queries = _planning_audit_institutional_query_variants(
+        objective="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        round_number=1,
+        primary_entity="Najwyższa Izba Kontroli",
+        planning_analysis=planning,
+    )
+
+    assert any('site:nik.gov.pl "Szpital Południowy w Warszawie" "informacja o wynikach kontroli"' == item for item in queries)
+    assert any('site:nik.gov.pl "Szpital Południowy w Warszawie" pdf' == item for item in queries)
+
+
+def test_scientific_weighting_orders_analysis_before_generic_media() -> None:
+    analysis = SearchHit(
+        url="https://example.org/research/remote-work-mental-health-analysis-2024",
+        title="Longitudinal analysis of remote work and employee mental health after 2023",
+        snippet="Peer-reviewed style synthesis.",
+    )
+    media = SearchHit(
+        url="https://example.org/media-story",
+        title="Remote work trends after 2023",
+        snippet="General article.",
+    )
+
+    outcome = _filter_hits_for_extraction(
+        query="Wpływ pracy zdalnej na zdrowie psychiczne pracowników po 2023 roku",
+        hits=(media, analysis),
+    )
+
+    assert outcome.kept_hits[0].url == analysis.url
+
+
 def test_general_evidence_pack_allows_up_to_three_supporting_findings() -> None:
     findings = tuple(
         ExtractedFinding(
@@ -1348,3 +2087,29 @@ def test_general_evidence_pack_allows_up_to_three_supporting_findings() -> None:
 
     assert len(packed.core) == 0
     assert len(packed.supporting) == 3
+
+
+def test_institutional_relevant_hit_rescues_nik_official_pdf_with_query_local_overlap() -> None:
+    hit = SearchHit(
+        title="[PDF] Funkcjonowanie systemu ratownictwa medycznego - Najwyższa Izba Kontroli",
+        snippet="Dokument pokontrolny NIK o funkcjonowaniu systemu ratownictwa medycznego.",
+        url="https://www.nik.gov.pl/kontrole/wyniki-kontroli-nik/pobierz,lby~p_19_105_201912100929151575966555~id1~01,typ,kj.pdf",
+    )
+
+    assert _is_relevant_hit(
+        query="Jakie były główne ustalenia NIK w sprawie funkcjonowania systemu ratownictwa medycznego?",
+        hit=hit,
+    ) is True
+
+
+def test_institutional_relevant_hit_rejects_official_pdf_without_query_local_overlap() -> None:
+    hit = SearchHit(
+        title="[PDF] SPRAWOZDANIE - Najwyższa Izba Kontroli",
+        snippet="Ogólne efekty działalności NIK w 2024 roku.",
+        url="https://www.nik.gov.pl/plik/id,31066,vp,34379.pdf",
+    )
+
+    assert _is_relevant_hit(
+        query="Jakie były główne ustalenia NIK w sprawie funkcjonowania systemu ratownictwa medycznego?",
+        hit=hit,
+    ) is False

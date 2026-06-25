@@ -148,6 +148,7 @@ class SourceTraceDelivery:
     research: ResearchExecution | None = None
     research_search_backend: str = "stub"
     research_search_configured: bool = False
+    research_pdf_debug_ingest: Callable[..., object] | None = None
 
     @property
     def research_enabled(self) -> bool:
@@ -228,6 +229,25 @@ class SourceTraceDelivery:
         if not self.research_ready:
             return None
         return self.research.run_job(job_id)
+
+    def debug_research_pdf_ingest(
+        self,
+        *,
+        query: str,
+        pdf_url: str,
+        title: str,
+        triage_verdict: str = "relevant",
+    ):
+        if self.research_pdf_debug_ingest is None:
+            return None
+        result = self.research_pdf_debug_ingest(
+            query=query,
+            url=pdf_url,
+            title=title,
+            triage_verdict=triage_verdict,
+        )
+        debug = getattr(self.research_pdf_debug_ingest, "last_debug", None)
+        return {"result": result, "debug": debug}
 
     def create_case(
         self,
@@ -870,6 +890,7 @@ def create_default_delivery(
     research: ResearchExecution | None = None,
     research_search_backend: str = "stub",
     research_search_configured: bool = False,
+    research_pdf_debug_ingest: Callable[..., object] | None = None,
 ) -> SourceTraceDelivery:
     """Create the default analyst delivery surface."""
 
@@ -918,6 +939,7 @@ def create_default_delivery(
         research=research,
         research_search_backend=research_search_backend,
         research_search_configured=research_search_configured,
+        research_pdf_debug_ingest=research_pdf_debug_ingest,
     )
 
 

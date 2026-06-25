@@ -781,6 +781,7 @@ def _research_event_payload(event: ResearchProgressEvent) -> dict[str, object]:
         "url": event.url,
         "title": event.title,
         "message": event.message,
+        "details": event.details,
         "final": event.final,
     }
 
@@ -801,6 +802,7 @@ def _research_event_from_payload(payload: dict[str, object]) -> ResearchProgress
         url=_optional_str(payload.get("url")),
         title=_optional_str(payload.get("title")),
         message=_optional_str(payload.get("message")),
+        details=payload.get("details") if isinstance(payload.get("details"), dict) else None,
         final=bool(payload.get("final", False)),
     )
 

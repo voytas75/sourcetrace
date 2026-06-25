@@ -1,18 +1,24 @@
 """Runtime orchestration for the Deep Research lifecycle and bounded engine loop."""
 
 from collections.abc import Callable
+from functools import lru_cache
 import json
 import re
+import unicodedata
+from typing import Any
 from urllib.error import URLError
 from dataclasses import dataclass, replace
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from time import perf_counter
 from urllib.parse import urlparse
 from uuid import uuid4
 
 from sourcetrace.application.research import (
+    ExternalPdfAnalyzer,
     ExtractedFinding,
+    PdfIngestResult,
     ResearchExecution,
     ResearchExtractor,
     ResearchJobListOutcome,
@@ -21,6 +27,8 @@ from sourcetrace.application.research import (
     ResearchJobStartRequest,
     ResearchJobStatusOutcome,
     ResearchPlanner,
+    ResearchPlanningAnalyzer,
+    ResearchPdfIngestor,
     ResearchQueryGenerator,
     ResearchSearchAdapter,
     ResearchSynthesizer,
@@ -68,6 +76,28 @@ class DeterministicPlanningAnalyzer:
 
     def __call__(self, query: str) -> PlanningAnalysis:
         return _build_fallback_planning_analysis(query)
+
+
+class LlmPlanningAnalyzer:
+    """LLM-assisted planning-analysis builder with strict validation and fallback."""
+
+    def __init__(self, synthesize_text: Callable[[str], object], *, fallback: ResearchPlanningAnalyzer | None = None) -> None:
+        self.synthesize_text = synthesize_text
+        self.fallback = fallback or DeterministicPlanningAnalyzer()
+
+    def __call__(self, query: str) -> PlanningAnalysis:
+        fallback = self.fallback(query)
+        prompt = _build_planning_analysis_prompt(query, fallback=fallback)
+        try:
+            result = self.synthesize_text(prompt)
+            text = getattr(result, 'text', '') if result is not None else ''
+            payload = json.loads(text)
+            validated = _planning_analysis_from_llm_payload(payload, query=query)
+            if validated is None:
+                return fallback
+            return _merge_llm_planning_with_fallback(validated, fallback=fallback)
+        except Exception:
+            return fallback
 
 
 class StubResearchPlanner:
@@ -154,7 +184,13 @@ class StubResearchPlanner:
 class StubQueryGenerator:
     """Deterministic query generator stub with light domain-aware shaping."""
 
-    def __call__(self, plan: ResearchExecutionPlan, *, round_number: int) -> tuple[str, ...]:
+    def __call__(
+        self,
+        plan: ResearchExecutionPlan,
+        *,
+        round_number: int,
+        planning_analysis: PlanningAnalysis | None = None,
+    ) -> tuple[str, ...]:
         objective = plan.objective.strip()
         normalized = objective.lower()
         if plan.strategy is ResearchPlanStrategy.MARKET_SCAN or _looks_like_market_query(normalized):
@@ -178,6 +214,13 @@ class StubQueryGenerator:
                 f'{objective} Microsoft Learn official documentation',
                 f'{objective} Configuration Manager documentation',
             )
+        planning_queries = _planning_aware_query_variants(
+            objective=objective,
+            round_number=round_number,
+            planning_analysis=planning_analysis,
+        )
+        if planning_queries:
+            return planning_queries
         if plan.strategy is ResearchPlanStrategy.NEWS_RESEARCH and round_number > 1:
             return (
                 f"{objective} latest developments",
@@ -229,6 +272,695 @@ class LlmQueryGenerator:
             return ()
         return ()
 
+
+def _planning_aware_query_variants(
+    *,
+    objective: str,
+    round_number: int,
+    planning_analysis: PlanningAnalysis | None,
+) -> tuple[str, ...]:
+    if planning_analysis is None:
+        return ()
+    if planning_analysis.query_class not in {ResearchQueryClass.CURRENT_NEWS, ResearchQueryClass.GENERAL}:
+        return ()
+    if (
+        planning_analysis.query_class is ResearchQueryClass.GENERAL
+        and not _planning_prefers_official_sources(planning_analysis)
+    ):
+        return ()
+
+    primary_entity = _planning_primary_entity_name(planning_analysis) or objective
+    institutional_queries = _planning_audit_institutional_query_variants(
+        objective=objective,
+        round_number=round_number,
+        primary_entity=primary_entity,
+        planning_analysis=planning_analysis,
+    )
+    if institutional_queries:
+        return institutional_queries
+    official_queries = _planning_official_query_variants(
+        objective=objective,
+        primary_entity=primary_entity,
+        planning_analysis=planning_analysis,
+    )
+    focus_queries = _planning_focus_query_variants(
+        objective=objective,
+        primary_entity=primary_entity,
+        planning_analysis=planning_analysis,
+    )
+    fallback_queries = _planning_fallback_query_variants(
+        objective=objective,
+        round_number=round_number,
+        planning_analysis=planning_analysis,
+    )
+
+    entity_types = {
+        (hypothesis.entity_type or "").strip().lower()
+        for hypothesis in planning_analysis.entity_hypotheses
+        if (hypothesis.canonical_name or hypothesis.surface_form).strip()
+    }
+    hospital_like = any(entity_type in {"hospital", "clinic", "healthcare"} for entity_type in entity_types)
+    city_like = any(entity_type in {"city", "municipality", "local_government"} for entity_type in entity_types)
+    regulator_like = any(entity_type in {"regulator", "audit_body", "watchdog"} for entity_type in entity_types)
+
+    def _is_domain_query(query: str) -> bool:
+        lowered = query.lower()
+        return "site:" in lowered or "rzecznik" in lowered
+
+    def _is_polish_official_phrase(query: str) -> bool:
+        lowered = query.lower()
+        return any(token in lowered for token in ("komunikat", "stanowisko", "informacja o wynikach kontroli"))
+
+    def _bucketed_query_selection(*, limit: int, include_objective: bool) -> tuple[str, ...]:
+        official_bucket: list[str] = []
+        domain_bucket: list[str] = []
+        phrase_bucket: list[str] = []
+        focus_bucket: list[str] = []
+        fallback_bucket: list[str] = []
+
+        for query in official_queries:
+            if _is_domain_query(query):
+                domain_bucket.append(query)
+            elif _is_polish_official_phrase(query):
+                phrase_bucket.append(query)
+            else:
+                official_bucket.append(query)
+        for query in focus_queries:
+            if _is_domain_query(query):
+                domain_bucket.append(query)
+            elif _is_polish_official_phrase(query):
+                phrase_bucket.append(query)
+            elif "statement" in query.lower() or "update" in query.lower():
+                official_bucket.append(query)
+            else:
+                focus_bucket.append(query)
+        fallback_bucket.extend(fallback_queries)
+
+        reserved_domain = 1 if (hospital_like or city_like or regulator_like) else 0
+        reserved_phrase = 1 if (hospital_like or city_like or regulator_like or phrase_bucket) else 0
+        reserved_official = 1 if official_bucket else 0
+
+        selected: list[str] = []
+        seen: set[str] = set()
+
+        def take_one(bucket: list[str]) -> None:
+            for item in bucket:
+                key = item.strip().lower()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                selected.append(item)
+                return
+
+        if include_objective:
+            key = objective.strip().lower()
+            if key:
+                seen.add(key)
+                selected.append(objective)
+
+        if reserved_official:
+            take_one(official_bucket)
+        if reserved_domain:
+            take_one(domain_bucket)
+        if reserved_phrase:
+            take_one(phrase_bucket)
+
+        priority_order: list[list[str]] = []
+        if regulator_like:
+            priority_order = [official_bucket, domain_bucket, phrase_bucket, focus_bucket, fallback_bucket]
+        elif hospital_like or city_like:
+            priority_order = [official_bucket, domain_bucket, phrase_bucket, focus_bucket, fallback_bucket]
+        else:
+            priority_order = [official_bucket, phrase_bucket, domain_bucket, focus_bucket, fallback_bucket]
+
+        for bucket in priority_order:
+            for item in bucket:
+                if len(selected) >= limit:
+                    return tuple(selected[:limit])
+                key = item.strip().lower()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                selected.append(item)
+
+        return tuple(selected[:limit])
+
+    if round_number == 1:
+        return _bucketed_query_selection(limit=8, include_objective=True)
+
+    if planning_analysis.query_class is ResearchQueryClass.GENERAL and _planning_prefers_official_sources(planning_analysis) and (hospital_like or city_like or regulator_like):
+        all_candidates = _dedupe_query_variants(tuple((*official_queries, *focus_queries, *fallback_queries)))
+        domain_candidates = [query for query in all_candidates if 'site:nik.gov.pl' in query.lower() or 'site:gov.pl' in query.lower() or 'site:um.warszawa.pl' in query.lower() or 'site:bip.warszawa.pl' in query.lower()]
+        findings_candidates = [query for query in all_candidates if any(token in query.lower() for token in ('informacja o wynikach kontroli', 'wyniki kontroli', 'official findings'))]
+        report_candidates = [query for query in all_candidates if 'raport' in query.lower()]
+        communications_candidates = [query for query in all_candidates if any(token in query.lower() for token in ('komunikat', 'stanowisko', 'official statement', 'official update'))]
+        selected = _dedupe_query_variants(tuple(
+            (*domain_candidates[:1], *findings_candidates[:1], *report_candidates[:1], *communications_candidates[:1], *all_candidates)
+        ))
+        if selected:
+            return selected[:6]
+
+    return _bucketed_query_selection(limit=6, include_objective=False)
+
+
+def _planning_prefers_official_sources(planning_analysis: PlanningAnalysis) -> bool:
+    constraints = _normalized_planning_constraints(planning_analysis.constraints)
+    focus_areas = _normalized_planning_focus_areas(planning_analysis.focus_areas)
+    raw_constraints = tuple(str(item).lower() for item in planning_analysis.constraints)
+    raw_focus_areas = tuple(str(item).lower() for item in planning_analysis.focus_areas)
+    return (
+        "prefer_official_sources_first" in constraints
+        or any(token in item for item in focus_areas for token in ("official", "statement", "position", "findings", "recommend", "announcements"))
+        or any(any(token in item for token in ("oficjal", "urzęd", "urzed", "nik", "dokument", "komunikat", "raport", "wynikach kontroli")) for item in raw_constraints)
+        or any(any(token in item for token in ("oficjal", "komunikat", "raport", "wynikach kontroli", "ustalenia_nik", "pokontrol")) for item in raw_focus_areas)
+    )
+
+
+def _normalized_planning_focus_areas(focus_areas: tuple[str, ...]) -> tuple[str, ...]:
+    canonical_map = {
+        "official_findings": "official_findings",
+        "official findings": "official_findings",
+        "ustalenia": "official_findings",
+        "ustalenia pokontrolne": "official_findings",
+        "wyniki kontroli": "official_findings",
+        "control findings": "official_findings",
+        "hospital_position": "hospital_position",
+        "hospital statement": "hospital_position",
+        "stanowisko szpitala": "hospital_position",
+        "oficjalne stanowisko szpitala": "hospital_position",
+        "city_position": "city_position",
+        "city statement": "city_position",
+        "stanowisko miasta": "city_position",
+        "oficjalne stanowisko miasta": "city_position",
+        "regulator_position": "regulator_position",
+        "regulator statement": "regulator_position",
+        "stanowisko regulatora": "regulator_position",
+        "official_position": "official_position",
+        "official position": "official_position",
+        "oficjalne stanowiska": "official_position",
+        "official statements": "official_position",
+        "timeline": "timeline",
+        "chronologia": "timeline",
+        "chronologia komunikatów": "timeline",
+        "recommendations": "recommendations",
+        "recommendation": "recommendations",
+        "zalecenia": "recommendations",
+        "zalecenia pokontrolne": "recommendations",
+        "post inspection recommendations": "recommendations",
+        "post-inspection recommendations": "recommendations",
+        "announcements": "announcements",
+        "announcement": "announcements",
+        "official_announcements": "announcements",
+        "communications": "announcements",
+        "komunikaty": "announcements",
+        "komunikat": "announcements",
+        "chronology of announcements": "announcements",
+        "investigation_status": "investigation_status",
+        "status kontroli": "investigation_status",
+        "status postępowania": "investigation_status",
+        "recent_developments": "recent_developments",
+        "latest developments": "recent_developments",
+        "najnowsze informacje": "recent_developments",
+        "source_recency": "source_recency",
+        "this week": "source_recency",
+        "recent sources": "source_recency",
+    }
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in focus_areas:
+        raw = str(item).strip()
+        if not raw:
+            continue
+        lowered = raw.lower().replace("-", " ").replace("_", " ")
+        lowered = " ".join(lowered.split())
+        canonical = canonical_map.get(raw.lower(), canonical_map.get(lowered, raw.lower().replace(" ", "_")))
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        normalized.append(canonical)
+    return tuple(normalized)
+
+
+def _normalized_planning_constraints(constraints: tuple[str, ...]) -> tuple[str, ...]:
+    canonical_map = {
+        "prefer_official_sources_first": "prefer_official_sources_first",
+        "prefer official sources first": "prefer_official_sources_first",
+        "prefer official/institutional sources first": "prefer_official_sources_first",
+        "prefer institutional sources first": "prefer_official_sources_first",
+        "official sources first": "prefer_official_sources_first",
+        "najpierw źródła oficjalne": "prefer_official_sources_first",
+        "najpierw zrodla oficjalne": "prefer_official_sources_first",
+        "prefer_primary_sources": "prefer_official_sources_first",
+    }
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in constraints:
+        raw = str(item).strip()
+        if not raw:
+            continue
+        lowered = raw.lower().replace("-", " ").replace("_", " ")
+        lowered = " ".join(lowered.split())
+        canonical = canonical_map.get(raw.lower(), canonical_map.get(lowered, raw.lower().replace(" ", "_")))
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        normalized.append(canonical)
+    return tuple(normalized)
+
+
+def _planning_primary_entity_name(planning_analysis: PlanningAnalysis) -> str | None:
+    for hypothesis in planning_analysis.entity_hypotheses:
+        name = (hypothesis.canonical_name or hypothesis.surface_form).strip()
+        if name:
+            return name
+    return None
+
+
+def _planning_audit_institutional_query_variants(
+    *,
+    objective: str,
+    round_number: int,
+    primary_entity: str,
+    planning_analysis: PlanningAnalysis,
+) -> tuple[str, ...]:
+    if planning_analysis.query_class is not ResearchQueryClass.GENERAL:
+        return ()
+    if not _planning_prefers_official_sources(planning_analysis):
+        return ()
+
+    entity_names = [
+        (hypothesis.canonical_name or hypothesis.surface_form).strip()
+        for hypothesis in planning_analysis.entity_hypotheses
+        if (hypothesis.canonical_name or hypothesis.surface_form).strip()
+    ]
+    entity_types = {
+        (hypothesis.entity_type or "").strip().lower()
+        for hypothesis in planning_analysis.entity_hypotheses
+        if (hypothesis.canonical_name or hypothesis.surface_form).strip()
+    }
+    audit_types = {"audit_body", "regulator", "watchdog"}
+
+    raw_context = " ".join(
+        (
+            objective,
+            planning_analysis.goal,
+            *tuple(str(item) for item in planning_analysis.focus_areas),
+            *tuple(str(item) for item in planning_analysis.constraints),
+            *entity_names,
+            *tuple(entity_types),
+        )
+    ).lower()
+    audit_like = (
+        any(entity_type in audit_types for entity_type in entity_types)
+        or any(token in raw_context for token in ("nik", "izba kontroli", "wyniki kontroli", "informacja o wynikach kontroli", "pokontrol", "ustalenia_nik"))
+    )
+    if not audit_like:
+        return ()
+
+    def _is_nik_like(name: str) -> bool:
+        lowered = name.lower()
+        return "nik" in lowered or "izba kontroli" in lowered
+
+    audit_name = next(
+        (
+            name
+            for hypothesis in planning_analysis.entity_hypotheses
+            for name in ((hypothesis.canonical_name or hypothesis.surface_form).strip(),)
+            if name
+            and (
+                (hypothesis.entity_type or "").strip().lower() in audit_types
+                or _is_nik_like(name)
+            )
+        ),
+        primary_entity,
+    )
+    subject_name = next(
+        (
+            name
+            for hypothesis in planning_analysis.entity_hypotheses
+            for name in ((hypothesis.canonical_name or hypothesis.surface_form).strip(),)
+            if name
+            and not _is_nik_like(name)
+            and (hypothesis.entity_type or "").strip().lower() in {
+                "hospital",
+                "clinic",
+                "healthcare",
+                "city",
+                "municipality",
+                "local_government",
+                "institution",
+            }
+        ),
+        "",
+    )
+
+    query_subject_parts: list[str] = []
+    for part in (audit_name.strip(), subject_name.strip()):
+        if part and part.lower() not in {item.lower() for item in query_subject_parts}:
+            query_subject_parts.append(part)
+    query_subject = " ".join(query_subject_parts) or primary_entity or objective
+    subject_only = subject_name.strip() or primary_entity or objective
+    report_like_terms = (
+        'informacja o wynikach kontroli',
+        'wyniki kontroli',
+        'raport',
+        'pdf',
+        'plik pdf',
+        'komunikat',
+    )
+    if round_number == 1:
+        return _dedupe_query_variants(
+            (
+                objective,
+                f'site:nik.gov.pl "{subject_only}"',
+                f'site:nik.gov.pl "{subject_only}" "informacja o wynikach kontroli"',
+                f'site:nik.gov.pl "{subject_only}" "wyniki kontroli"',
+                f'site:nik.gov.pl "{subject_only}" raport',
+                f'site:nik.gov.pl "{subject_only}" pdf',
+                f'site:nik.gov.pl "{query_subject}"',
+                *tuple(f'"{subject_only}" {term}' for term in report_like_terms[:2]),
+            )
+        )[:8]
+    return _dedupe_query_variants(
+        (
+            f'site:nik.gov.pl "{subject_only}" "informacja o wynikach kontroli"',
+            f'site:nik.gov.pl "{subject_only}" "wyniki kontroli"',
+            f'site:nik.gov.pl "{subject_only}" raport',
+            f'site:nik.gov.pl "{subject_only}" pdf',
+            f'site:nik.gov.pl "{query_subject}"',
+            f'"{subject_only}" raport NIK',
+        )
+    )[:6]
+
+
+def _planning_official_query_variants(
+    *,
+    objective: str,
+    primary_entity: str,
+    planning_analysis: PlanningAnalysis,
+) -> tuple[str, ...]:
+    queries: list[str] = []
+    entity_types = {
+        (hypothesis.entity_type or "").strip().lower()
+        for hypothesis in planning_analysis.entity_hypotheses
+        if (hypothesis.canonical_name or hypothesis.surface_form).strip()
+    }
+    prefers_official = _planning_prefers_official_sources(planning_analysis)
+    hospital_like = any(entity_type in {"hospital", "clinic", "healthcare"} for entity_type in entity_types)
+    city_like = any(entity_type in {"city", "municipality", "local_government"} for entity_type in entity_types)
+    regulator_like = any(entity_type in {"regulator", "audit_body", "watchdog", "institution"} for entity_type in entity_types) or any(token in primary_entity.lower() for token in ('nik', 'izba kontroli'))
+
+    if prefers_official:
+        queries.extend(
+            (
+                f"{primary_entity} official statement",
+                f"{primary_entity} official findings",
+            )
+        )
+    if hospital_like:
+        queries.extend(
+            (
+                f"{primary_entity} site:gov.pl",
+                f"{primary_entity} site:szpitale.mazovia.pl",
+                f"{primary_entity} hospital statement",
+                f"{primary_entity} rzecznik",
+            )
+        )
+    if city_like:
+        queries.extend(
+            (
+                f"{primary_entity} site:um.warszawa.pl",
+                f"{primary_entity} site:bip.warszawa.pl",
+                f"{primary_entity} city statement",
+                f"{primary_entity} urząd miasta komunikat",
+            )
+        )
+    if regulator_like:
+        queries.extend(
+            (
+                f"{primary_entity} site:nik.gov.pl",
+                f"{primary_entity} site:gov.pl",
+                f"{primary_entity} informacja o wynikach kontroli",
+                f"{primary_entity} regulator statement",
+                f"{primary_entity} komunikat prasowy",
+            )
+        )
+    if any(token in primary_entity.lower() for token in ('nik', 'izba kontroli')):
+        queries.extend(
+            (
+                f"site:nik.gov.pl {objective}",
+                f"site:gov.pl {primary_entity}",
+                f"{primary_entity} raport",
+                f"{primary_entity} wyniki kontroli",
+            )
+        )
+    if prefers_official and not entity_types:
+        queries.extend((f"{objective} site:gov.pl", f"{objective} site:bip.gov.pl"))
+    if prefers_official:
+        tail_queries: list[str] = []
+        if regulator_like:
+            tail_queries.extend(
+                (
+                    f"{primary_entity} stanowisko",
+                    f"{primary_entity} oficjalne stanowisko",
+                )
+            )
+        elif hospital_like or city_like:
+            tail_queries.extend(
+                (
+                    f"{primary_entity} komunikat",
+                    f"{primary_entity} stanowisko",
+                )
+            )
+        else:
+            tail_queries.extend(
+                (
+                    f"{primary_entity} komunikat",
+                    f"{primary_entity} stanowisko",
+                    f"{primary_entity} oficjalny komunikat",
+                    f"{primary_entity} oficjalne stanowisko",
+                )
+            )
+        tail_queries.append(f"{primary_entity} official update")
+        queries.extend(tuple(tail_queries))
+    return tuple(queries)
+
+
+def _planning_focus_query_variants(
+    *,
+    objective: str,
+    primary_entity: str,
+    planning_analysis: PlanningAnalysis,
+) -> tuple[str, ...]:
+    queries: list[str] = []
+    for focus_area in _normalized_planning_focus_areas(planning_analysis.focus_areas):
+        lowered = focus_area.lower()
+        if lowered == "recent_developments":
+            queries.append(f"{objective} latest developments")
+        elif lowered == "timeline":
+            queries.extend((f"{objective} timeline", f"{primary_entity} chronology", f"{primary_entity} chronologia komunikatów"))
+        elif lowered == "source_recency":
+            queries.append(f"{objective} this week")
+        elif lowered == "official_findings":
+            queries.extend((f"{primary_entity} official findings", f"{primary_entity} report", f"{primary_entity} ustalenia", f"{primary_entity} wyniki kontroli"))
+        elif lowered == "hospital_position":
+            queries.extend((f"{primary_entity} hospital statement", f"{primary_entity} stanowisko szpitala"))
+        elif lowered == "city_position":
+            queries.extend((f"{primary_entity} city statement", f"{primary_entity} stanowisko miasta"))
+        elif lowered == "regulator_position":
+            queries.extend((f"{primary_entity} regulator statement", f"{primary_entity} stanowisko"))
+        elif lowered == "official_position":
+            queries.extend((f"{primary_entity} official statement", f"{primary_entity} oficjalne stanowisko"))
+        elif lowered == "investigation_status":
+            queries.extend((f"{objective} investigation update", f"{primary_entity} kontrola zalecenia"))
+        elif lowered == "recommendations":
+            queries.extend((f"{primary_entity} zalecenia pokontrolne", f"{primary_entity} recommendations", f"{primary_entity} rekomendacje"))
+        elif lowered == "announcements":
+            queries.extend((f"{primary_entity} komunikaty", f"{primary_entity} announcements", f"{primary_entity} komunikat prasowy"))
+        else:
+            queries.append(f"{objective} {focus_area.replace('_', ' ')}")
+    return tuple(queries)
+
+
+def _planning_fallback_query_variants(
+    *,
+    objective: str,
+    round_number: int,
+    planning_analysis: PlanningAnalysis,
+) -> tuple[str, ...]:
+    queries: list[str] = []
+    entity_names = [
+        (hypothesis.canonical_name or hypothesis.surface_form).strip()
+        for hypothesis in planning_analysis.entity_hypotheses
+        if (hypothesis.canonical_name or hypothesis.surface_form).strip()
+    ]
+    primary_entity = entity_names[0] if entity_names else objective
+    entity_types = {
+        (hypothesis.entity_type or '').strip().lower()
+        for hypothesis in planning_analysis.entity_hypotheses
+        if (hypothesis.canonical_name or hypothesis.surface_form).strip()
+    }
+    hospital_like = any(entity_type in {'hospital', 'clinic', 'healthcare'} for entity_type in entity_types)
+    city_like = any(entity_type in {'city', 'municipality', 'local_government'} for entity_type in entity_types)
+    regulator_like = any(entity_type in {'regulator', 'audit_body', 'watchdog', 'institution'} for entity_type in entity_types) or any(token in primary_entity.lower() for token in ('nik', 'izba kontroli'))
+    prefers_official = _planning_prefers_official_sources(planning_analysis)
+
+    if round_number > 1 and planning_analysis.query_class is ResearchQueryClass.GENERAL and prefers_official and (hospital_like or city_like or regulator_like):
+        queries.extend(
+            (
+                f"{primary_entity} raport",
+                f"{primary_entity} wyniki kontroli",
+                f"site:nik.gov.pl {primary_entity}",
+            )
+        )
+        if city_like:
+            queries.append(f"site:um.warszawa.pl {primary_entity}")
+        if hospital_like:
+            queries.append(f"{primary_entity} komunikat")
+        return tuple(queries)
+
+    if round_number > 1:
+        queries.extend(
+            (
+                f"{objective} latest developments",
+                f"{objective} this week",
+            )
+        )
+    elif planning_analysis.query_class is ResearchQueryClass.CURRENT_NEWS:
+        queries.append(f"{objective} latest developments")
+    return tuple(queries)
+
+
+def _dedupe_query_variants(queries: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for query in queries:
+        cleaned = query.strip()
+        key = cleaned.lower()
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cleaned)
+    return tuple(deduped)
+
+
+def _generate_queries(
+    query_generator: ResearchQueryGenerator,
+    plan: ResearchExecutionPlan,
+    *,
+    round_number: int,
+    planning_analysis: PlanningAnalysis | None,
+) -> tuple[str, ...]:
+    if planning_analysis is None:
+        return query_generator(plan, round_number=round_number)
+    try:
+        return query_generator(
+            plan,
+            round_number=round_number,
+            planning_analysis=planning_analysis,
+        )
+    except TypeError as exc:
+        if "planning_analysis" not in str(exc):
+            raise
+        return query_generator(plan, round_number=round_number)
+
+
+def _provider_candidate_diagnostics(*, hits: tuple[SearchHit, ...], query: str) -> list[dict[str, object]]:
+    diagnostics: list[dict[str, object]] = []
+    for hit in hits:
+        diagnostics.append(
+            {
+                'url': hit.url,
+                'title': hit.title,
+                'source_type': _source_type(hit.url, hit.title),
+                'general_relevance': _general_relevance_score(query=query, hit=hit),
+                'entity_match': _entity_match_score(query=query, hit=hit),
+                'listing_page': _looks_like_listing_page(hit),
+                'weak_general_source': _looks_like_weak_general_source(hit),
+                'relevant_hit': _is_relevant_hit(query=query, hit=hit),
+            }
+        )
+    return diagnostics
+
+
+def _looks_like_pdf_artifact(hit: SearchHit) -> bool:
+    lowered_url = hit.url.lower()
+    lowered_title = hit.title.lower()
+    return lowered_url.endswith('.pdf') or '/pobierz,' in lowered_url or 'pdf' in lowered_url or lowered_title.endswith('.pdf')
+
+
+def _triage_official_pdf_candidate(*, query: str, hit: SearchHit) -> tuple[str, str]:
+    lowered = _normalized_match_text(f"{hit.title} {hit.url} {hit.snippet}")
+    if not lowered:
+        return 'irrelevant', 'empty_pdf_signal'
+    entity_match = _entity_match_score(query=query, hit=hit)
+    anchors = _subject_anchor_variants(query)
+    compact = lowered.replace(' ', '')
+    anchor_match = any(anchor in lowered or anchor in compact for anchor in anchors)
+    if anchor_match and entity_match >= 5:
+        return 'relevant', 'subject_anchor_match'
+    if entity_match >= 3:
+        return 'uncertain', 'entity_match_without_anchor'
+    return 'irrelevant', 'no_subject_signal'
+
+
+def _pdf_ingest_summary(result: PdfIngestResult) -> str:
+    findings = '; '.join(result.key_findings[:3]) if result.key_findings else 'no_key_findings'
+    pages = ','.join(str(page) for page in result.evidence_pages[:5]) if result.evidence_pages else 'n/a'
+    return (
+        f"scope={result.document_scope}; entity={result.entity_match_summary}; "
+        f"confidence={result.confidence:.2f}; pages={pages}; findings={findings}"
+    )
+
+
+class StubPdfIngestor:
+    """Deterministic placeholder backend for the PDF ingest seam."""
+
+    def __call__(
+        self,
+        *,
+        query: str,
+        url: str,
+        title: str,
+        triage_verdict: str,
+    ) -> PdfIngestResult:
+        subject_hint = 'official pdf candidate'
+        if 'nik.gov.pl' in url.lower():
+            subject_hint = 'NIK official PDF candidate'
+        relevant = triage_verdict in {'relevant', 'uncertain'}
+        return PdfIngestResult(
+            relevant=relevant,
+            confidence=0.55 if triage_verdict == 'uncertain' else 0.75,
+            document_scope=subject_hint,
+            entity_match_summary=_normalized_match_text(query)[:120] or title,
+            key_findings=(
+                'stub_pdf_ingest_backend',
+                'requires_real_pdf_backend_for_full_evidence',
+            ),
+            evidence_pages=(),
+        )
+
+
+class ExternalPdfAnalyzerAdapter:
+    """Bridge a repo-external PDF analyzer into the research PDF ingest seam."""
+
+    def __init__(self, analyzer: ExternalPdfAnalyzer) -> None:
+        self.analyzer = analyzer
+
+    def __call__(
+        self,
+        *,
+        query: str,
+        url: str,
+        title: str,
+        triage_verdict: str,
+    ) -> PdfIngestResult:
+        return self.analyzer(
+            query=query,
+            url=url,
+            title=title,
+            triage_verdict=triage_verdict,
+        )
 
 
 from urllib.parse import quote_plus, urlencode
@@ -387,7 +1119,7 @@ def build_procedural_admin_unified_search_adapter(
     current_search: ResearchSearchAdapter,
     unified_search_web: Callable[..., list[dict[str, object]]] | None = None,
 ) -> ResearchSearchAdapter:
-    """Procedural/admin Unified Search path with safe fallback to current search."""
+    """Unified Search first for procedural/admin and official-preferred institutional queries, with safe fallback."""
 
     if unified_search_web is None:
         return current_search
@@ -399,24 +1131,31 @@ def build_procedural_admin_unified_search_adapter(
             for hit in top_hits
         )
 
+    def _should_try_unified_first(objective: str) -> bool:
+        lowered = objective.lower()
+        if _procedural_query_bias(lowered):
+            return True
+        return (
+            _classify_query(objective) is ResearchQueryClass.GENERAL
+            and any(token in lowered for token in ('nik', 'ministerstwo', 'urząd', 'urzad', 'government', 'official', 'gov', 'regulator', 'kontrola'))
+        )
+
     class _ProceduralAdminUnifiedAdapter:
         provider_name = "procedural_admin_unified_search"
         active_provider_names = ("procedural_admin_unified_search", "searxng")
 
         def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
             objective = queries[0] if queries else ""
+            if not _should_try_unified_first(objective):
+                hits = current_search(queries, round_number=round_number)
+                self.last_provider_names = _actual_search_provider_names(current_search)
+                return hits
+
             unified_adapter = WebSearchBackedSearchAdapter(unified_search_web, count=10)
             hits = unified_adapter(queries, round_number=round_number)
-            if not _procedural_query_bias(objective.lower()):
-                if hits:
-                    self.last_provider_names = (self.provider_name,)
-                    return hits
-                fallback_hits = current_search(queries, round_number=round_number)
-                self.last_provider_names = tuple(
-                    dict.fromkeys((self.provider_name, *_actual_search_provider_names(current_search)))
-                )
-                return fallback_hits
-            if hits and _looks_official_enough(hits):
+            self.last_unified_hits = hits
+            self.last_unified_official_enough = bool(hits and _looks_official_enough(hits))
+            if hits and self.last_unified_official_enough:
                 self.last_provider_names = (self.provider_name,)
                 return hits
             fallback_hits = current_search(queries, round_number=round_number)
@@ -460,8 +1199,8 @@ def build_provider_search_adapter(
 
     if searxng_base_url and provider_adapter is not None:
         return ChainedSearchAdapter(
-            SearxNGSearchAdapter(base_url=searxng_base_url),
             provider_adapter,
+            SearxNGSearchAdapter(base_url=searxng_base_url),
         )
     if searxng_base_url:
         return SearxNGSearchAdapter(base_url=searxng_base_url)
@@ -522,19 +1261,30 @@ class LlmResearchSynthesizer:
 class StubExtractor:
     """Deterministic extractor with light normalization and evidence shaping."""
 
+    def __init__(self, *, query: str | None = None) -> None:
+        self.query = query
+
     def __call__(self, hits: tuple[SearchHit, ...]) -> tuple[ExtractedFinding, ...]:
         findings: list[ExtractedFinding] = []
         for hit in hits:
             summary = _extract_evidence_summary(hit)
             if not summary:
                 continue
-            findings.append(
-                ExtractedFinding(
-                    url=hit.url,
-                    title=hit.title.strip() or hit.url,
-                    summary=summary,
-                )
+            finding = ExtractedFinding(
+                url=hit.url,
+                title=hit.title.strip() or hit.url,
+                summary=summary,
             )
+            if self.query and _source_type(hit.url, hit.title) == 'official_docs' and _looks_like_pdf_artifact(hit):
+                verdict, notes = _triage_official_pdf_candidate(query=self.query, hit=hit)
+                triage_prefix = f"[official_pdf_triage:{verdict}] {notes}"
+                finding = replace(
+                    finding,
+                    summary=f"{triage_prefix} — {finding.summary}",
+                    pdf_triage_verdict=verdict,
+                    pdf_triage_notes=notes,
+                )
+            findings.append(finding)
         return tuple(findings)
 
 
@@ -693,6 +1443,12 @@ def _query_keywords(query: str) -> tuple[str, ...]:
 
 def _procedural_query_bias(query: str) -> bool:
     lowered = query.lower()
+    institutional_audit_tokens = (
+        'nik', 'najwyższa izba kontroli', 'najwyzsza izba kontroli', 'raport', 'wyniki kontroli',
+        'kontrola', 'ustalenia', 'komunikat', 'pokontrol', 'szpital', 'miasto', 'warszawa',
+    )
+    if any(token in lowered for token in institutional_audit_tokens) and not any(token in lowered for token in ('microsoft', 'sccm', 'intune', 'entra', 'configuration manager', 'azure')):
+        return False
     strong_domain_tokens = (
         "wdroż", "wdroze", "deploy", "deployment", "configuration", "baseline", "baselines", "sccm",
         "intune", "entra", "conditional access", "compliance", "policy", "policies", "microsoft learn",
@@ -792,6 +1548,20 @@ def _general_relevance_score(*, query: str, hit: SearchHit) -> int:
     score += sum(2 for keyword in keywords if keyword in hit.title.lower())
     score += sum(1 for keyword in keywords if keyword in haystack)
     score += _authority_signal_score(query=query, hit=hit)
+    entity_match = _entity_match_score(query=query, hit=hit)
+    source_type = _source_type(hit.url, hit.title)
+    institutional_general = (
+        _classify_query(query) is ResearchQueryClass.GENERAL
+        and any(token in query.lower() for token in ('nik', 'ministerstwo', 'urząd', 'urzad', 'government', 'official', 'gov', 'regulator', 'kontrola'))
+    )
+    if institutional_general:
+        score += entity_match
+        if source_type == 'official_docs' and entity_match == 0:
+            score -= 3
+        if source_type == 'official_docs' and entity_match >= 5:
+            score += 3
+        if source_type == 'generic' and entity_match >= 5:
+            score += 1
     if _procedural_query_bias(query):
         if any(token in haystack for token in ("learn.microsoft.com", "docs", "documentation", "how to", "how-to", "guide", "baseline", "configuration manager")):
             score += 3
@@ -804,12 +1574,32 @@ def _general_relevance_score(*, query: str, hit: SearchHit) -> int:
     return score
 
 
+def _pdf_query_overlap_score(*, query: str, hit: SearchHit) -> int:
+    haystack = _normalized_match_text(f"{hit.title} {hit.snippet} {hit.url}")
+    tokens = {token for token in _match_tokens(query) if len(token) >= 4}
+    return sum(1 for token in tokens if token in haystack)
+
+
 def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
     haystack = f"{hit.title} {hit.snippet} {hit.url}".lower()
     keywords = _query_keywords(query)
     if not keywords:
         return True
     matched = sum(1 for keyword in keywords if keyword in haystack)
+    source_type = _source_type(hit.url, hit.title)
+    domain = _normalized_domain(hit.url)
+    institutional_general = (
+        _classify_query(query) is ResearchQueryClass.GENERAL
+        and any(token in query.lower() for token in ('nik', 'ministerstwo', 'urząd', 'urzad', 'government', 'official', 'gov', 'regulator', 'kontrola'))
+    )
+    pdf_query_overlap = _pdf_query_overlap_score(query=query, hit=hit)
+    official_pdf_rescue = (
+        institutional_general
+        and source_type in {'official_docs', 'docs'}
+        and domain == 'nik.gov.pl'
+        and urlparse(hit.url).path.lower().endswith('.pdf')
+        and pdf_query_overlap >= 2
+    )
     if _looks_like_market_query(query.lower()):
         symbol = _extract_market_symbol(query)
         aliases = _pair_aliases(symbol)
@@ -829,14 +1619,35 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
         if matched >= 2 or _general_relevance_score(query=query, hit=hit) >= 4:
             return True
         return False
-    if _looks_like_listing_page(hit) or _looks_like_weak_general_source(hit):
+    if _looks_like_listing_page(hit):
         return False
-    if matched >= 2 or _general_relevance_score(query=query, hit=hit) >= 4:
+    if _looks_like_weak_general_source(hit) and not official_pdf_rescue:
+        return False
+    score = _general_relevance_score(query=query, hit=hit)
+    entity_match = _entity_match_score(query=query, hit=hit)
+    if institutional_general:
+        anchors = _subject_anchor_variants(query)
+        compact_haystack = haystack.replace(' ', '')
+        anchor_match = any(anchor in haystack or anchor in compact_haystack for anchor in anchors)
+        strong_subject_type_match = (
+            source_type == 'official_docs'
+            and any(token in haystack for token in ('szpital', 'hospital', 'klinika', 'school', 'szkol', 'zespol'))
+            and any(token in haystack for token in ('poludniow', 'radomi', 'warszawsk'))
+        )
+        if official_pdf_rescue and (pdf_query_overlap >= 2 or matched >= 2):
+            return True
+        if source_type in {'official_docs', 'docs'} and (anchor_match or strong_subject_type_match):
+            return True
+        if source_type in {'official_docs', 'docs'} and entity_match >= 3 and (anchor_match or strong_subject_type_match):
+            return True
+        if source_type in {'official_docs', 'docs'} and not anchor_match and not strong_subject_type_match and not official_pdf_rescue and score < 8:
+            return False
+        if source_type in {'generic', 'docs', 'analysis', 'data'} and entity_match >= 5:
+            return True
+    if matched >= 2 or score >= 4:
         return True
-    source_type = _source_type(hit.url, hit.title)
     if matched >= 1 and source_type in {'generic', 'docs', 'official_docs', 'vendor_docs', 'analysis', 'data'}:
         return True
-    score = _general_relevance_score(query=query, hit=hit)
     if source_type in {'generic', 'docs', 'analysis', 'data'} and score >= 3:
         return True
     if source_type in {'generic', 'docs', 'analysis', 'data'} and score >= 3:
@@ -852,15 +1663,19 @@ def _source_type(url: str, title: str) -> str:
     domain = _normalized_domain(url)
     if 'learn.microsoft.com' in haystack or any(token in haystack for token in ('/docs/', 'documentation', 'configuration manager | microsoft learn')):
         return 'official_docs'
+    if domain.endswith('.gov') or domain.endswith('.gov.pl') or domain.endswith('.edu') or domain.endswith('.edu.pl'):
+        return 'official_docs'
+    if any(token in haystack for token in ('nik.gov.pl', 'gov.pl', 'bip.', 'pubmed', 'ncbi.nlm.nih.gov', 'pmc.ncbi.nlm.nih.gov', 'doi.org')):
+        return 'official_docs'
     if any(token in haystack for token in ('reddit.com', 'stackoverflow.com', 'stack overflow')):
         return 'forum'
     if 'gist.github.com' in haystack:
         return 'snippet_repo'
     if any(token in haystack for token in ("technical", "technicals", "analysis", "chart")):
         return "analysis"
-    if domain == 'research.ibm.com':
+    if domain == 'research.ibm.com' or any(token in haystack for token in ('springer.com', 'nature.com', 'sciencedirect.com', 'tandfonline.com', 'wiley.com', 'jamanetwork.com')):
         return 'analysis'
-    if any(token in title.lower() for token in ('study', 'survey', 'paper', 'journal', 'longitudinal')):
+    if any(token in title.lower() for token in ('study', 'survey', 'paper', 'journal', 'longitudinal', 'systematic review', 'meta-analysis', 'review')):
         return 'analysis'
     if any(token in haystack for token in ("historical", "ohlcv", "price", "quotes", "markets", "market")):
         return "data"
@@ -989,10 +1804,264 @@ class PackedEvidence:
     has_direct_procedural_evidence: bool = False
 
 
+@lru_cache(maxsize=512)
+def _normalized_match_text(value: str) -> str:
+    normalized = unicodedata.normalize('NFKD', value or '')
+    ascii_only = ''.join(char for char in normalized if not unicodedata.combining(char))
+    translation = str.maketrans({
+        'ł': 'l', 'Ł': 'l',
+        'ß': 'ss',
+        'ø': 'o', 'Ø': 'o',
+        'ð': 'd', 'Ð': 'd',
+        'þ': 'th', 'Þ': 'th',
+    })
+    lowered = ascii_only.translate(translation).lower()
+    lowered = re.sub(r'[^a-z0-9]+', ' ', lowered)
+    return re.sub(r'\s+', ' ', lowered).strip()
+
+
+def _match_tokens(value: str) -> tuple[str, ...]:
+    text = _normalized_match_text(value)
+    if not text:
+        return ()
+    stop = {
+        'the', 'and', 'for', 'with', 'from', 'that', 'this', 'jest', 'oraz', 'dla', 'czy', 'sie', 'się', 'nie',
+        'official', 'results', 'report', 'kontroli', 'wyniki', 'informacja', 'sprawie', 'dotyczacej', 'dotyczace',
+        'dotyczącej', 'dotyczące', 'instytut', 'ministerstwo', 'urzad', 'urząd', 'warszawie', 'warszawa',
+    }
+    def variants(token: str) -> tuple[str, ...]:
+        items = [token]
+        for suffix in ('owego', 'owej', 'owym', 'owego', 'owiego', 'iego', 'ego', 'owa', 'owe', 'owy', 'ami', 'ach', 'owi', 'owa', 'ego', 'iej', 'iem', 'ie', 'y', 'a', 'u'):
+            if token.endswith(suffix) and len(token) - len(suffix) >= 4:
+                items.append(token[:-len(suffix)])
+        deduped = []
+        seen = set()
+        for item in items:
+            if item not in seen and len(item) >= 3:
+                deduped.append(item)
+                seen.add(item)
+        return tuple(deduped)
+    expanded: list[str] = []
+    for token in text.split(' '):
+        if len(token) < 3 or token in stop:
+            continue
+        expanded.extend(variants(token))
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for token in expanded:
+        if token in seen:
+            continue
+        seen.add(token)
+        deduped.append(token)
+    return tuple(deduped)
+
+
+def _query_surface_candidate_phrases(query: str) -> tuple[str, ...]:
+    normalized_query = _normalized_match_text(query)
+    if not normalized_query:
+        return ()
+    stop_tokens = {
+        'co', 'czy', 'jak', 'kiedy', 'gdzie', 'ktory', 'która', 'ktore', 'które', 'wykazala', 'wykazała', 'ustalila', 'ustaliła',
+        'kontrola', 'kontroli', 'ministerstwa', 'ministerstwo', 'nik', 'sprawie', 'dotyczacy', 'dotyczący', 'wyniki', 'raport',
+        'official', 'statement', 'update', 'news', 'latest', 'with', 'from', 'about', 'what', 'which', 'did', 'does',
+    }
+    tokens = [token for token in normalized_query.split(' ') if len(token) >= 3 and token not in stop_tokens]
+    phrases: list[str] = []
+    for size in (5, 4, 3, 2):
+        for index in range(0, max(0, len(tokens) - size + 1)):
+            phrase_tokens = tokens[index:index + size]
+            if len(phrase_tokens) < 2:
+                continue
+            phrases.append(' '.join(phrase_tokens))
+    if tokens:
+        phrases.extend(' '.join(pair) for pair in zip(tokens, tokens[1:]) if len(pair) == 2)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for phrase in phrases:
+        compact = phrase.replace(' ', '')
+        if phrase in seen or compact in seen:
+            continue
+        seen.add(phrase)
+        seen.add(compact)
+        deduped.append(phrase)
+        if compact != phrase:
+            deduped.append(compact)
+    return tuple(deduped[:16])
+
+
+def _subject_anchor_variants(query: str) -> tuple[str, ...]:
+    planning = _build_fallback_planning_analysis(query)
+    entity_names = [
+        (hypothesis.canonical_name or hypothesis.surface_form).strip()
+        for hypothesis in planning.entity_hypotheses
+        if (hypothesis.canonical_name or hypothesis.surface_form).strip()
+    ]
+    anchors: list[str] = []
+    type_tokens = {
+        'szpital', 'szpitala', 'hospital', 'klinika', 'clinic', 'school', 'szkol', 'zespol',
+        'ministerstwo', 'urzad', 'urząd', 'izba', 'nik', 'instytut', 'centrum'
+    }
+    for entity_name in entity_names:
+        tokens = list(_match_tokens(entity_name))
+        if len(tokens) < 2:
+            continue
+        type_like = [token for token in tokens if token in type_tokens]
+        topic_like = [token for token in tokens if token not in type_tokens and len(token) >= 5]
+        if type_like and topic_like:
+            base = [type_like[0], topic_like[0]]
+            anchors.append(' '.join(base))
+            anchors.append(''.join(base))
+            anchors.append(' '.join(token[: max(5, len(token) - 3)] for token in base))
+            anchors.append(''.join(token[: max(5, len(token) - 3)] for token in base))
+    for phrase in _query_surface_candidate_phrases(query):
+        tokens = [token for token in phrase.split() if token in type_tokens or len(token) >= 5]
+        if len(tokens) >= 2 and any(token in type_tokens for token in tokens):
+            base = tokens[:2]
+            anchors.append(' '.join(base))
+            anchors.append(''.join(base))
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for anchor in anchors:
+        normalized = _normalized_match_text(anchor)
+        compact = normalized.replace(' ', '')
+        for candidate in (normalized, compact):
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            deduped.append(candidate)
+    return tuple(deduped[:12])
+
+
+def _entity_match_score(*, query: str, hit: SearchHit) -> int:
+    haystack = _normalized_match_text(f"{hit.title} {hit.url} {hit.snippet}")
+    compact_haystack = haystack.replace(' ', '')
+    if not haystack:
+        return 0
+
+    score = 0
+    planning = _build_fallback_planning_analysis(query)
+    entity_names = [
+        (hypothesis.canonical_name or hypothesis.surface_form).strip()
+        for hypothesis in planning.entity_hypotheses
+        if (hypothesis.canonical_name or hypothesis.surface_form).strip()
+    ]
+    for anchor in _subject_anchor_variants(query):
+        if not anchor:
+            continue
+        if anchor in haystack or anchor in compact_haystack:
+            score = max(score, 8)
+    candidate_phrases = list(entity_names) + list(_query_surface_candidate_phrases(query))
+    seen_phrases: set[str] = set()
+    for index, entity_name in enumerate(candidate_phrases):
+        normalized_name = _normalized_match_text(entity_name)
+        if not normalized_name or normalized_name in seen_phrases:
+            continue
+        seen_phrases.add(normalized_name)
+        tokens = _match_tokens(entity_name)
+        if len(tokens) < 2:
+            continue
+        matched = sum(1 for token in tokens if token in haystack)
+        if matched == 0:
+            continue
+        ratio = matched / len(tokens)
+        boost = 0
+        if ratio >= 0.99 and len(tokens) >= 2:
+            boost = 8
+        elif ratio >= 0.74:
+            boost = 5
+        elif ratio >= 0.5:
+            boost = 3
+        if index == 0 and entity_names:
+            boost += 2
+        score = max(score, boost)
+    return score
+
+
+def _is_off_topic_institutional_official_hit(*, query: str, hit: SearchHit) -> bool:
+    if _classify_query(query) is not ResearchQueryClass.GENERAL:
+        return False
+    if _source_type(hit.url, hit.title) != 'official_docs':
+        return False
+    lowered_query = query.lower()
+    institutional_intent = any(token in lowered_query for token in ('nik', 'ministerstwo', 'urząd', 'urzad', 'government', 'official', 'gov', 'regulator', 'kontrola'))
+    if not institutional_intent:
+        return False
+    relevance = _general_relevance_score(query=query, hit=hit)
+    entity_match = _entity_match_score(query=query, hit=hit)
+    normalized_url = _normalized_match_text(hit.url)
+    if entity_match >= 3:
+        return False
+    if relevance >= 7:
+        return False
+    candidate_phrases = _query_surface_candidate_phrases(query)
+    if any(phrase in normalized_url for phrase in candidate_phrases if len(phrase.split()) >= 2):
+        return False
+    broad_off_topic_markers = (
+        'dzialania nik', 'wyniki kontroli nik', 'wyszukiwarka', 'zyciorys', 'obwodnica', 'gazowej sieci', 'ochrony zdrowia'
+    )
+    return any(marker in normalized_url for marker in broad_off_topic_markers)
+
+
 def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> PreExtractionFilterOutcome:
+    return _filter_hits_for_extraction_with_diagnostics(query=query, hits=hits)["outcome"]
+
+
+def _filter_hits_for_extraction_with_diagnostics(*, query: str, hits: tuple[SearchHit, ...]) -> dict[str, object]:
+    query_class = _classify_query(query)
+    scientific_intent = any(token in query.lower() for token in ('study', 'studies', 'systematic review', 'meta-analysis', 'literature', 'journal', 'po 2023', 'after 2023', 'zdrowie psychiczne', 'mental health', 'peer-reviewed', 'pubmed'))
+    preservation_classes = {ResearchQueryClass.GENERAL, ResearchQueryClass.BROAD_CONCEPT, ResearchQueryClass.CURRENT_NEWS}
+    institutional_intent = any(token in query.lower() for token in ('nik', 'ministerstwo', 'urząd', 'urzad', 'government', 'official', 'gov', 'regulator', 'kontrola'))
+    preservation_active = query_class in preservation_classes and (institutional_intent or scientific_intent)
+
+    def _weighted_order(hit: SearchHit) -> tuple[int, int, int, int, str]:
+        source_type = _source_type(hit.url, hit.title)
+        relevance = _general_relevance_score(query=query, hit=hit)
+        authority = _authority_signal_score(query=query, hit=hit)
+        entity_match = _entity_match_score(query=query, hit=hit)
+        if institutional_intent:
+            order = {
+                'official_docs': 0,
+                'docs': 1,
+                'analysis': 2,
+                'data': 3,
+                'generic': 4,
+                'blog': 5,
+                'vendor_docs': 6,
+                'forum': 7,
+                'video': 8,
+                'snippet_repo': 9,
+            }
+        elif scientific_intent:
+            order = {
+                'analysis': 0,
+                'data': 1,
+                'official_docs': 2,
+                'docs': 3,
+                'generic': 4,
+                'blog': 5,
+                'vendor_docs': 6,
+                'forum': 7,
+                'video': 8,
+                'snippet_repo': 9,
+            }
+        else:
+            order = {
+                'official_docs': 0,
+                'analysis': 1,
+                'data': 2,
+                'docs': 3,
+                'generic': 4,
+                'blog': 5,
+                'vendor_docs': 6,
+                'forum': 7,
+                'video': 8,
+                'snippet_repo': 9,
+            }
+        return (order.get(source_type, 9), -entity_match, -authority, -relevance, hit.url)
+
     if not _procedural_query_bias(query):
-        if _classify_query(query) is not ResearchQueryClass.GENERAL:
-            return PreExtractionFilterOutcome(
+        if not preservation_active:
+            outcome = PreExtractionFilterOutcome(
                 kept_hits=hits,
                 seen_count=len(hits),
                 kept_count=len(hits),
@@ -1001,31 +2070,88 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
                 fallback_used=False,
                 dropped_source_types=(),
             )
+            return {
+                'outcome': outcome,
+                'diagnostics': [
+                    {
+                        'url': hit.url,
+                        'title': hit.title,
+                        'source_type': _source_type(hit.url, hit.title),
+                        'general_relevance': _general_relevance_score(query=query, hit=hit),
+                        'authority_signal': _authority_signal_score(query=query, hit=hit),
+                        'entity_match': _entity_match_score(query=query, hit=hit),
+                        'bucket': 'kept',
+                        'reason': 'preservation_inactive_pass_through',
+                        'final_disposition': 'kept',
+                    }
+                    for hit in hits
+                ],
+                'kept_urls': [hit.url for hit in hits],
+                'dropped_urls': [],
+            }
         strong: list[SearchHit] = []
         secondary: list[SearchHit] = []
         dropped: list[SearchHit] = []
+        diagnostics: list[dict[str, object]] = []
         for hit in hits:
             source_type = _source_type(hit.url, hit.title)
             relevance = _general_relevance_score(query=query, hit=hit)
+            authority = _authority_signal_score(query=query, hit=hit)
+            entity_match = _entity_match_score(query=query, hit=hit)
+            order_key = _weighted_order(hit)
+            diag = {
+                'url': hit.url,
+                'title': hit.title,
+                'source_type': source_type,
+                'general_relevance': relevance,
+                'authority_signal': authority,
+                'entity_match': entity_match,
+                'weighted_order': list(order_key[:-1]),
+                'weighted_tiebreak_url': order_key[-1],
+            }
             if source_type in {'forum', 'video', 'snippet_repo'}:
+                diagnostics.append({**diag, 'bucket': 'dropped', 'reason': 'source_type_excluded'})
                 dropped.append(hit)
                 continue
-            if source_type == 'official_docs' and relevance >= 6:
+            if _is_off_topic_institutional_official_hit(query=query, hit=hit):
+                diagnostics.append({**diag, 'bucket': 'dropped', 'reason': 'institutional_off_topic_gate'})
+                dropped.append(hit)
+                continue
+            if source_type == 'official_docs' and (relevance >= 4 or 'nik' in query.lower() or 'gov' in hit.url.lower()):
+                diagnostics.append({**diag, 'bucket': 'strong', 'reason': 'official_docs_priority'})
                 strong.append(hit)
                 continue
-            if source_type in {'analysis', 'data'} and relevance >= 3:
+            if source_type in {'analysis', 'data'} and (relevance >= 3 or scientific_intent):
+                diagnostics.append({**diag, 'bucket': 'strong', 'reason': 'analysis_or_data_priority'})
                 strong.append(hit)
                 continue
             if relevance >= 5:
+                diagnostics.append({**diag, 'bucket': 'secondary', 'reason': 'secondary_relevance'})
                 secondary.append(hit)
                 continue
+            diagnostics.append({**diag, 'bucket': 'dropped', 'reason': 'low_relevance_after_preservation'})
             dropped.append(hit)
 
         fallback_used = False
         kept: list[SearchHit] = []
+        strong_official = [hit for hit in strong if _source_type(hit.url, hit.title) == 'official_docs']
+        strong_scientific = [hit for hit in strong if _source_type(hit.url, hit.title) in {'analysis', 'data'}]
         if strong:
-            kept.extend(strong)
-            kept.extend(secondary[:1])
+            if strong_official:
+                kept.append(sorted(strong_official, key=_weighted_order)[0])
+            if scientific_intent and strong_scientific and all(item.url != sorted(strong_scientific, key=_weighted_order)[0].url for item in kept):
+                kept.append(sorted(strong_scientific, key=_weighted_order)[0])
+            seen_urls = {item.url for item in kept}
+            for hit in sorted(strong, key=_weighted_order):
+                if hit.url not in seen_urls:
+                    kept.append(hit)
+                    seen_urls.add(hit.url)
+            for hit in sorted(secondary, key=_weighted_order):
+                if len(kept) >= 3:
+                    break
+                if hit.url not in seen_urls:
+                    kept.append(hit)
+                    seen_urls.add(hit.url)
         else:
             fallback_used = True
             kept.extend(secondary[:2])
@@ -1035,7 +2161,7 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
 
         counter = Counter(_source_type(hit.url, hit.title) for hit in dropped)
         dropped_source_types = tuple(f"{source_type}:{count}" for source_type, count in sorted(counter.items()))
-        return PreExtractionFilterOutcome(
+        outcome = PreExtractionFilterOutcome(
             kept_hits=tuple(kept),
             seen_count=len(hits),
             kept_count=len(kept),
@@ -1044,6 +2170,16 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
             fallback_used=fallback_used,
             dropped_source_types=dropped_source_types,
         )
+        kept_urls = {hit.url for hit in kept}
+        for item in diagnostics:
+            item['final_disposition'] = 'kept' if item['url'] in kept_urls else 'dropped'
+        return {
+            'outcome': outcome,
+            'diagnostics': diagnostics,
+            'kept_urls': [hit.url for hit in kept],
+            'dropped_urls': [hit.url for hit in dropped if hit.url not in kept_urls],
+        }
+
     strong: list[SearchHit] = []
     secondary: list[SearchHit] = []
     dropped: list[SearchHit] = []
@@ -1060,6 +2196,9 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
         if source_type == 'official_docs' or authority >= 10:
             strong.append(hit)
             continue
+        if source_type in {'analysis', 'data'} and (relevance >= 3 or scientific_intent):
+            strong.append(hit)
+            continue
         if source_type in {'docs', 'generic'} and authority >= 4 and relevance >= 6:
             strong.append(hit)
             continue
@@ -1073,11 +2212,27 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
 
     fallback_used = False
     kept: list[SearchHit] = []
-    strong_official_count = sum(1 for hit in strong if _source_type(hit.url, hit.title) == 'official_docs')
+    strong_official = [hit for hit in strong if _source_type(hit.url, hit.title) == 'official_docs']
+    strong_scientific = [hit for hit in strong if _source_type(hit.url, hit.title) in {'analysis', 'data'}]
     if strong:
-        kept.extend(strong)
-        if strong_official_count < 2:
-            kept.extend(secondary[:1])
+        if strong_official:
+            kept.append(sorted(strong_official, key=_weighted_order)[0])
+        if scientific_intent and strong_scientific:
+            best_scientific = sorted(strong_scientific, key=_weighted_order)[0]
+            if all(item.url != best_scientific.url for item in kept):
+                kept.append(best_scientific)
+        seen_urls = {item.url for item in kept}
+        for hit in sorted(strong, key=_weighted_order):
+            if hit.url not in seen_urls:
+                kept.append(hit)
+                seen_urls.add(hit.url)
+        if len(kept) < 3:
+            for hit in sorted(secondary, key=_weighted_order):
+                if hit.url not in seen_urls:
+                    kept.append(hit)
+                    seen_urls.add(hit.url)
+                if len(kept) >= 3:
+                    break
     else:
         fallback_used = True
         kept.extend(secondary[:2])
@@ -1087,7 +2242,7 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
 
     counter = Counter(_source_type(hit.url, hit.title) for hit in dropped)
     dropped_source_types = tuple(f"{source_type}:{count}" for source_type, count in sorted(counter.items()))
-    return PreExtractionFilterOutcome(
+    outcome = PreExtractionFilterOutcome(
         kept_hits=tuple(kept),
         seen_count=len(hits),
         kept_count=len(kept),
@@ -1096,6 +2251,31 @@ def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> P
         fallback_used=fallback_used,
         dropped_source_types=dropped_source_types,
     )
+    strong_urls = {hit.url for hit in strong}
+    secondary_urls = {hit.url for hit in secondary}
+    kept_urls = {hit.url for hit in kept}
+    diagnostics = []
+    for hit in hits:
+        source_type = _source_type(hit.url, hit.title)
+        diagnostics.append(
+            {
+                'url': hit.url,
+                'title': hit.title,
+                'source_type': source_type,
+                'general_relevance': _general_relevance_score(query=query, hit=hit),
+                'authority_signal': _authority_signal_score(query=query, hit=hit),
+                'entity_match': _entity_match_score(query=query, hit=hit),
+                'bucket': 'strong' if hit.url in strong_urls else ('secondary' if hit.url in secondary_urls else 'dropped'),
+                'reason': 'procedural_or_general_authority_filter',
+                'final_disposition': 'kept' if hit.url in kept_urls else 'dropped',
+            }
+        )
+    return {
+        'outcome': outcome,
+        'diagnostics': diagnostics,
+        'kept_urls': [hit.url for hit in kept],
+        'dropped_urls': [hit.url for hit in hits if hit.url not in kept_urls],
+    }
 
 
 def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding, ...]) -> PackedEvidence:
@@ -1142,8 +2322,14 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
         if query_class is ResearchQueryClass.GENERAL:
             general_haystack = f"{finding.title} {finding.summary}".lower()
             research_like_general = any(token in general_haystack for token in ('study', 'research', 'analysis', 'report', 'evidence'))
+            if finding.pdf_triage_notes == 'pdf_ingest_verified' and source_type == 'official_docs' and len(core) < core_limit:
+                core.append(finding)
+                continue
             if not core and source_type in {'analysis', 'data'} and research_like_general:
                 core.append(finding)
+                continue
+            if finding.pdf_triage_notes == 'pdf_ingest_verified' and source_type == 'official_docs' and len(supporting) < supporting_limit:
+                supporting.append(finding)
                 continue
             if source_type in {'official_docs', 'docs', 'generic', 'vendor_docs', 'blog', 'analysis', 'data'} and len(supporting) < supporting_limit:
                 supporting.append(finding)
@@ -1339,15 +2525,27 @@ def _to_research_evidence_pack(*, query: str, packed: PackedEvidence) -> Researc
     )
 
 
+def _pdf_promotion_score(finding: ExtractedFinding) -> int:
+    if finding.pdf_triage_notes == 'pdf_ingest_verified':
+        return 3
+    if finding.pdf_triage_verdict == 'relevant':
+        return 2
+    if finding.pdf_triage_verdict == 'uncertain':
+        return 1
+    return 0
+
+
 def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query: str | None = None) -> tuple[ExtractedFinding, ...]:
     normalized_query = query or ''
     ranked = sorted(
         findings,
         key=lambda finding: (
+            _pdf_promotion_score(finding),
             _source_rank_for_query(query=normalized_query, url=finding.url, title=finding.title),
             -len(finding.summary),
             -len(finding.title),
         ),
+        reverse=True,
     )
     selected: list[ExtractedFinding] = []
     seen_types: set[str] = set()
@@ -1604,6 +2802,103 @@ def _planning_analysis_to_problem_analysis(planning_analysis: PlanningAnalysis) 
         focus_areas=planning_analysis.focus_areas,
         constraints=planning_analysis.constraints,
         analysis_version="problem_analyzer_v1",
+    )
+
+
+def _build_planning_analysis_prompt(query: str, *, fallback: PlanningAnalysis) -> str:
+    return (
+        "You are a research planning analyzer. Return strict JSON only. "
+        "Decide the best bounded planning analysis for the user's research query. "
+        "Allowed query_class values: market_symbol, procedural_admin, broad_concept, current_news, general. "
+        "Allowed complexity values: low, medium, high. "
+        "Allowed execution_mode values: direct, multi_step, disambiguate. "
+        "Return object keys: query_class, complexity, execution_mode, goal, focus_areas, constraints, entity_hypotheses, ambiguity_notes. "
+        "entity_hypotheses must be an array of objects with keys: surface_form, entity_type, canonical_name, candidate_meanings, confidence, reasoning. "
+        "Keep arrays short and concrete. Preserve the user's language in goal/notes when possible. "
+        "If the query suggests an institution, public controversy, official review, audit, control, hospital, city office, regulator, or public-service failure, prefer planning that helps target official sources first. "
+        f"User query: {query}\n"
+        f"Deterministic fallback: {json.dumps(_planning_analysis_payload_for_prompt(fallback), ensure_ascii=False)}"
+    )
+
+
+def _planning_analysis_payload_for_prompt(analysis: PlanningAnalysis) -> dict[str, object]:
+    return {
+        "query_class": analysis.query_class.value,
+        "complexity": analysis.complexity.value,
+        "execution_mode": analysis.execution_mode.value,
+        "goal": analysis.goal,
+        "focus_areas": list(analysis.focus_areas),
+        "constraints": list(analysis.constraints),
+        "entity_hypotheses": [
+            {
+                "surface_form": item.surface_form,
+                "entity_type": item.entity_type,
+                "canonical_name": item.canonical_name,
+                "candidate_meanings": list(item.candidate_meanings),
+                "confidence": item.confidence,
+                "reasoning": item.reasoning,
+            }
+            for item in analysis.entity_hypotheses
+        ],
+        "ambiguity_notes": list(analysis.ambiguity_notes),
+    }
+
+
+def _planning_analysis_from_llm_payload(payload: object, *, query: str) -> PlanningAnalysis | None:
+    if not isinstance(payload, dict):
+        return None
+    try:
+        query_class = ResearchQueryClass(str(payload.get("query_class", ResearchQueryClass.GENERAL.value)))
+        complexity = ResearchComplexity(str(payload.get("complexity", ResearchComplexity.MEDIUM.value)))
+        execution_mode = PlanningExecutionMode(str(payload.get("execution_mode", PlanningExecutionMode.MULTI_STEP.value)))
+    except ValueError:
+        return None
+    lowered_query = query.lower().strip()
+    institutional_audit_shape = any(token in lowered_query for token in (
+        'nik', 'najwyższa izba kontroli', 'najwyzsza izba kontroli', 'raport', 'wyniki kontroli',
+        'kontrola', 'ustalenia', 'komunikat', 'pokontrol', 'szpital', 'warszawa',
+    )) and not any(token in lowered_query for token in ('microsoft', 'sccm', 'intune', 'entra', 'configuration manager', 'azure'))
+    if institutional_audit_shape and query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+        query_class = ResearchQueryClass.GENERAL
+    goal = str(payload.get("goal", "")).strip() or query.strip()
+    focus_areas = _normalized_planning_focus_areas(tuple(str(item).strip() for item in payload.get("focus_areas", []) if str(item).strip()))
+    constraints = _normalized_planning_constraints(tuple(str(item).strip() for item in payload.get("constraints", []) if str(item).strip()))
+    ambiguity_notes = tuple(str(item).strip() for item in payload.get("ambiguity_notes", []) if str(item).strip())
+    entity_hypotheses = tuple(
+        EntityHypothesis(
+            surface_form=str(item.get("surface_form", "")).strip(),
+            entity_type=str(item.get("entity_type", "unknown")).strip() or "unknown",
+            canonical_name=(str(item.get("canonical_name", "")).strip() or None),
+            candidate_meanings=tuple(str(candidate).strip() for candidate in item.get("candidate_meanings", []) if str(candidate).strip()),
+            confidence=str(item.get("confidence", "low")).strip() or "low",
+            reasoning=str(item.get("reasoning", "")).strip(),
+        )
+        for item in payload.get("entity_hypotheses", []) if isinstance(item, dict) and str(item.get("surface_form", "")).strip()
+    )
+    return PlanningAnalysis(
+        query_class=query_class,
+        complexity=complexity,
+        execution_mode=execution_mode,
+        goal=goal,
+        focus_areas=focus_areas,
+        constraints=constraints,
+        entity_hypotheses=entity_hypotheses,
+        ambiguity_notes=ambiguity_notes,
+        analysis_version="planning_analysis_v1_llm",
+    )
+
+
+def _merge_llm_planning_with_fallback(planning: PlanningAnalysis, *, fallback: PlanningAnalysis) -> PlanningAnalysis:
+    return PlanningAnalysis(
+        query_class=planning.query_class,
+        complexity=planning.complexity,
+        execution_mode=planning.execution_mode,
+        goal=planning.goal or fallback.goal,
+        focus_areas=planning.focus_areas or fallback.focus_areas,
+        constraints=planning.constraints or fallback.constraints,
+        entity_hypotheses=planning.entity_hypotheses or fallback.entity_hypotheses,
+        ambiguity_notes=planning.ambiguity_notes or fallback.ambiguity_notes,
+        analysis_version=planning.analysis_version,
     )
 
 
@@ -2195,12 +3490,13 @@ class DeterministicStopRails:
 class ResearchJobManager:
     """Small in-process lifecycle manager for the Deep Research slice."""
 
-    def __init__(self, persistence: ResearchPersistence) -> None:
+    def __init__(self, persistence: ResearchPersistence, *, planning_analyzer: ResearchPlanningAnalyzer | None = None) -> None:
         self.persistence = persistence
+        self.planning_analyzer = planning_analyzer or DeterministicPlanningAnalyzer()
 
     def start_job(self, request: ResearchJobStartRequest) -> ResearchJobStartOutcome:
         now = _utcnow()
-        planning_analysis = _build_fallback_planning_analysis(request.query)
+        planning_analysis = self.planning_analyzer(request.query)
         problem_analysis = _planning_analysis_to_problem_analysis(planning_analysis)
         execution_plan = StubResearchPlanner()(
             request.query,
@@ -2269,15 +3565,18 @@ class FakeResearchWorker:
         search: ResearchSearchAdapter | None = None,
         extract: ResearchExtractor | None = None,
         synthesize: ResearchSynthesizer | None = None,
+        pdf_ingest: ResearchPdfIngestor | None = None,
         stop_rails: DeterministicStopRails | None = None,
     ) -> None:
         self.persistence = persistence
         self.planner = planner or StubResearchPlanner()
+        self.planning_analyzer = DeterministicPlanningAnalyzer()
         self.query_generator = query_generator or StubQueryGenerator()
         self.llm_query_generator = llm_query_generator
         self.search = search or build_search_adapter()
         self.extract = extract or StubExtractor()
         self.synthesize = synthesize or StubSynthesizer()
+        self.pdf_ingest = pdf_ingest
         self.stop_rails = stop_rails or DeterministicStopRails()
 
     def __call__(self, job_id: str) -> ResearchResultArtifact | None:
@@ -2297,7 +3596,7 @@ class FakeResearchWorker:
         running = replace(started, status=ResearchJobStatus.RUNNING)
         self.persistence.jobs.save_job(running)
 
-        planning_analysis = running.planning_analysis or _build_fallback_planning_analysis(running.query)
+        planning_analysis = running.planning_analysis or self.planning_analyzer(running.query)
         problem_analysis = running.problem_analysis or _planning_analysis_to_problem_analysis(planning_analysis)
         plan = self.planner(
             running.query,
@@ -2339,7 +3638,12 @@ class FakeResearchWorker:
             if current is not None and current.status == ResearchJobStatus.CANCELLED:
                 return self.persistence.results.get_result(job_id)
 
-            queries = self.query_generator(plan, round_number=round_number)
+            queries = _generate_queries(
+                self.query_generator,
+                plan,
+                round_number=round_number,
+                planning_analysis=planning_analysis,
+            )
             provider_names = _resolve_search_provider_names(self.search, configured_provider=None)
             _emit_progress(self.persistence, 
                 job_id,
@@ -2351,6 +3655,11 @@ class FakeResearchWorker:
                 query_list=tuple(queries),
                 providers_attempted=provider_names,
                 message=f"Running {len(queries)} search querie(s).",
+                details={
+                    'stage': 'query_generation',
+                    'queries': list(queries),
+                    'providers_attempted': list(provider_names),
+                },
             )
             executed_query_count += len(queries)
             try:
@@ -2410,6 +3719,10 @@ class FakeResearchWorker:
                 )
                 self.persistence.jobs.save_job(errored)
                 return None
+            provider_candidates = _provider_candidate_diagnostics(hits=hits, query=running.query)
+            unified_raw_hits = getattr(self.search, 'last_unified_hits', ()) if self.search is not None else ()
+            unified_official_enough = getattr(self.search, 'last_unified_official_enough', None) if self.search is not None else None
+            rejection_details = _search_rejection_details(query=running.query, existing_hits=all_hits, candidate_hits=hits)
             rejection_summary = _search_rejection_summary(query=running.query, existing_hits=all_hits, candidate_hits=hits)
             new_hits = _dedupe_hits(all_hits, hits, query=running.query)
             all_hits.extend(new_hits)
@@ -2423,6 +3736,15 @@ class FakeResearchWorker:
                 total_sources=total_urls,
                 new_sources=len(new_hits),
                 message=f"Search narrowing: raw_hits={len(hits)}, {rejection_summary}",
+                details={
+                    'stage': 'search_dedupe',
+                    'raw_hits': len(hits),
+                    'accepted_new_hits': len(new_hits),
+                    'provider_candidates': provider_candidates,
+                    'unified_raw_candidates': _provider_candidate_diagnostics(hits=tuple(unified_raw_hits), query=running.query),
+                    'unified_official_enough': unified_official_enough,
+                    'search_rejection': rejection_details,
+                },
             )
             if new_hits:
                 consecutive_empty_rounds = 0
@@ -2522,8 +3844,11 @@ class FakeResearchWorker:
                     self.persistence.jobs.save_job(errored)
                     return None
 
-            filter_outcome = _filter_hits_for_extraction(query=running.query, hits=tuple(new_hits))
+            filter_analysis = _filter_hits_for_extraction_with_diagnostics(query=running.query, hits=tuple(new_hits))
+            filter_outcome = filter_analysis['outcome']
             filtered_hits = list(filter_outcome.kept_hits)
+            if not filtered_hits and new_hits:
+                filtered_hits = list(new_hits)
             pre_extraction_seen += filter_outcome.seen_count
             pre_extraction_kept += filter_outcome.kept_count
             pre_extraction_dropped += filter_outcome.dropped_count
@@ -2541,9 +3866,57 @@ class FakeResearchWorker:
                 url=filtered_hits[0].url if filtered_hits else (new_hits[0].url if new_hits else None),
                 title=filtered_hits[0].title if filtered_hits else (new_hits[0].title if new_hits else None),
                 message=f"Normalized {len(new_hits)} new source(s); kept {len(filtered_hits)} after authority filtering.",
+                details={
+                    'stage': 'pre_extraction_filter',
+                    'seen': len(new_hits),
+                    'kept': len(filtered_hits),
+                    'dropped': max(0, len(new_hits) - len(filtered_hits)),
+                    'fallback_used': filter_outcome.fallback_used,
+                    'authority_policy_applied': filter_outcome.authority_policy_applied,
+                    'diagnostics': filter_analysis['diagnostics'],
+                    'kept_urls': filter_analysis['kept_urls'],
+                    'dropped_urls': filter_analysis['dropped_urls'],
+                },
             )
 
-            findings = self.extract(tuple(filtered_hits))
+            extractor = self.extract
+            if isinstance(extractor, StubExtractor):
+                extractor = StubExtractor(query=running.query)
+            findings = extractor(tuple(filtered_hits))
+            if self.pdf_ingest is not None:
+                enriched_findings: list[ExtractedFinding] = []
+                for finding in findings:
+                    if finding.pdf_triage_verdict not in {'relevant', 'uncertain'}:
+                        enriched_findings.append(finding)
+                        continue
+                    if _source_type(finding.url, finding.title) != 'official_docs':
+                        enriched_findings.append(finding)
+                        continue
+                    triage_verdict = finding.pdf_triage_verdict or 'uncertain'
+                    ingest_result = self.pdf_ingest(
+                        query=running.query,
+                        url=finding.url,
+                        title=finding.title,
+                        triage_verdict=triage_verdict,
+                    )
+                    if not ingest_result.relevant:
+                        enriched_findings.append(
+                            replace(
+                                finding,
+                                pdf_triage_verdict='irrelevant',
+                                pdf_triage_notes='pdf_ingest_rejected',
+                                summary=f"[official_pdf_ingest:irrelevant] {_pdf_ingest_summary(ingest_result)}",
+                            )
+                        )
+                        continue
+                    enriched_findings.append(
+                        replace(
+                            finding,
+                            pdf_triage_notes='pdf_ingest_verified',
+                            summary=f"[official_pdf_ingest:verified] {_pdf_ingest_summary(ingest_result)}",
+                        )
+                    )
+                findings = tuple(enriched_findings)
             all_findings.extend(findings)
             _emit_progress(self.persistence, 
                 job_id,
@@ -2553,6 +3926,14 @@ class FakeResearchWorker:
                 total_sources=total_urls,
                 total_findings=len(all_findings),
                 message=f"Extracted {len(findings)} finding(s) this round.",
+                details={
+                    'stage': 'extraction',
+                    'input_urls': [hit.url for hit in filtered_hits],
+                    'findings': [
+                        {'url': finding.url, 'title': finding.title, 'summary': finding.summary}
+                        for finding in findings
+                    ],
+                },
             )
 
             cumulative_findings = tuple(all_findings)
@@ -2561,6 +3942,21 @@ class FakeResearchWorker:
             packed_core_count = len(packed.core)
             packed_supporting_count = len(packed.supporting)
             packed_background_count = len(packed.background)
+            _emit_progress(self.persistence, 
+                job_id,
+                ResearchJobStatus.RUNNING,
+                ResearchPhase.ANALYZING,
+                round=round_number,
+                total_sources=total_urls,
+                total_findings=len(all_findings),
+                message='Packed evidence for synthesis.',
+                details={
+                    'stage': 'evidence_pack',
+                    'core': [{'url': item.url, 'title': item.title} for item in packed.core],
+                    'supporting': [{'url': item.url, 'title': item.title} for item in packed.supporting],
+                    'background': [{'url': item.url, 'title': item.title} for item in packed.background],
+                },
+            )
             branch_evaluation = _evaluate_branch_proposals(
                 problem_analysis=running.problem_analysis,
                 execution_plan=running.execution_plan,
@@ -2826,6 +4222,7 @@ def _emit_progress(
     url: str | None = None,
     title: str | None = None,
     message: str | None = None,
+    details: dict[str, Any] | None = None,
     final: bool = False,
 ) -> None:
     persistence.progress.append_event(
@@ -2844,6 +4241,7 @@ def _emit_progress(
             url=url,
             title=title,
             message=message,
+            details=details,
             final=final,
         )
     )
@@ -2878,6 +4276,17 @@ def _dedupe_hits(
 
 
 def _search_rejection_summary(*, query: str, existing_hits: list[SearchHit], candidate_hits: tuple[SearchHit, ...]) -> str:
+    analysis = _search_rejection_details(query=query, existing_hits=existing_hits, candidate_hits=candidate_hits)
+    parts = [f"accepted={analysis['accepted']}"]
+    reason_counts = analysis['reason_counts']
+    for key in ('duplicate', 'low_relevance', 'domain_limit'):
+        value = reason_counts.get(key, 0)
+        if value:
+            parts.append(f"{key}={value}")
+    return ', '.join(parts)
+
+
+def _search_rejection_details(*, query: str, existing_hits: list[SearchHit], candidate_hits: tuple[SearchHit, ...]) -> dict[str, object]:
     seen = {hit.url for hit in existing_hits}
     domain_counts: dict[str, int] = {}
     for hit in existing_hits:
@@ -2889,33 +4298,48 @@ def _search_rejection_summary(*, query: str, existing_hits: list[SearchHit], can
         'domain_limit': 0,
     }
     accepted = 0
+    accepted_hits: list[dict[str, object]] = []
+    rejected_hits: list[dict[str, object]] = []
     for hit in candidate_hits:
+        domain = _normalized_domain(hit.url)
+        source_type = _source_type(hit.url, hit.title)
+        relevance = _general_relevance_score(query=query, hit=hit)
+        record = {
+            'url': hit.url,
+            'title': hit.title,
+            'domain': domain,
+            'source_type': source_type,
+            'general_relevance': relevance,
+        }
         if hit.url in seen:
             reasons['duplicate'] += 1
+            rejected_hits.append({**record, 'reason': 'duplicate'})
             continue
         if not _is_relevant_hit(query=query, hit=hit):
             reasons['low_relevance'] += 1
+            rejected_hits.append({**record, 'reason': 'low_relevance'})
             continue
-        domain = _normalized_domain(hit.url)
         limit = _max_hits_per_domain(query, domain)
         if domain_counts.get(domain, 0) >= limit:
             reasons['domain_limit'] += 1
+            rejected_hits.append({**record, 'reason': 'domain_limit', 'domain_limit': limit})
             continue
         seen.add(hit.url)
         domain_counts[domain] = domain_counts.get(domain, 0) + 1
         accepted += 1
-    parts = [f"accepted={accepted}"]
-    for key in ('duplicate', 'low_relevance', 'domain_limit'):
-        value = reasons[key]
-        if value:
-            parts.append(f"{key}={value}")
-    return ', '.join(parts)
+        accepted_hits.append({**record, 'reason': 'accepted', 'domain_count_after_accept': domain_counts[domain]})
+    return {
+        'accepted': accepted,
+        'reason_counts': reasons,
+        'accepted_hits': accepted_hits,
+        'rejected_hits': rejected_hits,
+    }
 
 
 def build_research_execution(*, persistence: ResearchPersistence | None = None) -> ResearchExecution:
     persistence = persistence or create_in_memory_research_persistence()
     manager = ResearchJobManager(persistence)
-    worker = FakeResearchWorker(persistence)
+    worker = FakeResearchWorker(persistence, pdf_ingest=StubPdfIngestor())
     return ResearchExecution(
         start_job=manager.start_job,
         get_job_status=manager.get_job_status,
