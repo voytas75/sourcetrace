@@ -19,6 +19,17 @@ uv run pytest -q
 ## Runtime modes
 SourceTrace currently has two practical local run modes.
 
+### Command help surfaces
+The repo now exposes a meaningful app-level help surface for the runtime control command:
+- `PYTHONPATH=src python -m sourcetrace.www_control --help`
+- `PYTHONPATH=src python -m sourcetrace.www_control start --help`
+- `PYTHONPATH=src python -m sourcetrace.www_control status --help`
+- `PYTHONPATH=src python -m sourcetrace.www_control wait --help`
+- `PYTHONPATH=src python -m sourcetrace.www_control write-user-unit --help`
+
+The semantic SSOT draft for agent-/operator-usable help lives in:
+- `docs/agent-operable-help-contract-v1.md`
+
 ### A. Thin web mode
 Use this when you want the lightweight local front door without repo-owned LLM runtime wiring.
 
