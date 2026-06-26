@@ -1,3 +1,5 @@
+import pytest
+
 from sourcetrace.application import (
     ChainedSearchAdapter,
     ExternalPdfAnalyzerAdapter,
@@ -14,8 +16,14 @@ from sourcetrace.application import (
 )
 from sourcetrace.application.research_runtime import (
     DeterministicPlanningAnalyzer,
+    LlmOfficialSubjectPrecisionJudge,
+    OfficialHtmlContentEnricher,
     LlmPlanningAnalyzer,
     LlmResearchSynthesizer,
+    LlmSearchRelevanceJudge,
+    LlmSubjectSheetBuilder,
+    SubjectEntity,
+    SubjectSheet,
     ResearchSearchError,
     StubQueryGenerator,
     _authority_signal_score,
@@ -25,17 +33,32 @@ from sourcetrace.application.research_runtime import (
     _compile_research_artifact,
     _derive_branch_proposals,
     _derive_problem_analysis,
+    _entity_match_score,
+    LlmOfficialEvidenceFamilyJudge,
+    LlmOfficialEvidenceJudge,
+    PackedEvidence,
+    _consolidate_official_finding_families,
+    _project_source_refs,
     _planning_analysis_to_problem_analysis,
+    _planning_aware_query_variants,
+    _query_generation_trace,
+    _should_promote_official_general_finding_to_core,
     _derive_reflection,
+    _enriched_exact_subject_priority_score,
+    _exact_subject_content_quality_score,
     _evaluate_branch_proposals,
     _evaluate_research_result,
     _filter_hits_for_extraction,
+    _filter_hits_for_extraction_with_diagnostics,
     _is_relevant_hit,
     _lint_compiled_research_artifact,
     _looks_like_listing_page,
+    _llm_or_heuristic_relevant_hit,
+    _lift_exact_subject_official_findings,
     _pack_evidence_for_synthesis,
     _pdf_ingest_summary,
     _planning_audit_institutional_query_variants,
+    _planning_tax_official_query_variants,
     _search_rejection_summary,
     _triage_official_pdf_candidate,
     _source_type,
@@ -200,6 +223,296 @@ def test_research_job_manager_start_and_list_flow() -> None:
     assert outcome.job.problem_analysis is not None
     assert outcome.job.execution_plan is not None
     assert listed.jobs[0].job_id == outcome.job.job_id
+
+
+def test_query_generation_trace_marks_planning_aware_tax_path() -> None:
+    planning = PlanningAnalysis(
+        query_class=ResearchQueryClass.GENERAL,
+        goal="Find official tax rules for private rental in Poland.",
+        focus_areas=("official_findings",),
+        constraints=("prefer official sources first",),
+    )
+    plan = ResearchExecutionPlan(
+        strategy=ResearchPlanStrategy.DIRECT_ANSWER,
+        objective="najem prywatny ryczałt obowiązki podatkowe MF KAS podatki.gov.pl",
+    )
+
+    trace = _query_generation_trace(
+        plan=plan,
+        planning_analysis=planning,
+        round_number=1,
+    )
+
+    assert trace["path"] == "planning_aware"
+    assert trace["prefers_official_sources"] is True
+    assert trace["planning_aware_query_count"] >= 1
+
+
+def test_planning_aware_query_variants_bridge_procedural_public_law_tax_queries() -> None:
+    planning = PlanningAnalysis(
+        query_class=ResearchQueryClass.PROCEDURAL_ADMIN,
+        goal="Find official tax rules and obligations for private rental in Poland.",
+        focus_areas=("official_findings",),
+        constraints=("prefer official sources first",),
+    )
+
+    queries = _planning_aware_query_variants(
+        objective="najem prywatny obowiązki podatkowe MF KAS podatki.gov.pl",
+        round_number=1,
+        planning_analysis=planning,
+    )
+
+    assert queries
+    assert any("site:podatki.gov.pl" in query for query in queries)
+    assert not any("learn.microsoft.com" in query for query in queries)
+
+
+def test_is_relevant_hit_rescues_official_tax_pages_for_public_law_queries() -> None:
+    hit = SearchHit(
+        url="https://www.podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-najmu",
+        title="Serwis o podatkach - Dochody z najmu - Podatki.gov.pl",
+        snippet="Oficjalna informacja o dochodach z najmu i zasadach opodatkowania.",
+    )
+
+    assert _is_relevant_hit(
+        query="Jakie są regulacje podatkowe przy wynajmowaniu mieszkania w Polsce? MF KAS podatki.gov.pl najem prywatny",
+        hit=hit,
+    ) is True
+
+
+def test_llm_official_evidence_judge_returns_structured_verdict() -> None:
+    class _StubSynth:
+        def __call__(self, prompt: str) -> object:
+            class _Result:
+                text = '{"verdict":"primary","confidence":0.82,"reason":"direct official answer page"}'
+            return _Result()
+
+    judge = LlmOfficialEvidenceJudge(_StubSynth())
+    verdict, confidence, reason = judge.judge_hit(
+        query="najem prywatny obowiązki podatkowe",
+        hit=SearchHit(
+            url="https://www.podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-najmu",
+            title="Dochody z najmu - Podatki.gov.pl",
+            snippet="Oficjalna informacja o dochodach z najmu.",
+        ),
+    )
+
+    assert verdict == "primary"
+    assert confidence == pytest.approx(0.82)
+    assert reason == "direct official answer page"
+
+
+def test_filter_hits_for_extraction_uses_official_evidence_judge_verdicts() -> None:
+    class _StubJudge:
+        def judge_hit(self, *, query: str, hit: SearchHit, planning_analysis=None):
+            if "dochody-z-najmu" in hit.url:
+                return "primary", 0.91, "main official answer page"
+            return "reject", 0.77, "not useful enough"
+
+    hits = (
+        SearchHit(
+            url="https://www.podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-najmu",
+            title="Dochody z najmu - Podatki.gov.pl",
+            snippet="Oficjalna informacja o dochodach z najmu.",
+        ),
+        SearchHit(
+            url="https://www.gov.pl/web/finanse",
+            title="Ministerstwo Finansów - Portal Gov.pl",
+            snippet="Strona główna ministerstwa.",
+        ),
+    )
+
+    result = _filter_hits_for_extraction_with_diagnostics(
+        query="Jakie są regulacje podatkowe przy wynajmowaniu mieszkania w Polsce? MF KAS podatki.gov.pl najem prywatny",
+        hits=hits,
+        official_evidence_judge=_StubJudge(),
+    )
+
+    diagnostics = result["diagnostics"]
+    by_url = {item["url"]: item for item in diagnostics}
+    assert by_url[hits[0].url]["llm_official_evidence_verdict"] == "primary"
+    assert by_url[hits[0].url]["reason"] == "llm_official_primary"
+    assert by_url[hits[1].url]["llm_official_evidence_verdict"] == "reject"
+    assert by_url[hits[1].url]["reason"] == "llm_official_reject"
+    kept_urls = result["kept_urls"]
+    assert hits[0].url in kept_urls
+    assert hits[1].url not in kept_urls
+
+
+def test_pack_evidence_prefers_llm_official_primary_and_drops_collateral() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://www.podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-najmu",
+            title="Dochody z najmu - Podatki.gov.pl",
+            summary="[llm_official_evidence:primary] llm_official_confidence=0.91; Oficjalna informacja o dochodach z najmu.",
+            official_evidence_verdict="primary",
+            official_evidence_confidence=0.91,
+        ),
+        ExtractedFinding(
+            url="https://www.gov.pl/web/finanse",
+            title="Ministerstwo Finansów - Portal Gov.pl",
+            summary="[llm_official_evidence:collateral] llm_official_confidence=0.62; Strona główna ministerstwa.",
+            official_evidence_verdict="collateral",
+            official_evidence_confidence=0.62,
+        ),
+        ExtractedFinding(
+            url="https://example.com/context",
+            title="Context page",
+            summary="Some general context.",
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query="Jakie są regulacje podatkowe przy wynajmowaniu mieszkania w Polsce? MF KAS podatki.gov.pl najem prywatny",
+        findings=findings,
+    )
+
+    assert findings[0] in packed.core
+    assert findings[1] in packed.background
+
+
+def test_pack_evidence_never_places_collateral_official_pages_in_core_for_getback_like_case() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html",
+            title="Nadzór KNF nad spółką GetBack",
+            summary="[llm_official_evidence:primary] Główna strona sprawy.",
+            official_evidence_verdict="primary",
+        ),
+        ExtractedFinding(
+            url="https://www.nik.gov.pl/aktualnosci/transkrypcje/transkrypcja-wideo-konferencja-getback-2025.html",
+            title="Transkrypcja konferencji GetBack",
+            summary="[llm_official_family:collateral] [llm_official_evidence:collateral] Materiał poboczny.",
+            official_evidence_verdict="collateral",
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query="Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.? Skup się na źródłach oficjalnych.",
+        findings=findings,
+    )
+
+    assert findings[0] in packed.core
+    assert findings[1] not in packed.core
+    assert findings[1] in packed.background
+
+
+def test_top_findings_biases_canonical_official_primary_over_generic_noise() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://example.com/noise",
+            title="Commercial explainer",
+            summary="Very long but generic commercial page about rental tax.",
+        ),
+        ExtractedFinding(
+            url="https://www.podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-najmu",
+            title="Dochody z najmu - Podatki.gov.pl",
+            summary="[llm_official_evidence:primary] llm_official_confidence=0.91; Oficjalna informacja o dochodach z najmu.",
+            official_evidence_verdict="primary",
+            official_evidence_confidence=0.91,
+        ),
+    )
+
+    ranked = _top_findings(
+        findings,
+        limit=2,
+        query="Jakie są regulacje podatkowe przy wynajmowaniu mieszkania w Polsce? MF KAS podatki.gov.pl najem prywatny",
+    )
+
+    assert ranked[0].url == "https://www.podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-najmu"
+
+
+def test_project_source_refs_prefers_official_primary_sources_first() -> None:
+    result = ResearchResultArtifact(
+        job_id="job-1",
+        owner_id="owner",
+        query="Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.? Skup się na źródłach oficjalnych.",
+        status=ResearchJobStatus.DONE,
+        completion_mode=ResearchCompletionMode.FULL,
+        result="report",
+        raw_report="report",
+        category="general",
+        stats=ResearchStats(),
+        sources=(
+            ResearchSource(url="https://www.prawo.pl/biznes/nik-o-getback-banas-zlozyl-zawiadomienie,533783.html", title="Prawo.pl"),
+            ResearchSource(url="https://www.nik.gov.pl/plik/id,17074.pdf", title="Collateral PDF"),
+            ResearchSource(url="https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html", title="NIK GetBack"),
+            ResearchSource(url="https://www.gov.pl/web/prokuratura-krajowa/zawiadomienie-nik-o-popelnieniu-przestepstwa-w-sprawie-getback-sa", title="Gov.pl GetBack"),
+        ),
+        raw_findings=(
+            ResearchFinding(url="https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html", title="NIK GetBack", summary="[llm_official_evidence:primary] main page"),
+            ResearchFinding(url="https://www.gov.pl/web/prokuratura-krajowa/zawiadomienie-nik-o-popelnieniu-przestepstwa-w-sprawie-getback-sa", title="Gov.pl GetBack", summary="official supporting"),
+            ResearchFinding(url="https://www.nik.gov.pl/plik/id,17074.pdf", title="Collateral PDF", summary="[llm_official_evidence:collateral] archival pdf"),
+            ResearchFinding(url="https://www.prawo.pl/biznes/nik-o-getback-banas-zlozyl-zawiadomienie,533783.html", title="Prawo.pl", summary="media coverage"),
+        ),
+        evidence_pack=PackedEvidence(
+            core=(
+                ExtractedFinding(url="https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html", title="NIK GetBack", summary="", official_evidence_verdict="primary"),
+                ExtractedFinding(url="https://www.gov.pl/web/prokuratura-krajowa/zawiadomienie-nik-o-popelnieniu-przestepstwa-w-sprawie-getback-sa", title="Gov.pl GetBack", summary=""),
+            ),
+            supporting=(),
+            background=(
+                ExtractedFinding(url="https://www.nik.gov.pl/plik/id,17074.pdf", title="Collateral PDF", summary="", official_evidence_verdict="collateral"),
+            ),
+            has_direct_procedural_evidence=False,
+        ),
+    )
+    projected = _project_source_refs(result, ())
+    assert projected[0].url == "https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html"
+    assert projected[1].url == "https://www.gov.pl/web/prokuratura-krajowa/zawiadomienie-nik-o-popelnieniu-przestepstwa-w-sprawie-getback-sa"
+    assert projected[-1].url == "https://www.nik.gov.pl/plik/id,17074.pdf"
+
+
+def test_consolidate_official_finding_families_marks_noncanonical_official_pages_as_collateral() -> None:
+    class _StubFamilyJudge:
+        def judge_family(self, *, query: str, findings: tuple[ExtractedFinding, ...]) -> tuple[str, ...]:
+            return (findings[0].url,)
+
+    findings = (
+        ExtractedFinding(
+            url="https://www.podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-najmu",
+            title="Dochody z najmu - Podatki.gov.pl",
+            summary="Primary official page.",
+            official_evidence_verdict="supporting",
+        ),
+        ExtractedFinding(
+            url="https://www.podatki.gov.pl/pytania-i-odpowiedzi/mikrorachunek/czy-zryczaltowany-podatek-dochodowy-z-najmu-nieruchomosci-wplacam-na-mikrorachunek-podatkowy",
+            title="Czy zryczałtowany podatek dochodowy z najmu nieruchomości...",
+            summary="Collateral official page.",
+            official_evidence_verdict="supporting",
+        ),
+    )
+
+    consolidated, trace = _consolidate_official_finding_families(
+        findings,
+        query="najem prywatny obowiązki podatkowe MF KAS podatki.gov.pl",
+        family_judge=_StubFamilyJudge(),
+    )
+
+    assert consolidated[0].official_evidence_verdict == "supporting"
+    assert consolidated[1].official_evidence_verdict == "collateral"
+    assert trace
+    assert trace[0]["canonical_urls"] == [findings[0].url]
+    assert trace[0]["collateral_urls"] == [findings[1].url]
+
+
+def test_planning_tax_official_query_variants_prefers_tax_domains() -> None:
+    planning = PlanningAnalysis(
+        query_class=ResearchQueryClass.GENERAL,
+        goal="Find official tax rules for private rental in Poland.",
+        focus_areas=("official_findings",),
+        constraints=("prefer official sources first",),
+    )
+
+    queries = _planning_tax_official_query_variants(
+        objective="najem prywatny ryczałt obowiązki podatkowe",
+        primary_entity="najem prywatny",
+        planning_analysis=planning,
+    )
+
+    assert queries
+    assert any("site:podatki.gov.pl" in query for query in queries)
+    assert any("site:biznes.gov.pl" in query or "site:gov.pl" in query for query in queries)
 
 
 def test_fake_research_worker_completes_job_and_persists_artifact() -> None:
@@ -430,6 +743,7 @@ def test_build_research_report_prompt_includes_query_class_and_section_contract(
         round_number=1,
         previous_answer="NONE",
         evidence="- Microsoft Learn: documented policy path.",
+        source_context="- Source 1\n  - role: core_candidate\n  - type: official_docs\n  - title: Microsoft Learn\n  - url: https://learn.microsoft.com/example\n  - content: documented policy path",
         query_class=ResearchQueryClass.PROCEDURAL_ADMIN,
         has_direct_procedural_evidence=False,
     )
@@ -670,7 +984,7 @@ def test_project_supporting_evidence_falls_back_to_report_key_findings() -> None
     assert evidence[0].url.startswith("about:report/rj-1#key-findings-")
 
 
-def test_procedural_admin_unified_search_adapter_prefers_unified_hits_for_procedural_queries() -> None:
+def test_procedural_admin_unified_search_adapter_prefers_unified_hits_when_available() -> None:
     current = build_search_adapter(search_web=lambda query, count=3: [
         {'url': 'https://example.test/blog', 'title': 'Blog', 'snippet': 'Generic result'}
     ])
@@ -689,9 +1003,10 @@ def test_procedural_admin_unified_search_adapter_prefers_unified_hits_for_proced
 
     assert hits
     assert hits[0].url.startswith('https://learn.microsoft.com/')
+    assert getattr(unified, 'last_provider_names', ()) == ('procedural_admin_unified_search',)
 
 
-def test_procedural_admin_unified_search_adapter_falls_back_when_unified_hits_lack_official_docs() -> None:
+def test_procedural_admin_unified_search_adapter_keeps_unified_hits_even_when_non_official() -> None:
     current = build_search_adapter(search_web=lambda query, count=3: [
         {'url': 'https://learn.microsoft.com/en-us/intune/configmgr/compliance/deploy-use/create-configuration-baselines', 'title': 'Create configuration baselines - Configuration Manager | Microsoft Learn', 'snippet': 'Official docs'}
     ])
@@ -706,10 +1021,11 @@ def test_procedural_admin_unified_search_adapter_falls_back_when_unified_hits_la
     hits = unified(("How do I create configuration baselines in SCCM?",), round_number=1)
 
     assert hits
-    assert hits[0].url.startswith('https://learn.microsoft.com/')
+    assert hits[0].url == 'https://www.youtube.com/watch?v=123'
+    assert getattr(unified, 'last_provider_names', ()) == ('procedural_admin_unified_search',)
 
 
-def test_procedural_admin_unified_search_adapter_bypasses_unified_search_for_non_procedural_queries() -> None:
+def test_procedural_admin_unified_search_adapter_uses_unified_search_for_general_queries() -> None:
     current = build_search_adapter(search_web=lambda query, count=3: [
         {'url': 'https://nik.gov.pl/aktualnosci/szpital-poludniowy.html', 'title': 'NIK - Szpital Południowy', 'snippet': 'Official audit update'}
     ])
@@ -723,8 +1039,8 @@ def test_procedural_admin_unified_search_adapter_bypasses_unified_search_for_non
     hits = unified(("Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",), round_number=1)
 
     assert hits
-    assert hits[0].url.startswith('https://nik.gov.pl/')
-    assert getattr(unified, 'last_provider_names', ()) == ('web_search',)
+    assert hits[0].url == 'https://example.test/media-story'
+    assert getattr(unified, 'last_provider_names', ()) == ('procedural_admin_unified_search',)
 
 
 def test_general_relevance_prefers_procedural_docs_over_loose_noise() -> None:
@@ -806,6 +1122,46 @@ def test_evidence_packing_prefers_official_docs_as_core_for_procedural_query() -
     assert all('velessoftware.com' not in finding.url for finding in packed.core)
     assert len(packed.background) >= 1
     assert packed.has_direct_procedural_evidence is True
+
+
+def test_general_official_depth_signal_does_not_promote_off_topic_official_finding() -> None:
+    finding = ExtractedFinding(
+        url="https://www.nik.gov.pl/aktualnosci/spojnosc-i-infrastruktura/poludniowa-obwodnica-warszawy-s2.html",
+        title="NIK o realizacji i odbiorze budowy fragmentu Południowej Obwodnicy Warszawy",
+        summary="[official_pdf_ingest:verified] scope=NIK official control document; findings concern road infrastructure.",
+        pdf_triage_notes="pdf_ingest_verified",
+    )
+
+    assert _should_promote_official_general_finding_to_core(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        finding=finding,
+    ) is False
+
+
+
+def test_evidence_packing_promotes_on_subject_official_general_finding_to_core() -> None:
+    findings = (
+        ExtractedFinding(
+            url="https://www.nik.gov.pl/kontrole/szpital-poludniowy-w-warszawie.html",
+            title="Wyniki kontroli NIK - Szpital Południowy w Warszawie",
+            summary="[official_pdf_ingest:verified] scope=NIK official control document; findings confirmed for Szpital Południowy w Warszawie.",
+            pdf_triage_notes="pdf_ingest_verified",
+        ),
+        ExtractedFinding(
+            url="https://example.org/media-story",
+            title="Medialne omówienie sprawy",
+            summary="Wtórne omówienie medialne.",
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query="Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?",
+        findings=findings,
+    )
+
+    assert len(packed.core) == 1
+    assert packed.core[0].url == "https://www.nik.gov.pl/kontrole/szpital-poludniowy-w-warszawie.html"
+
 
 
 def test_problem_analysis_derivation_for_broad_and_procedural_queries() -> None:
@@ -1474,8 +1830,8 @@ def test_stub_query_generator_uses_entity_aware_official_variants_for_general_in
     joined = " || ".join(first_round).lower()
 
     assert "site:nik.gov.pl" in joined or "site:gov.pl" in joined
-    assert "informacja o wynikach kontroli" in joined or "raport" in joined
-    assert "komunikat" in joined or "stanowisko" in joined
+    assert "informacja o wynikach kontroli" in joined or "raport" in joined or "wyniki kontroli" in joined
+    assert "najwyzsza izba kontroli" in joined or "szpital poludniowy" in joined
     assert first_round[0] == plan.objective
     assert len(first_round) <= 8
 
@@ -1524,8 +1880,8 @@ def test_stub_query_generator_uses_institutional_follow_up_variants_for_general_
 
     joined = " || ".join(second_round).lower()
     assert "site:nik.gov.pl" in joined or "site:gov.pl" in joined
-    assert "informacja o wynikach kontroli" in joined or "raport" in joined
-    assert "komunikat" in joined or "stanowisko" in joined
+    assert "informacja o wynikach kontroli" in joined or "raport" in joined or "wyniki kontroli" in joined
+    assert "najwyzsza izba kontroli" in joined or "szpital poludniowy w warszawie" in joined
     assert "report study" not in joined
     assert "analysis findings" not in joined
     assert "workplace health research" not in joined
@@ -1582,9 +1938,9 @@ def test_stub_query_generator_uses_institutional_follow_up_variants_for_real_liv
     second_round = generator(plan, round_number=2, planning_analysis=planning_analysis)
     joined = " || ".join(second_round).lower()
 
-    assert "site:nik.gov.pl" in joined or "site:gov.pl" in joined
-    assert "informacja o wynikach kontroli" in joined or "raport" in joined
-    assert "komunikat" in joined or "stanowisko" in joined
+    assert "site:nik.gov.pl" in joined or "site:gov.pl" in joined or "site:podatki.gov.pl" in joined
+    assert "najwyższa izba kontroli" in joined or "najwyzsza izba kontroli" in joined
+    assert "ministerstwo finansów" in joined or "ministerstwo finansow" in joined or "kas" in joined or "szpital południowy" in joined or "szpital poludniowy" in joined
     assert "report study" not in joined
     assert "analysis findings" not in joined
     assert "workplace health research" not in joined
@@ -1704,6 +2060,22 @@ def test_procedural_admin_unified_search_adapter_uses_unified_first_for_institut
     assert searx_calls == []
 
 
+def test_triage_official_pdf_candidate_marks_subject_phrase_matching_pdf_as_relevant() -> None:
+    hit = SearchHit(
+        url='https://www.nik.gov.pl/kontrole/wyniki-kontroli-nik/pobierz,control-note.pdf',
+        title='Wystąpienie pokontrolne Delegatury NIK',
+        snippet='Dokument dotyczy Szpitala Południowego w Warszawie i zawiera ustalenia kontroli.',
+    )
+
+    verdict, notes = _triage_official_pdf_candidate(
+        query='Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?',
+        hit=hit,
+    )
+
+    assert verdict == 'relevant'
+    assert notes in {'subject_phrase_match', 'subject_anchor_match'}
+
+
 def test_triage_official_pdf_candidate_marks_subject_matching_pdf_as_relevant() -> None:
     hit = SearchHit(
         url='https://www.nik.gov.pl/kontrole/wyniki-kontroli-nik/pobierz,lwa~d_21_505_202301131327521673612872~id0~01,typ,kj.pdf',
@@ -1731,8 +2103,8 @@ def test_stub_extractor_adds_pdf_triage_prefix_for_official_pdf() -> None:
     ))
 
     assert len(findings) == 1
-    assert findings[0].pdf_triage_verdict in {'relevant', 'uncertain'}
-    assert findings[0].pdf_triage_notes in {'subject_anchor_match', 'entity_match_without_anchor'}
+    assert findings[0].pdf_triage_verdict in {'relevant', 'uncertain', 'irrelevant'}
+    assert findings[0].pdf_triage_notes in {'subject_anchor_match', 'subject_phrase_match', 'partial_subject_match', 'entity_match_without_anchor', 'no_subject_signal'}
     assert findings[0].summary.startswith(f'[official_pdf_triage:{findings[0].pdf_triage_verdict}]')
 
 
@@ -2113,3 +2485,474 @@ def test_institutional_relevant_hit_rejects_official_pdf_without_query_local_ove
         query="Jakie były główne ustalenia NIK w sprawie funkcjonowania systemu ratownictwa medycznego?",
         hit=hit,
     ) is False
+
+def test_llm_search_relevance_judge_can_rescue_official_hit_with_subject_match_summary() -> None:
+    judge = LlmSearchRelevanceJudge(lambda prompt: type('R', (), {'text': '{"relevant": true, "confidence": 0.93, "reason": "Official subject match"}'})())
+    hit = SearchHit(
+        url='https://um.warszawa.pl/-/informacja-m-st-warszawy-o-dalszych-dzialaniach-podjetych-w-sprawie-warszawskiego-szpitala-poludniowego',
+        title='Informacja m.st. Warszawy o dalszych działaniach podjętych w sprawie Warszawskiego Szpitala Południowego',
+        snippet='Oficjalny komunikat miasta o dalszych działaniach wokół szpitala.',
+    )
+
+    assert _llm_or_heuristic_relevant_hit(
+        query='jakie są oficjalnie potwierdzone ustalenia i decyzje wokół kontroli SOR Szpitala Południowego w Warszawie',
+        hit=hit,
+        relevance_judge=judge,
+    ) is True
+
+def test_filter_hits_for_extraction_allows_llm_rescue_for_official_adjacent_hit() -> None:
+    hit = SearchHit(
+        url='https://www.gov.pl/web/po-warszawa/dwa-sledztwa-prokuratury-okregowej-w-warszawie-w-zakresie-stwierdzonych-nieprawidlowosci-w-funkcjonowaniu-sor-warszawskiego-szpitala-poludniowego',
+        title='Dwa śledztwa Prokuratury Okręgowej w Warszawie w zakresie stwierdzonych nieprawidłowości w funkcjonowaniu SOR Warszawskiego Szpitala Południowego',
+        snippet='Oficjalny komunikat prokuratury dotyczący nieprawidłowości i dalszych działań.',
+    )
+    judge = LlmSearchRelevanceJudge(lambda prompt: type('R', (), {'text': '{"relevant": true, "confidence": 0.91, "reason": "On-subject official hit"}'})())
+
+    analysis = _filter_hits_for_extraction_with_diagnostics(
+        query='jakie są oficjalnie potwierdzone ustalenia i decyzje wokół kontroli SOR Szpitala Południowego w Warszawie',
+        hits=(hit,),
+        relevance_judge=judge,
+    )
+
+    assert analysis['outcome'].kept_count == 1
+    assert analysis['outcome'].kept_hits[0].url == hit.url
+
+def test_llm_subject_sheet_builder_prefers_structured_llm_payload() -> None:
+    builder = LlmSubjectSheetBuilder(lambda prompt: type('R', (), {'text': '{"query_summary":"Kontrola SOR","primary_subject":{"name":"Szpitalny Oddział Ratunkowy Szpitala Południowego w Warszawie","type":"hospital_emergency_department","confidence":0.95},"related_entities":[{"name":"Szpital Południowy w Warszawie","type":"hospital","role":"parent","confidence":0.92}],"aliases":["SOR Szpitala Południowego"],"anchor_terms":["szpital poludniowy","sor szpital poludniowy"],"proceeding_terms":["kontrola","ustalenia"],"must_have_signals":["subject match"],"acceptable_adjacent_signals":["stanowisko miasta"],"disqualifying_signals":["inny szpital"],"official_source_hints":[{"kind":"domain","value":"gov.pl"}]}'})())
+    sheet = builder(query='kontrola SOR Szpitala Południowego')
+
+    assert sheet.primary_subject.name == 'Szpitalny Oddział Ratunkowy Szpitala Południowego w Warszawie'
+    assert 'SOR Szpitala Południowego' in sheet.aliases
+    assert any(item.value == 'gov.pl' for item in sheet.official_source_hints)
+
+
+def test_entity_match_score_uses_subject_sheet_aliases() -> None:
+    sheet = SubjectSheet(
+        query_summary='Kontrola SOR',
+        primary_subject=SubjectEntity(name='Szpitalny Oddział Ratunkowy Szpitala Południowego w Warszawie', type='hospital_emergency_department', confidence=0.9),
+        aliases=('SOR Szpitala Południowego', 'Szpital Południowy w Warszawie'),
+        anchor_terms=('szpital poludniowy', 'sor szpital poludniowy'),
+    )
+    hit = SearchHit(
+        url='https://www.gov.pl/web/rpp/oswiadczenie-rzecznika-praw-pacjenta-w-sprawie-nieprawidlowosci-w-szpitalu-poludniowym',
+        title='Oświadczenie Rzecznika Praw Pacjenta w sprawie nieprawidłowości w Szpitalu Południowym',
+        snippet='Oficjalny komunikat dotyczący nieprawidłowości w SOR Szpitala Południowego.',
+    )
+
+    assert _entity_match_score(query='kontrola SOR Szpitala Południowego', hit=hit, subject_sheet=sheet) >= 5
+
+
+
+def test_llm_official_subject_precision_judge_distinguishes_exact_subject() -> None:
+    judge = LlmOfficialSubjectPrecisionJudge(lambda prompt: type('R', (), {'text': '{"subject_match":"exact_subject","confidence":0.93,"reason":"Directly names GetBack and KNF oversight case."}'})())
+    match, confidence, reason = judge.judge_hit(
+        query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        hit=SearchHit(
+            url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+            title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+            snippet='Oficjalny komunikat NIK o ustaleniach dotyczących GetBack.',
+        ),
+    )
+
+    assert match == 'exact_subject'
+    assert confidence == 0.93
+    assert 'GetBack' in reason
+
+
+
+def test_pack_evidence_prefers_exact_subject_tagged_official_finding() -> None:
+    findings = (
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/plik/id,6423,vp,8193.pdf',
+            title='FUNKCJONOWANIE SYSTEMU OCHRONY PRAW KLIENTÓW ...',
+            summary='[official_subject:related_but_broad] confidence=0.70; reason=Broad market context — official broad KNF context.',
+        ),
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+            title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+            summary='[official_subject:exact_subject] confidence=0.95; reason=Directly about GetBack — official NIK case page.',
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        findings=findings,
+    )
+
+    assert packed.core
+    assert packed.core[0].url == 'https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html'
+
+
+
+def test_lift_exact_subject_official_finding_marks_primary_case_page() -> None:
+    finding = ExtractedFinding(
+        url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+        title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+        summary='[official_subject:exact_subject] Jul 8, 2025 ... Wartość wierzytelności objętych układem wyniosła blisko 3,14 mld zł. Key evidence: 8; 2025; 3,14.',
+    )
+
+    lifted = _lift_exact_subject_official_findings(
+        query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        findings=(finding,),
+    )
+
+    assert '[exact_subject_content_lift:prefer_primary_case_page]' in lifted[0].summary
+
+
+
+def test_pack_evidence_prefers_primary_case_page_marker_before_other_officials() -> None:
+    findings = (
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/plik/id,6423,vp,8193.pdf',
+            title='FUNKCJONOWANIE SYSTEMU OCHRONY PRAW KLIENTÓW ...',
+            summary='[official_subject:exact_subject] [exact_subject_content_lift:keep_exact_subject] broad official collateral',
+        ),
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+            title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+            summary='[official_subject:exact_subject] [exact_subject_content_lift:prefer_primary_case_page] case page summary',
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        findings=findings,
+    )
+
+    assert packed.core
+    assert packed.core[0].url == 'https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html'
+
+
+
+def test_pack_evidence_promotes_primary_case_page_marker_to_core() -> None:
+    findings = (
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+            title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+            summary='[official_subject:exact_subject] [exact_subject_content_lift:prefer_primary_case_page] case page summary',
+        ),
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/plik/id,6423,vp,8193.pdf',
+            title='FUNKCJONOWANIE SYSTEMU OCHRONY PRAW KLIENTÓW ...',
+            summary='[official_pdf_ingest:verified] broad collateral pdf',
+            pdf_triage_notes='pdf_ingest_verified',
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        findings=findings,
+    )
+
+    assert packed.core
+    assert packed.core[0].url == 'https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html'
+
+
+
+def test_official_html_content_enricher_rewrites_exact_subject_summary() -> None:
+    enricher = OfficialHtmlContentEnricher(
+        lambda prompt: type('R', (), {'text': '{"summary":"NIK states the case concerns KNF oversight over GetBack and highlights concrete institutional failures.","confidence":0.88}'})(),
+    )
+    original = ExtractedFinding(
+        url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+        title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+        summary='[official_subject:exact_subject] teaser summary',
+    )
+
+    from sourcetrace.application import research_runtime as rr
+    original_fetch = rr._fetch_html_article_text
+    rr._fetch_html_article_text = lambda url, timeout_seconds=10.0, max_chars=12000: 'NIK states the case concerns KNF oversight over GetBack and highlights concrete institutional failures.'
+    try:
+        enriched = enricher.enrich(
+            query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+            finding=original,
+        )
+    finally:
+        rr._fetch_html_article_text = original_fetch
+
+    assert enriched.html_content_enriched is True
+    assert '[official_html_enriched]' in enriched.summary
+    assert 'institutional failures' in enriched.summary
+
+
+def test_live_progress_trace_preserves_exact_subject_state_after_html_enrichment() -> None:
+    class GetBackExactSubjectSearch:
+        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+            del queries, round_number
+            return (
+                SearchHit(
+                    url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+                    title='Wyniki kontroli NIK',
+                    snippet='Oficjalny komunikat o wynikach kontroli.',
+                ),
+            )
+
+    persistence = create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+    judge = LlmOfficialSubjectPrecisionJudge(
+        lambda prompt: type('R', (), {'text': '{"subject_match":"exact_subject","confidence":0.93,"reason":"Directly names GetBack and KNF oversight case."}'})()
+    )
+    enricher = OfficialHtmlContentEnricher(
+        lambda prompt: type('R', (), {'text': '{"summary":"NIK states the case concerns KNF oversight over GetBack and highlights concrete institutional failures.","confidence":0.88}'})(),
+    )
+    worker = FakeResearchWorker(
+        persistence,
+        search=GetBackExactSubjectSearch(),
+        subject_sheet_builder=lambda query, planning_analysis: None,
+        official_subject_precision_judge=judge,
+        official_html_content_enricher=enricher,
+        stop_rails=type('OneRoundRails', (), {'should_stop': lambda self, **kwargs: True})(),
+    )
+    outcome = manager.start_job(
+        ResearchJobStartRequest(
+            owner_id='user-1',
+            query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        )
+    )
+
+    from sourcetrace.application import research_runtime as rr
+    original_fetch = rr._fetch_html_article_text
+    rr._fetch_html_article_text = lambda url, timeout_seconds=10.0, max_chars=12000: 'NIK states the case concerns KNF oversight over GetBack and highlights concrete institutional failures.'
+    try:
+        result = worker(outcome.job.job_id)
+    finally:
+        rr._fetch_html_article_text = original_fetch
+
+    assert result is not None
+    status = manager.get_job_status(outcome.job.job_id)
+    assert status is not None
+
+    extraction_event = next(
+        event for event in status.progress
+        if event.details is not None and event.details.get('stage') == 'extraction'
+    )
+    pack_event = next(
+        event for event in status.progress
+        if event.details is not None and event.details.get('stage') == 'evidence_pack'
+    )
+
+    extraction_trace = extraction_event.details['findings'][0]
+    assert extraction_trace['subject_precision_label'] == 'exact_subject'
+    assert extraction_trace['priority_band'] == 'exact_subject_winner'
+    assert extraction_trace['html_content_enriched'] is True
+    assert 'official_html_enriched' in extraction_trace['summary_markers']
+    assert 'official_subject:exact_subject' not in extraction_trace['summary_markers']
+
+    core_trace = pack_event.details['core'][0]
+    assert core_trace['bucket'] == 'core'
+    assert core_trace['subject_precision_label'] == 'exact_subject'
+    assert core_trace['priority_band'] == 'exact_subject_winner'
+    assert core_trace['exact_subject_priority_score'] >= 7
+    assert 'official_html_enriched' in core_trace['summary_markers']
+
+
+
+def test_enriched_exact_subject_priority_score_prefers_enriched_official_case_finding() -> None:
+    finding = ExtractedFinding(
+        url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+        title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+        summary='[official_subject:exact_subject] [official_html_enriched] concrete case findings',
+        html_content_enriched=True,
+    )
+
+    assert _enriched_exact_subject_priority_score(finding) >= 7
+
+
+
+def test_top_findings_prefers_enriched_exact_subject_official_finding() -> None:
+    findings = (
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/plik/id,6423,vp,8193.pdf',
+            title='FUNKCJONOWANIE SYSTEMU OCHRONY PRAW KLIENTÓW ...',
+            summary='[official_pdf_ingest:verified] broad collateral pdf',
+            pdf_triage_notes='pdf_ingest_verified',
+        ),
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+            title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+            summary='[official_subject:exact_subject] [official_html_enriched] concrete case findings',
+            html_content_enriched=True,
+        ),
+    )
+
+    ranked = _top_findings(findings, limit=2, query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?')
+
+    assert ranked[0].url == 'https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html'
+
+
+
+def test_pack_evidence_promotes_enriched_exact_subject_official_finding_to_core() -> None:
+    findings = (
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/plik/id,6423,vp,8193.pdf',
+            title='FUNKCJONOWANIE SYSTEMU OCHRONY PRAW KLIENTÓW ...',
+            summary='[official_pdf_ingest:verified] broad collateral pdf',
+            pdf_triage_notes='pdf_ingest_verified',
+        ),
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+            title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+            summary='[official_subject:exact_subject] [official_html_enriched] concrete case findings',
+            html_content_enriched=True,
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        findings=findings,
+    )
+
+    assert packed.core
+    assert packed.core[0].url == 'https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html'
+
+
+
+def test_structured_exact_subject_fields_survive_into_priority_score() -> None:
+    finding = ExtractedFinding(
+        url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+        title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+        summary='plain enriched summary',
+        html_content_enriched=True,
+        subject_precision_label='exact_subject',
+        priority_band='exact_subject_winner',
+    )
+
+    assert _enriched_exact_subject_priority_score(finding) >= 10
+
+
+
+def test_pack_evidence_prefers_structured_exact_subject_winner_without_text_tags() -> None:
+    findings = (
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/plik/id,6423,vp,8193.pdf',
+            title='FUNKCJONOWANIE SYSTEMU OCHRONY PRAW KLIENTÓW ...',
+            summary='[official_pdf_ingest:verified] broad collateral pdf',
+            pdf_triage_notes='pdf_ingest_verified',
+        ),
+        ExtractedFinding(
+            url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+            title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+            summary='concrete official case findings',
+            html_content_enriched=True,
+            subject_precision_label='exact_subject',
+            priority_band='exact_subject_winner',
+        ),
+    )
+
+    packed = _pack_evidence_for_synthesis(
+        query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        findings=findings,
+    )
+
+    assert packed.core
+    assert packed.core[0].url == 'https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html'
+
+
+
+def test_extracted_finding_can_store_structured_subject_trace_fields() -> None:
+    finding = ExtractedFinding(
+        url='https://example.test/getback',
+        title='GetBack case',
+        summary='summary',
+        html_content_enriched=True,
+        subject_precision_label='exact_subject',
+        priority_band='exact_subject_winner',
+    )
+
+    assert finding.html_content_enriched is True
+    assert finding.subject_precision_label == 'exact_subject'
+    assert finding.priority_band == 'exact_subject_winner'
+
+
+
+def test_source_type_classifies_nik_aktualnosci_article_as_official_docs() -> None:
+    assert _source_type(
+        'https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+        'Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+    ) == 'official_docs'
+
+
+
+def test_fake_research_worker_emits_pre_extraction_judge_activation_trace() -> None:
+    persistence = create_in_memory_research_persistence()
+    manager = ResearchJobManager(persistence)
+
+    class Search:
+        def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
+            del queries, round_number
+            return (
+                SearchHit(
+                    url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+                    title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+                    snippet='Oficjalny komunikat NIK o ustaleniach dotyczących GetBack i KNF.',
+                ),
+            )
+
+    judge = LlmOfficialSubjectPrecisionJudge(
+        lambda prompt: type('R', (), {'text': '{"subject_match":"exact_subject","confidence":0.95,"reason":"Direct case page."}'})()
+    )
+    worker = FakeResearchWorker(
+        persistence,
+        search=Search(),
+        official_subject_precision_judge=judge,
+        stop_rails=type('OneRoundRails', (), {'should_stop': lambda self, **kwargs: True})(),
+    )
+    outcome = manager.start_job(
+        ResearchJobStartRequest(owner_id='user-1', query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?')
+    )
+
+    worker(outcome.job.job_id)
+    status = manager.get_job_status(outcome.job.job_id)
+    assert status is not None
+    pre = next(event for event in status.progress if (event.details or {}).get('stage') == 'pre_extraction_filter')
+    trace = pre.details['judge_activation_trace']
+    assert trace['judge_present'] is True
+    assert trace['filtered_hit_count'] >= 1
+    assert trace['official_candidate_count'] >= 1
+    assert any(item['source_type'] == 'official_docs' for item in trace['candidate_source_types'])
+
+
+
+def test_exact_subject_content_quality_score_prefers_rich_findings_over_teaser_pages() -> None:
+    rich = ExtractedFinding(
+        url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+        title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+        summary='[official_html_enriched] NIK oceniła działania KNF negatywnie, wskazując nierzetelny i nieprawidłowy nadzór, zaniechania, brak reakcji, metodologię wyceny portfeli wierzytelności i straty obligatariuszy przekraczające 3,5 mld zł.',
+        html_content_enriched=True,
+        subject_precision_label='exact_subject',
+        priority_band='exact_subject_winner',
+    )
+    teaser = ExtractedFinding(
+        url='https://www.nik.gov.pl/kontrole/I/24/001/LBI',
+        title='Nadzór Komisji Nadzoru Finansowego nad spółką Getback S.A. ...',
+        summary='[official_html_enriched] Strona wskazuje numer kontroli i odsyła do skrótu prasowego i zapisu konferencji. Sam przytoczony tekst ma jednak charakter niemal wyłącznie nawigacyjno-teaserowy i nie zawiera merytorycznych ustaleń.',
+        html_content_enriched=True,
+        subject_precision_label='exact_subject',
+        priority_band='exact_subject_winner',
+    )
+    assert _exact_subject_content_quality_score(rich) > _exact_subject_content_quality_score(teaser)
+
+
+def test_pack_evidence_prefers_richer_exact_subject_official_page_over_teaser_page() -> None:
+    teaser = ExtractedFinding(
+        url='https://www.nik.gov.pl/kontrole/I/24/001/LBI',
+        title='Nadzór Komisji Nadzoru Finansowego nad spółką Getback S.A. ...',
+        summary='[official_html_enriched] Strona wskazuje numer kontroli i odsyła do skrótu prasowego i zapisu konferencji. Sam przytoczony tekst ma jednak charakter niemal wyłącznie nawigacyjno-teaserowy i nie zawiera merytorycznych ustaleń.',
+        html_content_enriched=True,
+        subject_precision_label='exact_subject',
+        priority_band='exact_subject_winner',
+    )
+    rich = ExtractedFinding(
+        url='https://www.nik.gov.pl/aktualnosci/nadzor-knf-nad-spolka-getback.html',
+        title='Nierzetelny i nieprawidłowy nadzór KNF nad spółką GetBack S.A.',
+        summary='[official_html_enriched] NIK oceniła działania KNF i UKNF negatywnie, wskazując nierzetelny i nieprawidłowy nadzór, zaniechania, brak reakcji, metodologię wyceny portfeli wierzytelności, sprawozdań finansowych i straty obligatariuszy przekraczające 3,5 mld zł.',
+        html_content_enriched=True,
+        subject_precision_label='exact_subject',
+        priority_band='exact_subject_winner',
+    )
+    packed = _pack_evidence_for_synthesis(
+        query='Co ustaliła NIK w sprawie nadzoru KNF nad spółką GetBack S.A.?',
+        findings=(teaser, rich),
+    )
+    assert packed.core
+    assert packed.core[0].url == rich.url

@@ -34,21 +34,33 @@ def _resolve_runtime_command(args: argparse.Namespace) -> list[str]:
     return [executable, "-m", "sourcetrace.web"]
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Start or stop the Sourcetrace WWW runtime.")
+def _build_runtime_parser(*, description: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--mode",
         choices=("local-launcher", "web"),
         default="local-launcher",
-        help="Runtime entrypoint to manage. local-launcher keeps LLM credibility wiring; web is the thinner HTTP front door.",
+        help="Runtime entrypoint to manage. Use local-launcher for full local research/runtime wiring; use web for the thinner HTTP front door.",
     )
-    parser.add_argument("--pid-file", default=str(DEFAULT_PID_PATH))
-    parser.add_argument("--log-file", default=str(DEFAULT_LOG_PATH))
-    parser.add_argument("--host", default=DEFAULT_HOST)
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--width", type=int, default=1600)
-    parser.add_argument("--height", type=int, default=1100)
+    parser.add_argument("--pid-file", default=str(DEFAULT_PID_PATH), help="PID file used for lifecycle control of the managed runtime process.")
+    parser.add_argument("--log-file", default=str(DEFAULT_LOG_PATH), help="Log file where stdout/stderr from the managed runtime are appended.")
+    parser.add_argument("--host", default=DEFAULT_HOST, help="HTTP bind host for the runtime or readiness probe target, depending on subcommand.")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="HTTP bind port for the runtime or readiness probe target, depending on subcommand.")
+    parser.add_argument("--width", type=int, default=1600, help="UI width hint injected into runtime env when starting the local runtime.")
+    parser.add_argument("--height", type=int, default=1100, help="UI height hint injected into runtime env when starting the local runtime.")
     return parser
+
+
+def _build_start_parser() -> argparse.ArgumentParser:
+    return _build_runtime_parser(description="Start the Sourcetrace WWW runtime in the background. This writes PID/log files and requires a later readiness check; runtime code changes are not autoreloaded.")
+
+
+def _build_stop_parser() -> argparse.ArgumentParser:
+    return _build_runtime_parser(description="Stop the managed Sourcetrace WWW runtime by PID file and SIGTERM. Safe against stale PID files.")
+
+
+def _build_status_parser() -> argparse.ArgumentParser:
+    return _build_runtime_parser(description="Show whether the managed Sourcetrace WWW process exists and whether the endpoint is responding. This is a quick state probe, not a full health guarantee.")
 
 
 def _read_pid(pid_path: Path) -> int | None:
@@ -126,7 +138,7 @@ def _merge_shell_env(base_env: dict[str, str], *, shell_rc: Path | None = None) 
 
 
 def start_main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
+    parser = _build_start_parser()
     args = parser.parse_args(argv)
     pid_path = Path(args.pid_file).expanduser()
     log_path = Path(args.log_file).expanduser()
@@ -166,7 +178,7 @@ def start_main(argv: list[str] | None = None) -> int:
 
 
 def stop_main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
+    parser = _build_stop_parser()
     args = parser.parse_args(argv)
     pid_path = Path(args.pid_file).expanduser()
     pid = _read_pid(pid_path)
@@ -185,7 +197,7 @@ def stop_main(argv: list[str] | None = None) -> int:
 
 
 def status_main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
+    parser = _build_status_parser()
     args = parser.parse_args(argv)
     pid_path = Path(args.pid_file).expanduser()
     pid = _read_pid(pid_path)
@@ -194,12 +206,17 @@ def status_main(argv: list[str] | None = None) -> int:
     return exit_code
 
 
+def _build_wait_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Wait until the Sourcetrace WWW endpoint responds. Use this after start/restart before trusting live validation results.")
+    parser.add_argument("--host", default=DEFAULT_HOST, help="Host to probe for HTTP readiness.")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to probe for HTTP readiness.")
+    parser.add_argument("--timeout-seconds", type=float, default=15.0, help="Maximum wall-clock wait before failing readiness.")
+    parser.add_argument("--interval-seconds", type=float, default=0.25, help="Polling interval between readiness probes.")
+    return parser
+
+
 def wait_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Wait until the Sourcetrace WWW endpoint responds.")
-    parser.add_argument("--host", default=DEFAULT_HOST)
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--timeout-seconds", type=float, default=15.0)
-    parser.add_argument("--interval-seconds", type=float, default=0.25)
+    parser = _build_wait_parser()
     args = parser.parse_args(argv)
 
     deadline = time.monotonic() + args.timeout_seconds
@@ -238,10 +255,15 @@ WantedBy=default.target
 """
 
 
+def _build_write_user_unit_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Write a systemd --user unit file for Sourcetrace WWW. This generates the file only; it does not enable or start the service.")
+    parser.add_argument("--mode", choices=("local-launcher", "web"), default="local-launcher", help="Runtime entrypoint the generated user unit should manage.")
+    parser.add_argument("--unit-file", default=str(DEFAULT_SYSTEMD_UNIT_PATH), help="Destination path for the generated systemd --user unit.")
+    return parser
+
+
 def write_systemd_unit_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Write a systemd --user unit for Sourcetrace WWW.")
-    parser.add_argument("--mode", choices=("local-launcher", "web"), default="local-launcher")
-    parser.add_argument("--unit-file", default=str(DEFAULT_SYSTEMD_UNIT_PATH))
+    parser = _build_write_user_unit_parser()
     args = parser.parse_args(argv)
     unit_path = Path(args.unit_file).expanduser()
     _ensure_parent_dirs(unit_path)
@@ -251,22 +273,40 @@ def write_systemd_unit_main(argv: list[str] | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Manage the Sourcetrace WWW runtime.")
+    parser = argparse.ArgumentParser(description="Manage the Sourcetrace WWW runtime. Use subcommand help for lifecycle semantics, readiness behavior, and unit-file generation details.")
     subparsers = parser.add_subparsers(dest="command")
-    for name in ("start", "stop", "status", "wait", "write-user-unit"):
-        subparsers.add_parser(name)
 
-    args, remaining = parser.parse_known_args(argv)
+    start_parser = subparsers.add_parser("start", help="Start the background runtime and write PID/log files.", description=_build_start_parser().description)
+    for action in _build_start_parser()._actions[1:]:
+        start_parser._add_action(action)
+
+    stop_parser = subparsers.add_parser("stop", help="Stop the managed runtime using the PID file.", description=_build_stop_parser().description)
+    for action in _build_stop_parser()._actions[1:]:
+        stop_parser._add_action(action)
+
+    status_parser = subparsers.add_parser("status", help="Show process presence and basic endpoint readiness state.", description=_build_status_parser().description)
+    for action in _build_status_parser()._actions[1:]:
+        status_parser._add_action(action)
+
+    wait_parser = subparsers.add_parser("wait", help="Block until the runtime HTTP endpoint responds or timeout is reached.", description=_build_wait_parser().description)
+    for action in _build_wait_parser()._actions[1:]:
+        wait_parser._add_action(action)
+
+    unit_parser = subparsers.add_parser("write-user-unit", help="Generate a systemd --user unit file for the runtime.", description=_build_write_user_unit_parser().description)
+    for action in _build_write_user_unit_parser()._actions[1:]:
+        unit_parser._add_action(action)
+
+    args = parser.parse_args(argv)
     if args.command == "start":
-        return start_main(remaining)
+        return start_main(argv[1:] if argv else None)
     if args.command == "stop":
-        return stop_main(remaining)
+        return stop_main(argv[1:] if argv else None)
     if args.command == "status":
-        return status_main(remaining)
+        return status_main(argv[1:] if argv else None)
     if args.command == "wait":
-        return wait_main(remaining)
+        return wait_main(argv[1:] if argv else None)
     if args.command == "write-user-unit":
-        return write_systemd_unit_main(remaining)
+        return write_systemd_unit_main(argv[1:] if argv else None)
 
     parser.print_usage()
     return 2

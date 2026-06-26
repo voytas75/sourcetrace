@@ -112,6 +112,30 @@ Return JSON only with this exact schema:
 """.strip()
 
 
+def _candidate_page_selection_prompt(*, query: str, title: str, preview_scope: str, preview_entity: str, candidate_pages: list[int]) -> str:
+    pages_hint = ', '.join(str(page) for page in candidate_pages[:8]) if candidate_pages else 'none'
+    return f"""
+You are selecting the most useful PDF pages for a user research query.
+
+User query: {query}
+Title hint: {title}
+Preview scope: {preview_scope}
+Preview entity match: {preview_entity}
+Preview candidate pages: {pages_hint}
+
+Choose pages most likely to contain substantive findings relevant to the user query.
+Prefer pages with sections like findings, results, ustalenia, ocena, wnioski, zalecenia, recommendations, conclusions, or direct subject-specific discussion.
+Avoid boilerplate, cover pages, signatures, legal footer pages, and generic institutional introductions unless they are the only useful context.
+
+Return JSON only with this exact schema:
+{{
+  "selected_pages": [1],
+  "reason": "string",
+  "confidence": 0.0
+}}
+""".strip()
+
+
 def _full_prompt(*, query: str, title: str) -> str:
     return f"""
 Analyze this PDF for the query: {query}
@@ -128,6 +152,29 @@ Return JSON only with this exact schema:
   "confidence": 0.0
 }}
 """.strip()
+
+
+def _select_pages_with_llm_heuristic(*, pdf_capability: RuntimePdfCapability, pdf: str, query: str, title: str, preview_scope: str, preview_entity: str, candidate_pages: list[int]) -> list[int]:
+    if not candidate_pages:
+        return []
+    try:
+        selection = pdf_capability(
+            pdf=pdf,
+            pages=','.join(str(page) for page in candidate_pages[:8]),
+            prompt=_candidate_page_selection_prompt(
+                query=query,
+                title=title,
+                preview_scope=preview_scope,
+                preview_entity=preview_entity,
+                candidate_pages=candidate_pages,
+            ),
+        )
+    except Exception:
+        return candidate_pages[:8]
+    if not isinstance(selection, dict):
+        return candidate_pages[:8]
+    selected_pages = _coerce_positive_ints(selection.get('selected_pages') or [], limit=8)
+    return selected_pages or candidate_pages[:8]
 
 
 def build_research_pdf_analyzer(pdf_capability: RuntimePdfCapability):
@@ -192,7 +239,16 @@ def build_research_pdf_analyzer(pdf_capability: RuntimePdfCapability):
                 evidence_pages=tuple(candidate_pages[:5]),
             )
 
-        full_pages = ",".join(str(page) for page in candidate_pages[:8]) if candidate_pages else ""
+        selected_pages = _select_pages_with_llm_heuristic(
+            pdf_capability=pdf_capability,
+            pdf=url,
+            query=query,
+            title=title,
+            preview_scope=preview_scope,
+            preview_entity=preview_entity,
+            candidate_pages=candidate_pages,
+        )
+        full_pages = ",".join(str(page) for page in selected_pages[:8]) if selected_pages else ""
 
         try:
             full = pdf_capability(
@@ -207,7 +263,7 @@ def build_research_pdf_analyzer(pdf_capability: RuntimePdfCapability):
                 document_scope=preview_scope or "full_read_failed",
                 entity_match_summary=f"Full read failed after positive preview: {type(exc).__name__}",
                 key_findings=(),
-                evidence_pages=tuple(candidate_pages[:5]),
+                evidence_pages=tuple(selected_pages[:5] or candidate_pages[:5]),
             )
 
         if not isinstance(full, dict):
@@ -217,7 +273,7 @@ def build_research_pdf_analyzer(pdf_capability: RuntimePdfCapability):
                 document_scope=preview_scope or "full_invalid",
                 entity_match_summary=preview_entity or "Full read did not return valid JSON.",
                 key_findings=(),
-                evidence_pages=tuple(candidate_pages[:5]),
+                evidence_pages=tuple(selected_pages[:5] or candidate_pages[:5]),
             )
 
         full_relevant = parse_full_relevant(full)
@@ -233,7 +289,7 @@ def build_research_pdf_analyzer(pdf_capability: RuntimePdfCapability):
             document_scope=full_scope or preview_scope or "official_pdf",
             entity_match_summary=full_entity or preview_entity or title,
             key_findings=tuple(full_key_findings[:5]),
-            evidence_pages=tuple(full_pages_found[:5] or candidate_pages[:5]),
+            evidence_pages=tuple(full_pages_found[:5] or selected_pages[:5] or candidate_pages[:5]),
         )
 
     return research_pdf_analyzer

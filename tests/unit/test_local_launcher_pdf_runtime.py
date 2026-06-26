@@ -103,3 +103,51 @@ def test_build_local_server_runtime_accepts_env_runtime_pdf_analyzer(
     delivery = captured["delivery"]
     assert isinstance(delivery, SourceTraceDelivery)
     assert delivery.research is not None
+
+
+
+def test_build_research_pdf_analyzer_uses_llm_selected_pages_for_full_read() -> None:
+    from sourcetrace.runtime_pdf_ingest import build_research_pdf_analyzer
+
+    calls: list[dict[str, object]] = []
+
+    def capability(*, pdf: str, prompt: str, pages: str = "") -> dict[str, object]:
+        calls.append({"pdf": pdf, "prompt": prompt, "pages": pages})
+        if pages == "1":
+            return {
+                "document_title": "Doc",
+                "main_entity": "Szpital Południowy w Warszawie",
+                "document_scope": "NIK kontrola",
+                "relevance_verdict": "relevant",
+                "reason": "Subject found",
+                "candidate_pages": [1, 3, 7, 9],
+                "confidence": 0.9,
+            }
+        if 'selected_pages' in prompt:
+            return {
+                "selected_pages": [7, 9],
+                "reason": "Findings and recommendations pages",
+                "confidence": 0.88,
+            }
+        return {
+            "relevant": True,
+            "document_scope": "NIK official control document",
+            "entity_match_summary": "Szpital Południowy w Warszawie",
+            "key_findings": ["Ustalenie 1", "Ustalenie 2"],
+            "evidence_pages": [7, 9],
+            "confidence": 0.91,
+        }
+
+    analyzer = build_research_pdf_analyzer(capability)
+    result = analyzer(
+        query='Co ustaliła NIK w sprawie Szpitala Południowego w Warszawie?',
+        url='https://example.test/doc.pdf',
+        title='Raport NIK',
+        triage_verdict='relevant',
+    )
+
+    assert result.relevant is True
+    assert result.evidence_pages == (7, 9)
+    assert len(calls) == 3
+    assert calls[1]['pages'] == '1,3,7,9'
+    assert calls[2]['pages'] == '7,9'

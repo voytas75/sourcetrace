@@ -53,6 +53,7 @@ from sourcetrace.domain.research import (
     EntityHypothesis,
     PlanningAnalysis,
     ResearchCompletionMode,
+    ResearchFinding,
     ResearchJob,
     ResearchJobStatus,
     ResearchProgressEvent,
@@ -60,7 +61,7 @@ from sourcetrace.domain.research import (
     ResearchSettings,
     ResearchTerminationReason,
 )
-from sourcetrace.application.research import ResearchJobResultOutcome
+from sourcetrace.application.research import ExtractedFinding, ResearchJobResultOutcome
 
 
 StartResponse = Callable[[str, list[tuple[str, str]]], None]
@@ -1741,28 +1742,134 @@ def _research_result_to_html(outcome: ResearchJobResultOutcome) -> str:
             return f'<li>{esc(fallback)}</li>'
         return ''.join(f'<li>{esc(item)}</li>' for item in items)
 
+    def clean_summary(summary: str) -> str:
+        cleaned = re.sub(r'\[[^\]]+\]', '', summary or '')
+        cleaned = re.sub(r'(?:confidence|scope|entity|pages|findings|reason)=[^;]+;?\s*', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ;')
+        return cleaned or 'No useful extracted content.'
+
     def markdown_to_html(markdown: str) -> str:
-        escaped = esc(markdown)
-        html = escaped.replace(chr(13) + chr(10), chr(10))
-        html = re.sub(r'^### (.*)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
-        html = re.sub(r'^## (.*)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
-        html = re.sub(r'^# (.*)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
-        html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html)
-        html = re.sub(r'^- (.*)$', r'<li>\1</li>', html, flags=re.MULTILINE)
-        html = re.sub(r'(<li>.*?</li>)', r'<ul>\1</ul>', html, flags=re.DOTALL)
-        html = html.replace(chr(10) + chr(10), '</p><p>')
-        html = f'<p>{html}</p>'
-        html = html.replace('<p></p>', '')
-        html = re.sub(r'<p>(<h[1-3]>.*?</h[1-3]>)</p>', r'\1', html, flags=re.DOTALL)
-        html = re.sub(r'<p>(<ul>.*?</ul>)</p>', r'\1', html, flags=re.DOTALL)
+        escaped = esc(markdown).replace(chr(13) + chr(10), chr(10))
+        rendered: list[str] = []
+        current_para: list[str] = []
+        current_list: list[str] = []
+
+        def flush_paragraph() -> None:
+            nonlocal current_para
+            if current_para:
+                rendered.append(f'<p>{"<br>".join(current_para)}</p>')
+                current_para = []
+
+        def flush_list() -> None:
+            nonlocal current_list
+            if current_list:
+                rendered.append('<ul>' + ''.join(f'<li>{item}</li>' for item in current_list) + '</ul>')
+                current_list = []
+
+        for raw_line in escaped.split(chr(10)):
+            line = raw_line.strip()
+            if not line:
+                flush_paragraph()
+                flush_list()
+                continue
+            if line.startswith('### '):
+                flush_paragraph()
+                flush_list()
+                rendered.append(f'<h3>{line[4:]}</h3>')
+                continue
+            if line.startswith('## '):
+                flush_paragraph()
+                flush_list()
+                rendered.append(f'<h2>{line[3:]}</h2>')
+                continue
+            if line.startswith('# '):
+                flush_paragraph()
+                flush_list()
+                rendered.append(f'<h1>{line[2:]}</h1>')
+                continue
+            if line.startswith('- '):
+                flush_paragraph()
+                current_list.append(line[2:])
+                continue
+            flush_list()
+            current_para.append(line)
+
+        flush_paragraph()
+        flush_list()
+        html = ''.join(rendered)
+        html = re.sub(r'\*\*(.*?)\*\*', r'<strong></strong>', html)
         return html
 
     def build_title(result: ResearchResultArtifact) -> str:
-        top_titles = [finding.title.strip() for finding in result.raw_findings[:2] if finding.title.strip()]
-        if top_titles:
-            title_focus = ' · '.join(top_titles[:2])
-            return f'{result.query.strip()} — {title_focus}'[:180]
-        return result.query.strip() or 'Deep Research Report'
+        findings = tuple(ExtractedFinding(url=f.url, title=f.title, summary=f.summary) for f in result.raw_findings)
+        try:
+            from sourcetrace.application.research_runtime import _generate_short_report_title
+            return _generate_short_report_title(query=result.query, findings=findings)
+        except Exception:
+            top_title = next((f.title.strip() for f in result.raw_findings if f.title.strip()), '')
+            if top_title and top_title.lower() not in result.query.lower():
+                fallback = f'{result.query.strip()} — {top_title}'
+            else:
+                fallback = result.query.strip() or top_title or 'Deep Research Report'
+            return fallback[:96].rstrip(' ,;:-') + ('…' if len(fallback) > 96 else '')
+
+    def source_bucket(url: str) -> str:
+        lowered = (url or '').lower()
+        if any(domain in lowered for domain in ('gov.pl', 'nik.gov.pl', '.gov', '.mil', 'europa.eu')):
+            return 'Official'
+        if any(domain in lowered for domain in ('wikipedia.org', 'facebook.com', 'x.com', 'twitter.com', 'youtube.com')):
+            return 'Background'
+        return 'Supporting'
+
+    def source_reason(url: str, title: str) -> str:
+        bucket = source_bucket(url)
+        if bucket == 'Official':
+            return 'Primary or institutional source used for the main factual basis.'
+        if bucket == 'Background':
+            return 'Context-only source kept outside the main factual core.'
+        return 'Secondary source used for corroboration or additional context.'
+
+    def bucket_badge(bucket: str) -> str:
+        tone = {
+            'Official': 'badge official',
+            'Supporting': 'badge supporting',
+            'Background': 'badge background',
+        }.get(bucket, 'badge')
+        return f'<span class="{tone}">{esc(bucket)}</span>'
+
+    def finding_group_name(url: str, index: int) -> str:
+        bucket = source_bucket(url)
+        if bucket == 'Official' and index < 3:
+            return 'Primary findings'
+        if bucket == 'Official':
+            return 'Official supporting findings'
+        if bucket == 'Supporting':
+            return 'Corroborating findings'
+        return 'Background findings'
+
+    def render_grouped_findings(findings: tuple[ResearchFinding, ...]) -> str:
+        if not findings:
+            return '<p class="muted">No findings captured.</p>'
+        order = ('Primary findings', 'Official supporting findings', 'Corroborating findings', 'Background findings')
+        grouped: dict[str, list[str]] = {key: [] for key in order}
+        for index, finding in enumerate(findings[:10]):
+            group = finding_group_name(finding.url, index)
+            grouped.setdefault(group, []).append(
+                f'<li><a href="{esc(finding.url)}">{esc(finding.title)}</a><br><small>{esc(clean_summary(finding.summary))}</small></li>'
+            )
+        sections: list[str] = []
+        for group in order:
+            items = grouped.get(group) or []
+            if not items:
+                continue
+            sections.append(
+                '<section class="finding-group"><h3>'
+                + esc(group)
+                + '</h3><ul class="findings">'
+                + ''.join(items)
+                + '</ul></section>'
+            )
+        return ''.join(sections)
 
     result = outcome.result
     if result is None:
@@ -1772,38 +1879,35 @@ def _research_result_to_html(outcome: ResearchJobResultOutcome) -> str:
     title = build_title(result)
     providers = esc(', '.join(result.stats.search_providers) if result.stats.search_providers else 'none')
     answer_html = markdown_to_html(result.result)
-    findings = ''.join(
-        f'<li><a href="{esc(f.url)}">{esc(f.title)}</a><br><small>{esc(f.summary)}</small></li>'
-        for f in result.raw_findings[:10]
-    ) or '<li>No findings captured.</li>'
+    findings = render_grouped_findings(result.raw_findings)
     sources = ''.join(
-        f'<li><a href="{esc(s.url)}">{esc(s.title)}</a></li>'
+        f'<li><div><a href="{esc(s.url)}">{esc(s.title)}</a> {bucket_badge(source_bucket(s.url))}</div><small>{esc(source_reason(s.url, s.title))}</small></li>'
         for s in result.sources[:10]
     ) or '<li>No sources captured.</li>'
     evaluation_summary = (
         '<p class="muted">No structured evaluation yet.</p>'
         if evaluation is None
         else (
-            f'<div class="eval-summary"><strong>Query class:</strong> {esc(evaluation.query_class.value)} · '
-            f'<strong>Source quality:</strong> {esc(evaluation.source_quality_verdict.value)} · '
-            f'<strong>Relevance:</strong> {esc(evaluation.relevance_verdict.value)} · '
-            f'<strong>Truthfulness:</strong> {esc(evaluation.truthfulness_verdict.value)}</div>'
+            f'<div class="eval-summary"><strong>Evidence profile:</strong> '
+            f'{esc(evaluation.source_quality_verdict.value)} source quality · '
+            f'{esc(evaluation.relevance_verdict.value)} relevance · '
+            f'{esc(evaluation.truthfulness_verdict.value)} claim safety</div>'
         )
     )
     evaluation_details = (
-        '<div class="grid"><section class="panel"><h3>Source quality</h3><p class="muted">n/a</p></section>'
-        '<section class="panel"><h3>Relevance</h3><p class="muted">n/a</p></section>'
-        '<section class="panel"><h3>Truthfulness</h3><p class="muted">n/a</p></section></div>'
+        '<div class="grid"><section class="panel"><h3>Source base</h3><p class="muted">No structured evaluation yet.</p></section>'
+        '<section class="panel"><h3>Fit to the question</h3><p class="muted">No structured evaluation yet.</p></section>'
+        '<section class="panel"><h3>Claim safety</h3><p class="muted">No structured evaluation yet.</p></section></div>'
         if evaluation is None
         else (
             '<div class="grid">'
-            f'<section class="panel"><h3>Source quality</h3><div class="verdict">{esc(evaluation.source_quality_verdict.value)}</div><ul>{lines(evaluation.source_quality_reasons, "No specific source-quality notes.")}</ul></section>'
-            f'<section class="panel"><h3>Relevance</h3><div class="verdict">{esc(evaluation.relevance_verdict.value)}</div><ul>{lines(evaluation.relevance_risks, "No specific relevance risks.")}</ul></section>'
-            f'<section class="panel"><h3>Truthfulness</h3><div class="verdict">{esc(evaluation.truthfulness_verdict.value)}</div><ul>{lines(evaluation.overclaim_risks, "No explicit overclaim risks flagged.")}</ul></section>'
+            f'<section class="panel"><h3>Source base</h3><div class="verdict">{esc(evaluation.source_quality_verdict.value)}</div><ul>{lines(evaluation.source_quality_reasons, "No specific source-base concerns were flagged.")}</ul></section>'
+            f'<section class="panel"><h3>Fit to the question</h3><div class="verdict">{esc(evaluation.relevance_verdict.value)}</div><ul>{lines(evaluation.relevance_risks, "No specific fit-to-question risks were flagged.")}</ul></section>'
+            f'<section class="panel"><h3>Claim safety</h3><div class="verdict">{esc(evaluation.truthfulness_verdict.value)}</div><ul>{lines(evaluation.overclaim_risks, "No explicit overclaim risks were flagged.")}</ul></section>'
             '</div>'
-            '<div class="grid">'
-            f'<section class="panel"><h3>Missing checks</h3><ul>{lines(evaluation.missing_checks, "No missing checks flagged.")}</ul></section>'
-            f'<section class="panel"><h3>Next step</h3><p>{esc(evaluation.recommended_next_check or "No recommended next check.")}</p><p class="muted">Should revise report: {esc("yes" if evaluation.should_revise_report else "no")}</p></section>'
+            '<div class="grid grid-2">'
+            f'<section class="panel"><h3>Open verification gaps</h3><ul>{lines(evaluation.missing_checks, "No material verification gaps were flagged.")}</ul></section>'
+            f'<section class="panel"><h3>Recommended next check</h3><p>{esc(evaluation.recommended_next_check or "No immediate corrective check is required.")}</p><p class="muted">Revision suggested: {esc("yes" if evaluation.should_revise_report else "no")}</p></section>'
             '</div>'
         )
     )
@@ -1823,24 +1927,27 @@ def _research_result_to_html(outcome: ResearchJobResultOutcome) -> str:
       .hero {{ padding: 28px; display: grid; gap: 18px; }}
       .eyebrow {{ font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }}
       h1 {{ margin: 0; font-size: 34px; }} h2 {{ margin: 0 0 12px; font-size: 22px; }} h3 {{ margin: 0 0 10px; font-size: 16px; }}
-      p, li {{ line-height: 1.75; color: #d8e6ff; }} a {{ color: #8ed0ff; }} .lede {{ color: #dce9ff; font-size: 16px; margin: 0; }}
+      p, li {{ line-height: 1.75; color: #d8e6ff; }} a {{ color: #8ed0ff; }} .lede {{ color: #dce9ff; font-size: 16px; margin: 0; max-width: 70ch; }}
       .meta {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }}
       .meta-card {{ padding: 16px; border-radius: 18px; background: rgba(148, 168, 201, 0.08); border: 1px solid var(--line); }}
       .meta-label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }} .meta-value {{ margin-top: 8px; font-size: 18px; font-weight: 800; }}
       .card {{ padding: 22px; }} .report {{ background: linear-gradient(180deg, rgba(4, 10, 19, 0.92), rgba(7, 16, 30, 0.82)); border-radius: 18px; border: 1px solid rgba(148, 168, 201, 0.12); padding: 24px; }} .report h1, .report h2, .report h3 {{ margin-top: 0; }}
-      .muted {{ color: var(--muted); }} .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }} .panel {{ padding: 16px; border-radius: 18px; background: var(--panel-strong); border: 1px solid var(--line); }}
+      .muted {{ color: var(--muted); }} .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }} .grid-2 {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} .panel {{ padding: 16px; border-radius: 18px; background: var(--panel-strong); border: 1px solid var(--line); }}
       .eval-summary {{ padding: 14px 16px; border-radius: 16px; background: rgba(103, 183, 255, 0.08); border: 1px solid rgba(103, 183, 255, 0.18); color: #dcecff; }} .verdict {{ font-size: 18px; font-weight: 800; margin-bottom: 10px; color: var(--accent); text-transform: uppercase; }}
-      ul {{ margin: 0; padding-left: 20px; }} .sources li, .findings li {{ margin-bottom: 10px; }} .concept-note {{ padding: 14px 16px; border-radius: 16px; background: rgba(138, 125, 255, 0.12); border: 1px solid rgba(138, 125, 255, 0.18); color: #e7e2ff; }}
-      @media (max-width: 1100px) {{ .meta, .grid {{ grid-template-columns: 1fr; }} }}
+      ul {{ margin: 0; padding-left: 20px; }} .sources li, .findings li {{ margin-bottom: 12px; }} .finding-group {{ padding: 16px 0; border-top: 1px solid rgba(148, 168, 201, 0.12); }} .finding-group:first-child {{ padding-top: 0; border-top: 0; }} .finding-group h3 {{ margin-bottom: 12px; color: #dce9ff; }}
+      .badge {{ display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-left: 8px; }}
+      .badge.official {{ background: rgba(72, 201, 176, 0.16); color: #8df3dd; border: 1px solid rgba(72, 201, 176, 0.22); }}
+      .badge.supporting {{ background: rgba(103, 183, 255, 0.16); color: #a8dbff; border: 1px solid rgba(103, 183, 255, 0.22); }}
+      .badge.background {{ background: rgba(180, 180, 200, 0.12); color: #c9d3e6; border: 1px solid rgba(180, 180, 200, 0.18); }}
+      @media (max-width: 1100px) {{ .meta, .grid, .grid-2 {{ grid-template-columns: 1fr; }} }}
     </style>
   </head>
   <body>
     <div class="shell">
       <section class="hero">
-        <div class="eyebrow">SourceTrace Deep Research · HTML report</div>
+        <div class="eyebrow">SourceTrace report</div>
         <h1>{esc(title)}</h1>
-        <p class="lede">Structured research report optimized for external reading. The operator console keeps runtime controls; HTML is now a dedicated output surface.</p>
-        <div class="concept-note"><strong>SourceTrace concept:</strong> keep the HTML view external and calm like a finished report, while the operator console remains operational. Trust/evaluation stays visible as a structural part of the report instead of hidden metadata.</div>
+        <p class="lede">A cleaned research brief built from the sources selected by the runtime, with the answer, evidence, and remaining verification gaps separated clearly.</p>
         <div class="meta">
           <div class="meta-card"><div class="meta-label">Job ID</div><div class="meta-value">{esc(result.job_id)}</div></div>
           <div class="meta-card"><div class="meta-label">Status</div><div class="meta-value">{esc(result.status.value)}</div></div>
@@ -1850,8 +1957,8 @@ def _research_result_to_html(outcome: ResearchJobResultOutcome) -> str:
         <div class="card" style="padding:18px;"><strong>Research question:</strong> {esc(result.query)}</div>
       </section>
       <section class="card"><h2>Executive answer</h2><div class="report">{answer_html}</div></section>
-      <section class="card"><h2>Evaluation and confidence</h2>{evaluation_summary}{evaluation_details}</section>
-      <section class="card"><h2>Evidence highlights</h2><ul class="findings">{findings}</ul></section>
+      <section class="card"><h2>Evidence quality</h2>{evaluation_summary}{evaluation_details}</section>
+      <section class="card"><h2>Evidence highlights</h2>{findings}</section>
       <section class="card"><h2>Sources reviewed</h2><ul class="sources">{sources}</ul></section>
     </div>
   </body>

@@ -30,6 +30,11 @@ class ExtractedFinding:
     url: str
     title: str
     summary: str
+    html_content_enriched: bool = False
+    subject_precision_label: str | None = None
+    priority_band: str | None = None
+    official_evidence_verdict: str | None = None
+    official_evidence_confidence: float | None = None
     pdf_triage_verdict: str | None = None
     pdf_triage_notes: str | None = None
 

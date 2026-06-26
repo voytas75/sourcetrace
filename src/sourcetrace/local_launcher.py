@@ -17,7 +17,7 @@ from sourcetrace.application import (
     build_research_execution,
     build_search_adapter,
 )
-from sourcetrace.application.research_runtime import LlmQueryGenerator, StubPdfIngestor
+from sourcetrace.application.research_runtime import LlmOfficialEvidenceFamilyJudge, LlmOfficialEvidenceJudge, LlmOfficialSubjectPrecisionJudge, LlmQueryGenerator, LlmSearchRelevanceJudge, LlmSubjectSheetBuilder, OfficialHtmlContentEnricher, StubPdfIngestor
 from sourcetrace.runtime_pdf_ingest import build_research_pdf_analyzer
 from sourcetrace.runtime_pdf_backend_openclaw import build_native_pdf_ingestor_with_llm
 from sourcetrace.runtime_pdf_ingest_llm import build_pdf_llm_judge
@@ -323,6 +323,12 @@ def build_local_server_runtime(
             recover_interrupted_research_jobs(research_root)
             research_persistence = create_file_backed_research_persistence(research_root)
         planning_analyzer = LlmPlanningAnalyzer(llm_runtime.research_synthesis)
+        relevance_judge = LlmSearchRelevanceJudge(llm_runtime.research_synthesis)
+        subject_sheet_builder = LlmSubjectSheetBuilder(llm_runtime.research_synthesis)
+        official_subject_precision_judge = LlmOfficialSubjectPrecisionJudge(llm_runtime.research_synthesis)
+        official_evidence_judge = LlmOfficialEvidenceJudge(llm_runtime.research_synthesis)
+        official_evidence_family_judge = LlmOfficialEvidenceFamilyJudge(llm_runtime.research_synthesis)
+        official_html_content_enricher = OfficialHtmlContentEnricher(llm_runtime.research_synthesis)
         research_manager = ResearchJobManager(research_persistence, planning_analyzer=planning_analyzer)
         research_synthesizer = LlmResearchSynthesizer(
             _research_synthesis_with_markdown_fallback(llm_runtime.research_synthesis)
@@ -336,6 +342,7 @@ def build_local_server_runtime(
         search_adapter = build_procedural_admin_unified_search_adapter(
             current_search=base_search,
             unified_search_web=unified_search_web,
+            relevance_judge=relevance_judge,
         )
         native_pdf_debug_ingestor = build_native_pdf_ingestor_with_llm(
             llm_judge=build_pdf_llm_judge(
@@ -354,6 +361,12 @@ def build_local_server_runtime(
             search=search_adapter,
             synthesize=research_synthesizer,
             pdf_ingest=pdf_ingest_backend,
+            relevance_judge=relevance_judge,
+            subject_sheet_builder=subject_sheet_builder,
+            official_subject_precision_judge=official_subject_precision_judge,
+            official_evidence_judge=official_evidence_judge,
+            official_evidence_family_judge=official_evidence_family_judge,
+            official_html_content_enricher=official_html_content_enricher,
         )
         research = ResearchExecution(
             start_job=research_manager.start_job,

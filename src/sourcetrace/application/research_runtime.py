@@ -3,16 +3,18 @@
 from collections.abc import Callable
 from functools import lru_cache
 import json
+from html import unescape as html_unescape
 import re
 import unicodedata
 from typing import Any
 from urllib.error import URLError
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from collections import Counter
 from dataclasses import replace
 from datetime import UTC, datetime
 from time import perf_counter
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from sourcetrace.application.research import (
@@ -70,6 +72,56 @@ from sourcetrace.domain.research import (
 )
 from sourcetrace.storage.research import ResearchPersistence, create_in_memory_research_persistence
 
+
+
+
+@dataclass(frozen=True)
+class SubjectEntity:
+    name: str
+    type: str = "unknown"
+    role: str = "other"
+    confidence: float = 0.0
+
+
+@dataclass(frozen=True)
+class SubjectHint:
+    kind: str
+    value: str
+
+
+@dataclass(frozen=True)
+class SubjectSheet:
+    query_summary: str = ""
+    primary_subject: SubjectEntity = field(default_factory=lambda: SubjectEntity(name=""))
+    related_entities: tuple[SubjectEntity, ...] = ()
+    aliases: tuple[str, ...] = ()
+    anchor_terms: tuple[str, ...] = ()
+    proceeding_terms: tuple[str, ...] = ()
+    must_have_signals: tuple[str, ...] = ()
+    acceptable_adjacent_signals: tuple[str, ...] = ()
+    disqualifying_signals: tuple[str, ...] = ()
+    official_source_hints: tuple[SubjectHint, ...] = ()
+
+
+class LlmSubjectSheetBuilder:
+    """Build a compact subject sheet for research acceptance using LLM-first semantics."""
+
+    def __init__(self, synthesize_text: Callable[[str], object]) -> None:
+        self.synthesize_text = synthesize_text
+
+    def __call__(self, *, query: str, planning_analysis: PlanningAnalysis | None = None) -> SubjectSheet:
+        fallback = _fallback_subject_sheet(query=query, planning_analysis=planning_analysis)
+        prompt = _build_subject_sheet_prompt(query=query, planning_analysis=planning_analysis, fallback=fallback)
+        try:
+            result = self.synthesize_text(prompt)
+            text = getattr(result, 'text', '') if result is not None else ''
+            payload = json.loads(text)
+            validated = _subject_sheet_from_llm_payload(payload, fallback=fallback)
+            if validated is not None:
+                return validated
+        except Exception:
+            return fallback
+        return fallback
 
 class DeterministicPlanningAnalyzer:
     """Deterministic fallback planning-analysis builder from current heuristics."""
@@ -206,6 +258,13 @@ class StubQueryGenerator:
                 f"{symbol} exchange market",
                 f"{symbol} analytics volume open interest",
             )
+        planning_queries = _planning_aware_query_variants(
+            objective=objective,
+            round_number=round_number,
+            planning_analysis=planning_analysis,
+        )
+        if planning_queries:
+            return planning_queries
         if plan.strategy is ResearchPlanStrategy.PROCEDURAL_RESEARCH or _procedural_query_bias(normalized):
             if round_number == 1:
                 return _procedural_query_variants(objective)
@@ -214,13 +273,6 @@ class StubQueryGenerator:
                 f'{objective} Microsoft Learn official documentation',
                 f'{objective} Configuration Manager documentation',
             )
-        planning_queries = _planning_aware_query_variants(
-            objective=objective,
-            round_number=round_number,
-            planning_analysis=planning_analysis,
-        )
-        if planning_queries:
-            return planning_queries
         if plan.strategy is ResearchPlanStrategy.NEWS_RESEARCH and round_number > 1:
             return (
                 f"{objective} latest developments",
@@ -281,15 +333,27 @@ def _planning_aware_query_variants(
 ) -> tuple[str, ...]:
     if planning_analysis is None:
         return ()
-    if planning_analysis.query_class not in {ResearchQueryClass.CURRENT_NEWS, ResearchQueryClass.GENERAL}:
+    if planning_analysis.query_class not in {ResearchQueryClass.CURRENT_NEWS, ResearchQueryClass.GENERAL, ResearchQueryClass.PROCEDURAL_ADMIN}:
         return ()
     if (
         planning_analysis.query_class is ResearchQueryClass.GENERAL
         and not _planning_prefers_official_sources(planning_analysis)
     ):
         return ()
+    if (
+        planning_analysis.query_class is ResearchQueryClass.PROCEDURAL_ADMIN
+        and not _planning_prefers_official_public_law_sources(planning_analysis, objective=objective)
+    ):
+        return ()
 
     primary_entity = _planning_primary_entity_name(planning_analysis) or objective
+    tax_queries = _planning_tax_official_query_variants(
+        objective=objective,
+        primary_entity=primary_entity,
+        planning_analysis=planning_analysis,
+    )
+    if tax_queries:
+        return tax_queries
     institutional_queries = _planning_audit_institutional_query_variants(
         objective=objective,
         round_number=round_number,
@@ -423,6 +487,15 @@ def _planning_aware_query_variants(
     return _bucketed_query_selection(limit=6, include_objective=False)
 
 
+def _planning_prefers_official_public_law_sources(planning_analysis: PlanningAnalysis, *, objective: str = '') -> bool:
+    if not _planning_prefers_official_sources(planning_analysis):
+        return False
+    raw = ' '.join((objective, planning_analysis.goal, *planning_analysis.focus_areas, *planning_analysis.constraints)).lower()
+    return any(token in raw for token in (
+        'podat', 'podatk', 'mf', 'kas', 'ministerstwo finans', 'podatki.gov.pl', 'gov.pl', 'biznes.gov.pl', 'urzęd', 'urzed', 'najem', 'wynajem',
+    ))
+
+
 def _planning_prefers_official_sources(planning_analysis: PlanningAnalysis) -> bool:
     constraints = _normalized_planning_constraints(planning_analysis.constraints)
     focus_areas = _normalized_planning_focus_areas(planning_analysis.focus_areas)
@@ -534,6 +607,46 @@ def _planning_primary_entity_name(planning_analysis: PlanningAnalysis) -> str | 
         if name:
             return name
     return None
+
+
+def _planning_tax_official_query_variants(
+    *,
+    objective: str,
+    primary_entity: str,
+    planning_analysis: PlanningAnalysis,
+) -> tuple[str, ...]:
+    if planning_analysis.query_class not in {ResearchQueryClass.GENERAL, ResearchQueryClass.PROCEDURAL_ADMIN}:
+        return ()
+    if not _planning_prefers_official_public_law_sources(planning_analysis, objective=objective):
+        return ()
+
+    raw_context = " ".join(
+        (
+            objective,
+            planning_analysis.goal,
+            *tuple(str(item) for item in planning_analysis.focus_areas),
+            *tuple(str(item) for item in planning_analysis.constraints),
+            primary_entity,
+        )
+    ).lower()
+    tax_like = any(token in raw_context for token in (
+        'podat', 'podatk', 'ryczałt', 'ryczalt', 'najem', 'wynajem', 'pit', 'kas', 'mf', 'ministerstwo finans', 'podatki.gov.pl'
+    ))
+    if not tax_like:
+        return ()
+
+    subject = primary_entity or objective
+    return _dedupe_query_variants((
+        objective,
+        f'site:podatki.gov.pl {subject}',
+        f'site:podatki.gov.pl {subject} ryczałt',
+        f'site:podatki.gov.pl {subject} najem prywatny',
+        f'site:gov.pl {subject} Ministerstwo Finansów',
+        f'site:biznes.gov.pl {subject}',
+        f'Ministerstwo Finansów {subject}',
+        f'KAS {subject}',
+        f'{subject} ryczałt podatki.gov.pl',
+    ))[:8]
 
 
 def _planning_audit_institutional_query_variants(
@@ -844,6 +957,50 @@ def _dedupe_query_variants(queries: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(deduped)
 
 
+def _query_generation_trace(*, plan: ResearchExecutionPlan, planning_analysis: PlanningAnalysis | None, round_number: int) -> dict[str, object]:
+    objective = plan.objective.strip()
+    normalized = objective.lower()
+    trace: dict[str, object] = {
+        'strategy': plan.strategy.value,
+        'round_number': round_number,
+        'objective': objective,
+    }
+    if planning_analysis is None:
+        trace['path'] = 'legacy_query_generator_no_planning_analysis'
+        return trace
+    prefers_official = _planning_prefers_official_sources(planning_analysis)
+    procedural_bias = _procedural_query_bias(normalized)
+    planning_queries = _planning_aware_query_variants(
+        objective=objective,
+        round_number=round_number,
+        planning_analysis=planning_analysis,
+    )
+    trace.update({
+        'query_class': planning_analysis.query_class.value,
+        'prefers_official_sources': prefers_official,
+        'procedural_bias': procedural_bias,
+        'planning_aware_query_count': len(planning_queries),
+        'planning_aware_preview': list(planning_queries[:3]),
+    })
+    if planning_queries:
+        trace['path'] = 'planning_aware'
+        return trace
+    if plan.strategy is ResearchPlanStrategy.PROCEDURAL_RESEARCH or procedural_bias:
+        trace['path'] = 'procedural_branch'
+        return trace
+    if plan.strategy is ResearchPlanStrategy.NEWS_RESEARCH and round_number > 1:
+        trace['path'] = 'news_branch'
+        return trace
+    if round_number == 1:
+        trace['path'] = 'round1_objective_only'
+        return trace
+    if plan.strategy is ResearchPlanStrategy.DIRECT_ANSWER:
+        trace['path'] = 'direct_answer_branch'
+        return trace
+    trace['path'] = 'fallback_objective_only'
+    return trace
+
+
 def _generate_queries(
     query_generator: ResearchQueryGenerator,
     plan: ResearchExecutionPlan,
@@ -865,7 +1022,7 @@ def _generate_queries(
         return query_generator(plan, round_number=round_number)
 
 
-def _provider_candidate_diagnostics(*, hits: tuple[SearchHit, ...], query: str) -> list[dict[str, object]]:
+def _provider_candidate_diagnostics(*, hits: tuple[SearchHit, ...], query: str, subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> list[dict[str, object]]:
     diagnostics: list[dict[str, object]] = []
     for hit in hits:
         diagnostics.append(
@@ -874,10 +1031,10 @@ def _provider_candidate_diagnostics(*, hits: tuple[SearchHit, ...], query: str) 
                 'title': hit.title,
                 'source_type': _source_type(hit.url, hit.title),
                 'general_relevance': _general_relevance_score(query=query, hit=hit),
-                'entity_match': _entity_match_score(query=query, hit=hit),
+                'entity_match': _entity_match_score(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis),
                 'listing_page': _looks_like_listing_page(hit),
                 'weak_general_source': _looks_like_weak_general_source(hit),
-                'relevant_hit': _is_relevant_hit(query=query, hit=hit),
+                'relevant_hit': _is_relevant_hit(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis),
             }
         )
     return diagnostics
@@ -897,10 +1054,19 @@ def _triage_official_pdf_candidate(*, query: str, hit: SearchHit) -> tuple[str, 
     anchors = _subject_anchor_variants(query)
     compact = lowered.replace(' ', '')
     anchor_match = any(anchor in lowered or anchor in compact for anchor in anchors)
+    subject_like_phrases = [phrase for phrase in _query_surface_candidate_phrases(query) if len(phrase.split()) >= 2]
+    phrase_match = any(phrase in lowered or phrase.replace(' ', '') in compact for phrase in subject_like_phrases)
+    if not phrase_match:
+        query_tokens = {token for phrase in subject_like_phrases for token in phrase.split() if len(token) >= 5}
+        hit_tokens = {token for token in lowered.split() if len(token) >= 5}
+        overlap = len(query_tokens & hit_tokens)
+        phrase_match = overlap >= 2
     if anchor_match and entity_match >= 5:
         return 'relevant', 'subject_anchor_match'
-    if entity_match >= 3:
-        return 'uncertain', 'entity_match_without_anchor'
+    if phrase_match and entity_match >= 3:
+        return 'relevant', 'subject_phrase_match'
+    if entity_match >= 3 and (anchor_match or phrase_match):
+        return 'uncertain', 'partial_subject_match'
     return 'irrelevant', 'no_subject_signal'
 
 
@@ -1118,44 +1284,30 @@ def build_procedural_admin_unified_search_adapter(
     *,
     current_search: ResearchSearchAdapter,
     unified_search_web: Callable[..., list[dict[str, object]]] | None = None,
+    relevance_judge: "LlmSearchRelevanceJudge | None" = None,
 ) -> ResearchSearchAdapter:
-    """Unified Search first for procedural/admin and official-preferred institutional queries, with safe fallback."""
+    """Unified Search first for all research lookups, with safe fallback to the current search adapter."""
 
     if unified_search_web is None:
         return current_search
-
-    def _looks_official_enough(hits: tuple[SearchHit, ...]) -> bool:
-        top_hits = hits[:5]
-        return any(
-            _source_type(hit.url, hit.title) == 'official_docs' or _authority_signal_score(query='how to', hit=hit) >= 10
-            for hit in top_hits
-        )
-
-    def _should_try_unified_first(objective: str) -> bool:
-        lowered = objective.lower()
-        if _procedural_query_bias(lowered):
-            return True
-        return (
-            _classify_query(objective) is ResearchQueryClass.GENERAL
-            and any(token in lowered for token in ('nik', 'ministerstwo', 'urząd', 'urzad', 'government', 'official', 'gov', 'regulator', 'kontrola'))
-        )
 
     class _ProceduralAdminUnifiedAdapter:
         provider_name = "procedural_admin_unified_search"
         active_provider_names = ("procedural_admin_unified_search", "searxng")
 
         def __call__(self, queries: tuple[str, ...], *, round_number: int) -> tuple[SearchHit, ...]:
-            objective = queries[0] if queries else ""
-            if not _should_try_unified_first(objective):
-                hits = current_search(queries, round_number=round_number)
-                self.last_provider_names = _actual_search_provider_names(current_search)
-                return hits
-
             unified_adapter = WebSearchBackedSearchAdapter(unified_search_web, count=10)
             hits = unified_adapter(queries, round_number=round_number)
+            if relevance_judge is not None and hits:
+                judged_hits = tuple(hit for hit in hits if _llm_or_heuristic_relevant_hit(query=queries[0] if queries else "", hit=hit, relevance_judge=relevance_judge))
+                self.last_unified_hits = judged_hits
+                self.last_unified_official_enough = bool(judged_hits)
+                if judged_hits:
+                    self.last_provider_names = (self.provider_name,)
+                    return judged_hits
             self.last_unified_hits = hits
-            self.last_unified_official_enough = bool(hits and _looks_official_enough(hits))
-            if hits and self.last_unified_official_enough:
+            self.last_unified_official_enough = bool(hits)
+            if hits:
                 self.last_provider_names = (self.provider_name,)
                 return hits
             fallback_hits = current_search(queries, round_number=round_number)
@@ -1210,6 +1362,160 @@ def build_provider_search_adapter(
         )
     return provider_adapter
 
+class OfficialHtmlContentEnricher:
+    """Best-effort HTML content enricher for exact-subject official pages."""
+
+    def __init__(self, synthesize_text: Callable[[str], object], *, timeout_seconds: float = 10.0) -> None:
+        self.synthesize_text = synthesize_text
+        self.timeout_seconds = timeout_seconds
+
+    def enrich(self, *, query: str, finding: ExtractedFinding) -> ExtractedFinding:
+        if finding.html_content_enriched:
+            return finding
+        article_text = _fetch_html_article_text(finding.url, timeout_seconds=self.timeout_seconds)
+        if not article_text:
+            return finding
+        prompt = _build_exact_subject_html_enrichment_prompt(
+            query=query,
+            title=finding.title,
+            url=finding.url,
+            article_text=article_text,
+            existing_summary=finding.summary,
+        )
+        try:
+            result = self.synthesize_text(prompt)
+            text = getattr(result, 'text', '') if result is not None else ''
+            payload = json.loads(text)
+            summary = str(payload.get('summary', '') or '').strip()
+            confidence = float(payload.get('confidence', 0.0) or 0.0)
+            if summary:
+                return replace(
+                    finding,
+                    summary=f"[official_html_enriched] confidence={max(0.0, min(1.0, confidence)):.2f}; {summary}",
+                    html_content_enriched=True,
+                    priority_band=finding.priority_band or 'exact_subject_winner',
+                )
+        except Exception:
+            return finding
+        return finding
+
+
+class LlmOfficialSubjectPrecisionJudge:
+    """LLM-assisted exact-subject judge for official evidence candidates."""
+
+    def __init__(self, synthesize_text: Callable[[str], object]) -> None:
+        self.synthesize_text = synthesize_text
+
+    def judge_hit(
+        self,
+        *,
+        query: str,
+        hit: SearchHit,
+        subject_sheet: "SubjectSheet | None" = None,
+        preview_text: str | None = None,
+    ) -> tuple[str, float, str]:
+        prompt = _build_official_subject_precision_prompt(
+            query=query,
+            hit=hit,
+            subject_sheet=subject_sheet,
+            preview_text=preview_text,
+        )
+        try:
+            result = self.synthesize_text(prompt)
+            text = getattr(result, 'text', '') if result is not None else ''
+            payload = json.loads(text)
+            match = str(payload.get('subject_match', '') or '').strip().lower()
+            confidence = float(payload.get('confidence', 0.0) or 0.0)
+            reason = str(payload.get('reason', '') or '').strip()
+            if match in {'exact_subject', 'related_but_broad', 'off_topic'}:
+                return match, max(0.0, min(1.0, confidence)), reason
+        except Exception:
+            return 'related_but_broad', 0.0, 'llm_subject_precision_fallback'
+        return 'related_but_broad', 0.0, 'llm_subject_precision_default'
+
+
+class LlmSearchRelevanceJudge:
+    """LLM-assisted relevance judge over candidate search-hit summaries with safe fallback."""
+
+    def __init__(self, synthesize_text: Callable[[str], object]) -> None:
+        self.synthesize_text = synthesize_text
+
+    def accept_hit(self, *, query: str, hit: SearchHit) -> bool:
+        prompt = _build_search_relevance_prompt(query=query, hit=hit)
+        try:
+            result = self.synthesize_text(prompt)
+            text = getattr(result, 'text', '') if result is not None else ''
+            payload = json.loads(text)
+            verdict = payload.get('relevant')
+            if isinstance(verdict, bool):
+                return verdict
+        except Exception:
+            return False
+        return False
+
+
+class LlmOfficialEvidenceFamilyJudge:
+    """LLM-assisted judge for canonical vs collateral official pages inside one evidence family."""
+
+    def __init__(self, synthesize_text: Callable[[str], object]) -> None:
+        self.synthesize_text = synthesize_text
+
+    def judge_family(
+        self,
+        *,
+        query: str,
+        findings: tuple[ExtractedFinding, ...],
+    ) -> tuple[str, ...]:
+        prompt = _build_official_evidence_family_prompt(query=query, findings=findings)
+        try:
+            result = self.synthesize_text(prompt)
+            text = getattr(result, 'text', '') if result is not None else ''
+            payload = json.loads(text)
+            indexes = payload.get('canonical_indexes')
+            if isinstance(indexes, list):
+                normalized: list[str] = []
+                for item in indexes:
+                    try:
+                        idx = int(item)
+                    except Exception:
+                        continue
+                    if 0 <= idx < len(findings):
+                        normalized.append(findings[idx].url)
+                if normalized:
+                    return tuple(dict.fromkeys(normalized))
+        except Exception:
+            return ()
+        return ()
+
+
+class LlmOfficialEvidenceJudge:
+    """LLM-assisted semantic judge for official/public-law evidence candidates."""
+
+    def __init__(self, synthesize_text: Callable[[str], object]) -> None:
+        self.synthesize_text = synthesize_text
+
+    def judge_hit(
+        self,
+        *,
+        query: str,
+        hit: SearchHit,
+        planning_analysis: PlanningAnalysis | None = None,
+    ) -> tuple[str, float, str]:
+        prompt = _build_official_evidence_judge_prompt(query=query, hit=hit, planning_analysis=planning_analysis)
+        try:
+            result = self.synthesize_text(prompt)
+            text = getattr(result, 'text', '') if result is not None else ''
+            payload = json.loads(text)
+            verdict = str(payload.get('verdict', '') or '').strip().lower()
+            confidence = float(payload.get('confidence', 0.0) or 0.0)
+            reason = str(payload.get('reason', '') or '').strip()
+            if verdict in {'primary', 'supporting', 'collateral', 'reject'}:
+                return verdict, max(0.0, min(1.0, confidence)), reason
+        except Exception:
+            return 'supporting', 0.0, 'llm_official_evidence_fallback'
+        return 'supporting', 0.0, 'llm_official_evidence_default'
+
+
 class LlmResearchSynthesizer:
     """Text-generation-backed synthesizer for higher-quality research summaries."""
 
@@ -1224,10 +1530,12 @@ class LlmResearchSynthesizer:
         findings: tuple[ExtractedFinding, ...],
         previous_report: str | None,
     ) -> SynthesisResult:
-        top_findings = _top_findings(findings, query=query)
+        family_trace: list[dict[str, object]] = []
+        top_findings = _top_findings(findings, query=query, family_judge=getattr(self, 'official_evidence_family_judge', None), family_trace_sink=family_trace)
         evidence = "\n".join(
-            f"- {finding.title}: {finding.summary}" for finding in top_findings
+            f"- {finding.title}: {_clean_report_summary_text(finding.summary)}" for finding in top_findings
         ) or "- No useful findings in this round."
+        source_context = _report_source_context(top_findings)
         previous_answer = _extract_section_body(previous_report, "Current answer") or "NONE"
         query_class = _classify_query(query)
         packed = _pack_evidence_for_synthesis(query=query, findings=top_findings)
@@ -1236,6 +1544,7 @@ class LlmResearchSynthesizer:
             round_number=round_number,
             previous_answer=previous_answer,
             evidence=evidence,
+            source_context=source_context,
             query_class=query_class,
             has_direct_procedural_evidence=packed.has_direct_procedural_evidence,
         )
@@ -1270,10 +1579,27 @@ class StubExtractor:
             summary = _extract_evidence_summary(hit)
             if not summary:
                 continue
+            official_verdict = None
+            official_confidence = None
+            if '[llm_official_evidence:primary]' in summary:
+                official_verdict = 'primary'
+            elif '[llm_official_evidence:supporting]' in summary:
+                official_verdict = 'supporting'
+            elif '[llm_official_evidence:collateral]' in summary:
+                official_verdict = 'collateral'
+            elif '[llm_official_evidence:reject]' in summary:
+                official_verdict = 'reject'
+            confidence_match = re.search(r'llm_official_confidence=(\d+(?:\.\d+)?)', summary)
+            if confidence_match is not None:
+                official_confidence = float(confidence_match.group(1))
             finding = ExtractedFinding(
                 url=hit.url,
                 title=hit.title.strip() or hit.url,
                 summary=summary,
+                subject_precision_label='exact_subject' if '[official_subject:exact_subject]' in summary else 'related_but_broad' if '[official_subject:related_but_broad]' in summary else 'off_topic' if '[official_subject:off_topic]' in summary else None,
+                priority_band='exact_subject_winner' if '[priority_band:exact_subject_winner]' in summary else 'official_related' if '[priority_band:official_related]' in summary else 'off_topic' if '[priority_band:off_topic]' in summary else None,
+                official_evidence_verdict=official_verdict,
+                official_evidence_confidence=official_confidence,
             )
             if self.query and _source_type(hit.url, hit.title) == 'official_docs' and _looks_like_pdf_artifact(hit):
                 verdict, notes = _triage_official_pdf_candidate(query=self.query, hit=hit)
@@ -1334,6 +1660,87 @@ def _normalize_snippet(snippet: str) -> str:
     if len(compact) > 220:
         compact = compact[:217].rstrip() + "..."
     return compact
+
+
+def _fetch_html_article_text(url: str, *, timeout_seconds: float = 10.0, max_chars: int = 12000) -> str:
+    try:
+        request = Request(url, headers={"User-Agent": "Mozilla/5.0 (SourceTrace research runtime)"})
+        with urlopen(request, timeout=timeout_seconds) as response:
+            content_type = (response.headers.get('Content-Type') or '').lower()
+            if 'html' not in content_type:
+                return ''
+            raw = response.read(max_chars * 3)
+    except Exception:
+        return ''
+    text = raw.decode('utf-8', errors='ignore')
+    text = re.sub(r'(?is)<script[^>]*>.*?</script>', ' ', text)
+    text = re.sub(r'(?is)<style[^>]*>.*?</style>', ' ', text)
+    text = re.sub(r'(?s)<[^>]+>', ' ', text)
+    text = html_unescape(text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:max_chars]
+
+
+def _build_exact_subject_html_enrichment_prompt(*, query: str, title: str, url: str, article_text: str, existing_summary: str) -> str:
+    clipped_text = article_text[:8000]
+    return f"""
+You are enriching an exact-subject official source finding for a research runtime.
+
+User query:
+{query}
+
+Source title: {title}
+Source URL: {url}
+Existing summary: {existing_summary}
+
+Article text:
+{clipped_text}
+
+Return strict JSON with:
+{{
+  "summary": "2-4 sentence summary of the concrete official claims most relevant to the user query; if the page is mostly teaser/boilerplate, say that plainly",
+  "confidence": 0.0
+}}
+
+Rules:
+- Focus on the exact case in the user query.
+- Prefer concrete official findings, accusations, scope, conclusions, or declared gaps.
+- Do not invent claims missing from the page text.
+- If article text is weak/teaser-like, summarize that limitation explicitly.
+""".strip()
+
+
+def _lift_exact_subject_official_findings(*, query: str, findings: tuple[ExtractedFinding, ...]) -> tuple[ExtractedFinding, ...]:
+    lifted: list[ExtractedFinding] = []
+    for finding in findings:
+        if '[official_subject:exact_subject]' not in finding.summary:
+            lifted.append(finding)
+            continue
+        if _source_type(finding.url, finding.title) != 'official_docs':
+            lifted.append(finding)
+            continue
+        enriched_summary = _enrich_exact_subject_official_summary(query=query, finding=finding)
+        lifted.append(
+            replace(
+                finding,
+                summary=enriched_summary,
+                subject_precision_label=finding.subject_precision_label or 'exact_subject',
+                priority_band=finding.priority_band or 'exact_subject_winner',
+            )
+        )
+    return tuple(lifted)
+
+
+def _enrich_exact_subject_official_summary(*, query: str, finding: ExtractedFinding) -> str:
+    del query
+    summary = finding.summary.strip()
+    lower_title = finding.title.lower()
+    if '[official_subject:exact_subject]' in summary and ('source focus:' in summary.lower() or 'key evidence:' in summary.lower()):
+        if any(token in lower_title for token in ('getback', 'nadzor knf', 'nadzór knf', 'spolk', 'spółk')):
+            return f"{summary} [exact_subject_content_lift:prefer_primary_case_page]"
+    if '[official_subject:exact_subject]' in summary:
+        return f"{summary} [exact_subject_content_lift:keep_exact_subject]"
+    return summary
 
 
 def _extract_evidence_summary(hit: SearchHit) -> str:
@@ -1447,7 +1854,12 @@ def _procedural_query_bias(query: str) -> bool:
         'nik', 'najwyższa izba kontroli', 'najwyzsza izba kontroli', 'raport', 'wyniki kontroli',
         'kontrola', 'ustalenia', 'komunikat', 'pokontrol', 'szpital', 'miasto', 'warszawa',
     )
+    official_public_law_tokens = (
+        'podat', 'podatk', 'mf', 'kas', 'ministerstwo finans', 'podatki.gov.pl', 'gov.pl', 'urzęd', 'urzed', 'oficjalnych źród', 'oficjalnych zrodl',
+    )
     if any(token in lowered for token in institutional_audit_tokens) and not any(token in lowered for token in ('microsoft', 'sccm', 'intune', 'entra', 'configuration manager', 'azure')):
+        return False
+    if any(token in lowered for token in official_public_law_tokens) and not any(token in lowered for token in ('microsoft', 'sccm', 'intune', 'entra', 'configuration manager', 'azure')):
         return False
     strong_domain_tokens = (
         "wdroż", "wdroze", "deploy", "deployment", "configuration", "baseline", "baselines", "sccm",
@@ -1551,8 +1963,8 @@ def _general_relevance_score(*, query: str, hit: SearchHit) -> int:
     entity_match = _entity_match_score(query=query, hit=hit)
     source_type = _source_type(hit.url, hit.title)
     institutional_general = (
-        _classify_query(query) is ResearchQueryClass.GENERAL
-        and any(token in query.lower() for token in ('nik', 'ministerstwo', 'urząd', 'urzad', 'government', 'official', 'gov', 'regulator', 'kontrola'))
+        _classify_query(query) in {ResearchQueryClass.GENERAL, ResearchQueryClass.PROCEDURAL_ADMIN}
+        and any(token in query.lower() for token in ('nik', 'ministerstwo', 'urząd', 'urzad', 'government', 'official', 'gov', 'regulator', 'kontrola', 'podatki.gov.pl', 'mf', 'kas', 'najem', 'wynajem', 'podatk'))
     )
     if institutional_general:
         score += entity_match
@@ -1580,7 +1992,7 @@ def _pdf_query_overlap_score(*, query: str, hit: SearchHit) -> int:
     return sum(1 for token in tokens if token in haystack)
 
 
-def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
+def _is_relevant_hit(*, query: str, hit: SearchHit, subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> bool:
     haystack = f"{hit.title} {hit.snippet} {hit.url}".lower()
     keywords = _query_keywords(query)
     if not keywords:
@@ -1624,9 +2036,9 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
     if _looks_like_weak_general_source(hit) and not official_pdf_rescue:
         return False
     score = _general_relevance_score(query=query, hit=hit)
-    entity_match = _entity_match_score(query=query, hit=hit)
+    entity_match = _entity_match_score(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
     if institutional_general:
-        anchors = _subject_anchor_variants(query)
+        anchors = _subject_anchor_variants(query, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
         compact_haystack = haystack.replace(' ', '')
         anchor_match = any(anchor in haystack or anchor in compact_haystack for anchor in anchors)
         strong_subject_type_match = (
@@ -1639,6 +2051,8 @@ def _is_relevant_hit(*, query: str, hit: SearchHit) -> bool:
         if source_type in {'official_docs', 'docs'} and (anchor_match or strong_subject_type_match):
             return True
         if source_type in {'official_docs', 'docs'} and entity_match >= 3 and (anchor_match or strong_subject_type_match):
+            return True
+        if source_type in {'official_docs', 'docs'} and any(token in haystack for token in ('najem', 'wynajem', 'dochody z najmu', 'ryczałt', 'ryczalt', 'mikrorachunek', 'podatek', 'opodatkowania')):
             return True
         if source_type in {'official_docs', 'docs'} and not anchor_match and not strong_subject_type_match and not official_pdf_rescue and score < 8:
             return False
@@ -1889,8 +2303,8 @@ def _query_surface_candidate_phrases(query: str) -> tuple[str, ...]:
     return tuple(deduped[:16])
 
 
-def _subject_anchor_variants(query: str) -> tuple[str, ...]:
-    planning = _build_fallback_planning_analysis(query)
+def _subject_anchor_variants(query: str, *, subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> tuple[str, ...]:
+    planning = planning_analysis or _build_fallback_planning_analysis(query)
     entity_names = [
         (hypothesis.canonical_name or hypothesis.surface_form).strip()
         for hypothesis in planning.entity_hypotheses
@@ -1901,6 +2315,8 @@ def _subject_anchor_variants(query: str) -> tuple[str, ...]:
         'szpital', 'szpitala', 'hospital', 'klinika', 'clinic', 'school', 'szkol', 'zespol',
         'ministerstwo', 'urzad', 'urząd', 'izba', 'nik', 'instytut', 'centrum'
     }
+    if subject_sheet is not None:
+        entity_names = [subject_sheet.primary_subject.name, *[item.name for item in subject_sheet.related_entities], *list(subject_sheet.aliases), *entity_names]
     for entity_name in entity_names:
         tokens = list(_match_tokens(entity_name))
         if len(tokens) < 2:
@@ -1932,25 +2348,25 @@ def _subject_anchor_variants(query: str) -> tuple[str, ...]:
     return tuple(deduped[:12])
 
 
-def _entity_match_score(*, query: str, hit: SearchHit) -> int:
+def _entity_match_score(*, query: str, hit: SearchHit, subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> int:
     haystack = _normalized_match_text(f"{hit.title} {hit.url} {hit.snippet}")
     compact_haystack = haystack.replace(' ', '')
     if not haystack:
         return 0
 
     score = 0
-    planning = _build_fallback_planning_analysis(query)
+    planning = planning_analysis or _build_fallback_planning_analysis(query)
     entity_names = [
         (hypothesis.canonical_name or hypothesis.surface_form).strip()
         for hypothesis in planning.entity_hypotheses
         if (hypothesis.canonical_name or hypothesis.surface_form).strip()
     ]
-    for anchor in _subject_anchor_variants(query):
+    for anchor in _subject_anchor_variants(query, subject_sheet=subject_sheet, planning_analysis=planning):
         if not anchor:
             continue
         if anchor in haystack or anchor in compact_haystack:
             score = max(score, 8)
-    candidate_phrases = list(entity_names) + list(_query_surface_candidate_phrases(query))
+    candidate_phrases = list(entity_names) + (list(subject_sheet.aliases) if subject_sheet is not None else []) + list(_query_surface_candidate_phrases(query))
     seen_phrases: set[str] = set()
     for index, entity_name in enumerate(candidate_phrases):
         normalized_name = _normalized_match_text(entity_name)
@@ -2002,11 +2418,11 @@ def _is_off_topic_institutional_official_hit(*, query: str, hit: SearchHit) -> b
     return any(marker in normalized_url for marker in broad_off_topic_markers)
 
 
-def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...]) -> PreExtractionFilterOutcome:
-    return _filter_hits_for_extraction_with_diagnostics(query=query, hits=hits)["outcome"]
+def _filter_hits_for_extraction(*, query: str, hits: tuple[SearchHit, ...], relevance_judge: "LlmSearchRelevanceJudge | None" = None, official_evidence_judge: "LlmOfficialEvidenceJudge | None" = None, subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> PreExtractionFilterOutcome:
+    return _filter_hits_for_extraction_with_diagnostics(query=query, hits=hits, relevance_judge=relevance_judge, official_evidence_judge=official_evidence_judge, subject_sheet=subject_sheet, planning_analysis=planning_analysis)["outcome"]
 
 
-def _filter_hits_for_extraction_with_diagnostics(*, query: str, hits: tuple[SearchHit, ...]) -> dict[str, object]:
+def _filter_hits_for_extraction_with_diagnostics(*, query: str, hits: tuple[SearchHit, ...], relevance_judge: "LlmSearchRelevanceJudge | None" = None, official_evidence_judge: "LlmOfficialEvidenceJudge | None" = None, subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> dict[str, object]:
     query_class = _classify_query(query)
     scientific_intent = any(token in query.lower() for token in ('study', 'studies', 'systematic review', 'meta-analysis', 'literature', 'journal', 'po 2023', 'after 2023', 'zdrowie psychiczne', 'mental health', 'peer-reviewed', 'pubmed'))
     preservation_classes = {ResearchQueryClass.GENERAL, ResearchQueryClass.BROAD_CONCEPT, ResearchQueryClass.CURRENT_NEWS}
@@ -2079,7 +2495,7 @@ def _filter_hits_for_extraction_with_diagnostics(*, query: str, hits: tuple[Sear
                         'source_type': _source_type(hit.url, hit.title),
                         'general_relevance': _general_relevance_score(query=query, hit=hit),
                         'authority_signal': _authority_signal_score(query=query, hit=hit),
-                        'entity_match': _entity_match_score(query=query, hit=hit),
+                        'entity_match': _entity_match_score(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis),
                         'bucket': 'kept',
                         'reason': 'preservation_inactive_pass_through',
                         'final_disposition': 'kept',
@@ -2097,7 +2513,7 @@ def _filter_hits_for_extraction_with_diagnostics(*, query: str, hits: tuple[Sear
             source_type = _source_type(hit.url, hit.title)
             relevance = _general_relevance_score(query=query, hit=hit)
             authority = _authority_signal_score(query=query, hit=hit)
-            entity_match = _entity_match_score(query=query, hit=hit)
+            entity_match = _entity_match_score(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
             order_key = _weighted_order(hit)
             diag = {
                 'url': hit.url,
@@ -2114,10 +2530,34 @@ def _filter_hits_for_extraction_with_diagnostics(*, query: str, hits: tuple[Sear
                 dropped.append(hit)
                 continue
             if _is_off_topic_institutional_official_hit(query=query, hit=hit):
+                if relevance_judge is not None and relevance_judge.accept_hit(query=query, hit=hit):
+                    diagnostics.append({**diag, 'bucket': 'secondary', 'reason': 'llm_rescued_institutional_off_topic_gate'})
+                    secondary.append(hit)
+                    continue
                 diagnostics.append({**diag, 'bucket': 'dropped', 'reason': 'institutional_off_topic_gate'})
                 dropped.append(hit)
                 continue
             if source_type == 'official_docs' and (relevance >= 4 or 'nik' in query.lower() or 'gov' in hit.url.lower()):
+                llm_verdict = None
+                if official_evidence_judge is not None and any(token in query.lower() for token in ('ministerstwo', 'urzęd', 'urzad', 'official', 'gov', 'podatki.gov.pl', 'mf', 'kas', 'najem', 'wynajem', 'podatk')):
+                    llm_verdict, llm_confidence, llm_reason = official_evidence_judge.judge_hit(query=query, hit=hit, planning_analysis=planning_analysis)
+                    diag = {**diag, 'llm_official_evidence_verdict': llm_verdict, 'llm_official_evidence_confidence': llm_confidence, 'llm_official_evidence_reason': llm_reason}
+                    if llm_verdict == 'reject':
+                        diagnostics.append({**diag, 'bucket': 'dropped', 'reason': 'llm_official_reject'})
+                        dropped.append(hit)
+                        continue
+                    if llm_verdict == 'collateral':
+                        diagnostics.append({**diag, 'bucket': 'secondary', 'reason': 'llm_official_collateral'})
+                        secondary.append(hit)
+                        continue
+                    if llm_verdict == 'supporting':
+                        diagnostics.append({**diag, 'bucket': 'secondary', 'reason': 'llm_official_supporting'})
+                        secondary.append(hit)
+                        continue
+                    if llm_verdict == 'primary':
+                        diagnostics.append({**diag, 'bucket': 'strong', 'reason': 'llm_official_primary'})
+                        strong.append(hit)
+                        continue
                 diagnostics.append({**diag, 'bucket': 'strong', 'reason': 'official_docs_priority'})
                 strong.append(hit)
                 continue
@@ -2264,7 +2704,7 @@ def _filter_hits_for_extraction_with_diagnostics(*, query: str, hits: tuple[Sear
                 'source_type': source_type,
                 'general_relevance': _general_relevance_score(query=query, hit=hit),
                 'authority_signal': _authority_signal_score(query=query, hit=hit),
-                'entity_match': _entity_match_score(query=query, hit=hit),
+                'entity_match': _entity_match_score(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis),
                 'bucket': 'strong' if hit.url in strong_urls else ('secondary' if hit.url in secondary_urls else 'dropped'),
                 'reason': 'procedural_or_general_authority_filter',
                 'final_disposition': 'kept' if hit.url in kept_urls else 'dropped',
@@ -2278,8 +2718,93 @@ def _filter_hits_for_extraction_with_diagnostics(*, query: str, hits: tuple[Sear
     }
 
 
+def _should_promote_official_general_finding_to_core(*, query: str, finding: ExtractedFinding) -> bool:
+    if _classify_query(query) is not ResearchQueryClass.GENERAL:
+        return False
+    if _source_type(finding.url, finding.title) != 'official_docs':
+        return False
+    if _is_off_topic_institutional_official_hit(
+        query=query,
+        hit=SearchHit(url=finding.url, title=finding.title, snippet=finding.summary),
+    ):
+        return False
+    hit = SearchHit(url=finding.url, title=finding.title, snippet=finding.summary)
+    entity_match = _entity_match_score(
+        query=query,
+        hit=hit,
+    )
+    summary_haystack = _normalized_match_text(f"{finding.title} {finding.summary}")
+    anchor_haystack = _normalized_match_text(f"{finding.title} {finding.summary} {finding.url}")
+    anchor_variants = _subject_anchor_variants(query)
+    anchor_match = any(anchor and anchor in anchor_haystack for anchor in anchor_variants)
+    if not anchor_match:
+        subject_like_phrases = [phrase for phrase in _query_surface_candidate_phrases(query) if len(phrase.split()) >= 2]
+        anchor_match = any(phrase in anchor_haystack for phrase in subject_like_phrases)
+    has_depth_signal = any(
+        token in summary_haystack
+        for token in (
+            'official pdf ingest verified',
+            'scope=',
+            'findings',
+            'ustalen',
+            'recommend',
+            'zalec',
+            'decyz',
+            'raport',
+            'kontrol',
+            'postepowan',
+        )
+    )
+    return entity_match >= 3 and anchor_match and has_depth_signal
+
+
+
+def _query_prefers_official_supporting(query: str) -> bool:
+    lowered = query.lower()
+    return any(token in lowered for token in (
+        'oficjal', 'urzęd', 'urzed', 'instytucj', 'government', 'gov', 'publiczny', 'public law', 'mf', 'kas', 'ministerstwo',
+    ))
+
+
+def _supporting_bucket_rank(*, query: str, finding: ExtractedFinding) -> int:
+    source_type = _source_type(finding.url, finding.title)
+    if not _query_prefers_official_supporting(query):
+        order = {
+            'official_docs': 0,
+            'docs': 1,
+            'vendor_docs': 2,
+            'analysis': 3,
+            'data': 4,
+            'generic': 5,
+            'blog': 6,
+        }
+        return order.get(source_type, 9)
+    order = {
+        'official_docs': 0,
+        'docs': 1,
+        'vendor_docs': 2,
+        'analysis': 5,
+        'data': 5,
+        'generic': 6,
+        'blog': 7,
+    }
+    return order.get(source_type, 9)
+
+
 def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding, ...]) -> PackedEvidence:
-    ranked = _top_findings(findings, limit=max(6, len(findings)), query=query)
+    ranked = _top_findings(findings, limit=max(6, len(findings)), query=query, family_judge=None)
+    ranked = sorted(
+        ranked,
+        key=lambda finding: (
+            0 if (finding.official_evidence_verdict == 'primary') else 1 if (finding.official_evidence_verdict == 'supporting') else 2 if (finding.official_evidence_verdict == 'collateral') else 3,
+            0 if _source_type(finding.url, finding.title) == 'official_docs' else 1,
+            -_enriched_exact_subject_priority_score(finding),
+            -_exact_subject_content_quality_score(finding),
+            0 if '[exact_subject_content_lift:prefer_primary_case_page]' in finding.summary else 1,
+            0 if '[official_subject:exact_subject]' in finding.summary or finding.subject_precision_label == 'exact_subject' else 1 if '[official_subject:related_but_broad]' in finding.summary else 2,
+            -len(finding.summary or ''),
+        ),
+    )
     query_class = _classify_query(query)
     core_limit = 2
     supporting_limit = 2 if query_class is ResearchQueryClass.PROCEDURAL_ADMIN else (3 if query_class is ResearchQueryClass.GENERAL else 2)
@@ -2291,11 +2816,20 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
     for finding in ranked:
         source_type = _source_type(finding.url, finding.title)
         if query_class is ResearchQueryClass.PROCEDURAL_ADMIN:
+            if finding.official_evidence_verdict == 'reject':
+                background.append(finding)
+                continue
             direct = _procedural_directness_score(query=query, url=finding.url, title=finding.title) >= 3
             if direct:
                 has_direct_procedural_evidence = True
             official_core_present = any(_source_type(item.url, item.title) == 'official_docs' for item in core)
-            if direct and source_type == 'official_docs' and len(core) < core_limit:
+            if finding.official_evidence_verdict == 'collateral' and source_type == 'official_docs':
+                background.append(finding)
+                continue
+            if finding.official_evidence_verdict == 'primary' and source_type == 'official_docs' and len(core) < core_limit:
+                core.append(finding)
+                continue
+            if direct and source_type == 'official_docs' and len(core) < core_limit and finding.official_evidence_verdict != 'collateral':
                 core.append(finding)
                 continue
             if source_type == 'official_docs' and len(core) < core_limit and not direct:
@@ -2320,20 +2854,50 @@ def _pack_evidence_for_synthesis(*, query: str, findings: tuple[ExtractedFinding
             background.append(finding)
             continue
         if query_class is ResearchQueryClass.GENERAL:
+            if finding.official_evidence_verdict == 'reject':
+                background.append(finding)
+                continue
+            if finding.official_evidence_verdict == 'collateral' and source_type == 'official_docs':
+                background.append(finding)
+                continue
             general_haystack = f"{finding.title} {finding.summary}".lower()
             research_like_general = any(token in general_haystack for token in ('study', 'research', 'analysis', 'report', 'evidence'))
+            prefers_official_supporting = _query_prefers_official_supporting(query)
+            if finding.official_evidence_verdict == 'primary' and source_type == 'official_docs' and len(core) < core_limit:
+                core.append(finding)
+                continue
+            if _enriched_exact_subject_priority_score(finding) >= 5 and source_type == 'official_docs' and len(core) < core_limit:
+                core.append(finding)
+                continue
+            if '[exact_subject_content_lift:prefer_primary_case_page]' in finding.summary and source_type == 'official_docs' and len(core) < core_limit:
+                core.append(finding)
+                continue
+            if '[official_subject:exact_subject]' in finding.summary and source_type == 'official_docs' and len(core) < core_limit:
+                core.append(finding)
+                continue
+            if _should_promote_official_general_finding_to_core(query=query, finding=finding) and len(core) < core_limit:
+                core.append(finding)
+                continue
             if finding.pdf_triage_notes == 'pdf_ingest_verified' and source_type == 'official_docs' and len(core) < core_limit:
                 core.append(finding)
                 continue
-            if not core and source_type in {'analysis', 'data'} and research_like_general:
+            if not core and source_type in {'analysis', 'data'} and research_like_general and not prefers_official_supporting:
                 core.append(finding)
                 continue
-            if finding.pdf_triage_notes == 'pdf_ingest_verified' and source_type == 'official_docs' and len(supporting) < supporting_limit:
-                supporting.append(finding)
-                continue
-            if source_type in {'official_docs', 'docs', 'generic', 'vendor_docs', 'blog', 'analysis', 'data'} and len(supporting) < supporting_limit:
-                supporting.append(finding)
-                continue
+            if len(supporting) < supporting_limit:
+                rank = _supporting_bucket_rank(query=query, finding=finding)
+                if finding.pdf_triage_notes == 'pdf_ingest_verified' and source_type == 'official_docs':
+                    supporting.append(finding)
+                    continue
+                if source_type in {'official_docs', 'docs', 'generic', 'vendor_docs', 'blog', 'analysis', 'data'}:
+                    if finding.official_evidence_verdict == 'collateral':
+                        background.append(finding)
+                        continue
+                    if prefers_official_supporting and rank >= 5 and any(_supporting_bucket_rank(query=query, finding=item) < rank for item in ranked if item is not finding):
+                        background.append(finding)
+                        continue
+                    supporting.append(finding)
+                    continue
             background.append(finding)
             continue
         if len(core) < core_limit:
@@ -2525,6 +3089,81 @@ def _to_research_evidence_pack(*, query: str, packed: PackedEvidence) -> Researc
     )
 
 
+def _enriched_exact_subject_priority_score(finding: ExtractedFinding) -> int:
+    source_type = _source_type(finding.url, finding.title)
+    if source_type != 'official_docs':
+        return 0
+    score = 0
+    if finding.subject_precision_label == 'exact_subject':
+        score += 3
+    elif '[official_subject:exact_subject]' in finding.summary:
+        score += 2
+    if finding.priority_band == 'exact_subject_winner':
+        score += 4
+    elif '[priority_band:exact_subject_winner]' in finding.summary:
+        score += 2
+    if finding.html_content_enriched:
+        score += 3
+    if '[official_html_enriched]' in finding.summary:
+        score += 2
+    if '[exact_subject_content_lift:prefer_primary_case_page]' in finding.summary:
+        score += 2
+    return score
+
+
+def _exact_subject_content_quality_score(finding: ExtractedFinding) -> int:
+    if _source_type(finding.url, finding.title) != 'official_docs':
+        return 0
+    if finding.subject_precision_label != 'exact_subject' and '[official_subject:exact_subject]' not in finding.summary:
+        return 0
+    score = 0
+    summary = (finding.summary or '').lower()
+    title = (finding.title or '').lower()
+    url = (finding.url or '').lower()
+    strong_content_markers = (
+        'nierzetelny', 'nieprawidłowy', 'nieprawidlowy', 'zaniechan', 'zarzuci', 'ustaliła', 'ustalila',
+        'nadzór był', 'nadzor byl', 'nie skorzystał', 'nie skorzystal', 'metodologi', 'wycen', 'obligatariusz',
+        'pokrzywdzon', 'portfeli wierzytelności', 'sprawozdań finansowych', 'sprawozdan finansowych',
+        '3,5 mld', '3.5 mld', '3,14 mld', 'postępowania układowego', 'postepowania ukladowego',
+    )
+    weak_page_markers = (
+        'sam przytoczony tekst ma jednak charakter niemal wyłącznie nawigacyjno-teaserowy',
+        'sam tekst jest jednak głównie komunikatem o przekazaniu zawiadomienia',
+        'strona wskazuje numer kontroli',
+        'odsyła do',
+        'wynik dokładnie odnoszący się do sprawy',
+    )
+    landing_like_markers = (
+        '/kontrole/', '/tagi/', 'find=', 'pobierz,', 'wystąpienie pokontrolne', 'wystapienie pokontrolne',
+    )
+    score += min(6, sum(1 for marker in strong_content_markers if marker in summary))
+    if 'official_html_enriched' in summary:
+        score += 1
+    if len(summary) >= 700:
+        score += 2
+    elif len(summary) >= 450:
+        score += 1
+    if any(marker in summary for marker in weak_page_markers):
+        score -= 4
+    if any(marker in url for marker in landing_like_markers):
+        score -= 2
+    if '/aktualnosci/' in url or '/transkrypcje/' in url:
+        score += 2
+    if 'getback' in title and ('nierzetelny' in title or 'nieprawidłowy' in title or 'nieprawidlowy' in title):
+        score += 2
+    return score
+
+
+def _exact_subject_winner_sort_key(finding: ExtractedFinding) -> tuple[int, int, int, int, int]:
+    return (
+        _enriched_exact_subject_priority_score(finding),
+        _exact_subject_content_quality_score(finding),
+        _pdf_promotion_score(finding),
+        len(finding.summary or ''),
+        len(finding.title or ''),
+    )
+
+
 def _pdf_promotion_score(finding: ExtractedFinding) -> int:
     if finding.pdf_triage_notes == 'pdf_ingest_verified':
         return 3
@@ -2535,13 +3174,116 @@ def _pdf_promotion_score(finding: ExtractedFinding) -> int:
     return 0
 
 
-def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query: str | None = None) -> tuple[ExtractedFinding, ...]:
+def _summary_markers(summary: str) -> tuple[str, ...]:
+    return tuple(re.findall(r'\[([^\]]+)\]', summary or ''))
+
+
+def _finding_trace_payload(
+    finding: ExtractedFinding,
+    *,
+    bucket: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        'url': finding.url,
+        'title': finding.title,
+        'summary': finding.summary,
+        'summary_markers': list(_summary_markers(finding.summary)),
+        'source_type': _source_type(finding.url, finding.title),
+        'subject_precision_label': finding.subject_precision_label,
+        'priority_band': finding.priority_band,
+        'official_evidence_verdict': finding.official_evidence_verdict,
+        'official_evidence_confidence': finding.official_evidence_confidence,
+        'html_content_enriched': finding.html_content_enriched,
+        'pdf_triage_verdict': finding.pdf_triage_verdict,
+        'pdf_triage_notes': finding.pdf_triage_notes,
+        'exact_subject_priority_score': _enriched_exact_subject_priority_score(finding),
+        'exact_subject_content_quality_score': _exact_subject_content_quality_score(finding),
+        'pdf_promotion_score': _pdf_promotion_score(finding),
+    }
+    if bucket is not None:
+        payload['bucket'] = bucket
+    return payload
+
+
+def _consolidate_official_finding_families(
+    findings: tuple[ExtractedFinding, ...],
+    *,
+    query: str,
+    family_judge: LlmOfficialEvidenceFamilyJudge | None = None,
+) -> tuple[tuple[ExtractedFinding, ...], tuple[dict[str, object], ...]]:
+    if family_judge is None:
+        return findings, ()
+    official = [finding for finding in findings if _source_type(finding.url, finding.title) == 'official_docs']
+    if len(official) < 2:
+        return findings, ()
+    by_domain: dict[str, list[ExtractedFinding]] = {}
+    for finding in official:
+        by_domain.setdefault(_normalized_domain(finding.url), []).append(finding)
+    canonical_urls: set[str] = set()
+    family_trace: list[dict[str, object]] = []
+    for domain, family in by_domain.items():
+        if len(family) < 2:
+            canonical_urls.add(family[0].url)
+            continue
+        chosen = family_judge.judge_family(query=query, findings=tuple(family))
+        kept = tuple(chosen or (family[0].url,))
+        canonical_urls.update(kept)
+        family_trace.append({
+            'domain': domain,
+            'candidate_urls': [item.url for item in family],
+            'canonical_urls': list(kept),
+            'collateral_urls': [item.url for item in family if item.url not in kept],
+        })
+    consolidated: list[ExtractedFinding] = []
+    for finding in findings:
+        if _source_type(finding.url, finding.title) != 'official_docs':
+            consolidated.append(finding)
+            continue
+        if finding.url in canonical_urls:
+            consolidated.append(finding)
+            continue
+        if finding.official_evidence_verdict == 'primary':
+            consolidated.append(finding)
+            continue
+        consolidated.append(replace(
+            finding,
+            official_evidence_verdict='collateral',
+            summary=f"[llm_official_family:collateral] [llm_official_evidence:collateral] {finding.summary}",
+        ))
+    return tuple(consolidated), tuple(family_trace)
+
+
+def _top_findings(findings: tuple[ExtractedFinding, ...], limit: int = 5, query: str | None = None, family_judge: LlmOfficialEvidenceFamilyJudge | None = None, family_trace_sink: list[dict[str, object]] | None = None, family_activation_trace_sink: dict[str, object] | None = None) -> tuple[ExtractedFinding, ...]:
     normalized_query = query or ''
+    official = [finding for finding in findings if _source_type(finding.url, finding.title) == 'official_docs']
+    official_domains_with_multiples = sorted({
+        _normalized_domain(finding.url)
+        for finding in official
+        if sum(1 for item in official if _normalized_domain(item.url) == _normalized_domain(finding.url)) >= 2
+    })
+    if family_activation_trace_sink is not None:
+        family_activation_trace_sink.update({
+            'family_judge_present': family_judge is not None,
+            'official_findings_count_before_family': len(official),
+            'official_domains_with_multiples': official_domains_with_multiples,
+            'family_consolidation_invoked': family_judge is not None and bool(official_domains_with_multiples),
+        })
+    findings, family_trace = _consolidate_official_finding_families(findings, query=normalized_query, family_judge=family_judge)
+    if family_trace_sink is not None:
+        family_trace_sink.extend(family_trace)
+    if family_activation_trace_sink is not None:
+        family_activation_trace_sink['family_trace_count'] = len(family_trace)
+    prefers_official = _query_prefers_official_supporting(normalized_query)
     ranked = sorted(
         findings,
         key=lambda finding: (
+            1 if prefers_official and finding.official_evidence_verdict == 'primary' else 0,
+            1 if prefers_official and _source_type(finding.url, finding.title) == 'official_docs' and finding.official_evidence_verdict != 'collateral' else 0,
+            -1 if prefers_official and finding.official_evidence_verdict == 'collateral' else 0,
+            _enriched_exact_subject_priority_score(finding),
+            _exact_subject_content_quality_score(finding),
             _pdf_promotion_score(finding),
-            _source_rank_for_query(query=normalized_query, url=finding.url, title=finding.title),
+            -_source_rank_for_query(query=normalized_query, url=finding.url, title=finding.title),
             -len(finding.summary),
             -len(finding.title),
         ),
@@ -2596,7 +3338,57 @@ def _actual_search_provider_names(search: ResearchSearchAdapter) -> tuple[str, .
     return _resolve_search_provider_names(search, configured_provider=None)
 
 
-def _build_research_report_prompt(*, query: str, round_number: int, previous_answer: str, evidence: str, query_class: ResearchQueryClass, has_direct_procedural_evidence: bool) -> str:
+def _clean_report_summary_text(summary: str) -> str:
+    cleaned = re.sub(r'\[[^\]]+\]', '', summary or '')
+    cleaned = re.sub(r'\bconfidence=\d+(?:\.\d+)?;?\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\bscope=[^;]+;?\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\bentity=[^;]+;?\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\bpages=[^;]+;?\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\bfindings=[^;]+;?\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\breason=[^;]+;?\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ;')
+    return cleaned.strip()
+
+
+def _report_source_context(findings: tuple[ExtractedFinding, ...]) -> str:
+    if not findings:
+        return '- No selected sources.'
+    lines: list[str] = []
+    for idx, finding in enumerate(findings[:8], start=1):
+        source_type = _source_type(finding.url, finding.title)
+        role = 'core_candidate' if idx <= 2 else 'supporting_candidate'
+        cleaned_summary = _clean_report_summary_text(finding.summary)
+        lines.append(
+            f"- Source {idx}\n"
+            f"  - role: {role}\n"
+            f"  - type: {source_type}\n"
+            f"  - title: {finding.title}\n"
+            f"  - url: {finding.url}\n"
+            f"  - content: {cleaned_summary or 'No useful extracted content.'}"
+        )
+    return '\n'.join(lines)
+
+
+def _generate_short_report_title(*, query: str, findings: tuple[ExtractedFinding, ...]) -> str:
+    trimmed_query = ' '.join((query or '').split())
+    if not trimmed_query and findings:
+        trimmed_query = findings[0].title
+    base = trimmed_query.rstrip(' ?.!')
+    separators = (' Skup się ', ' Skoncentruj się ', ' Użyj ', ' Nie ', ' Bez ')
+    for separator in separators:
+        if separator in base:
+            base = base.split(separator, 1)[0].rstrip(' ,;:-')
+            break
+    if ':' in base and len(base) > 72:
+        base = base.split(':', 1)[0].rstrip(' ,;:-')
+    title = base or 'SourceTrace report'
+    title = re.sub(r'\s+', ' ', title).strip(' —')
+    if len(title) > 72:
+        title = title[:69].rstrip(' ,;:-') + '…'
+    return title or 'SourceTrace report'
+
+
+def _build_research_report_prompt(*, query: str, round_number: int, previous_answer: str, evidence: str, source_context: str, query_class: ResearchQueryClass, has_direct_procedural_evidence: bool) -> str:
     base_rules = (
         "You are writing an operator-facing Deep Research report.\n"
         "Be concrete, compact, evidence-first, and useful to a technical operator.\n"
@@ -2628,6 +3420,7 @@ def _build_research_report_prompt(*, query: str, round_number: int, previous_ans
         f"Previous answer: {previous_answer}\n\n"
         f"Class-specific shaping rules:\n{class_overlay}\n\n"
         f"Evidence:\n{evidence}\n\n"
+        f"Selected source context (use this to write natural report text; do not expose internal extraction markers, bracket tags, or raw diagnostic fields):\n{source_context}\n\n"
         f"{section_contract}"
     )
 
@@ -2670,6 +3463,7 @@ def _research_report_prompt_overlay(query_class: ResearchQueryClass, *, has_dire
     return (
         "- Give the clearest direct answer supported by the evidence.\n"
         "- Prefer precise statements over broad summaries.\n"
+        "- If an official exact-subject case page is present, prioritize it over broader official collateral.\n"
         "- Surface missing verification explicitly."
     )
 
@@ -2804,6 +3598,140 @@ def _planning_analysis_to_problem_analysis(planning_analysis: PlanningAnalysis) 
         analysis_version="problem_analyzer_v1",
     )
 
+
+
+
+def _dedupe_text_items(items: list[str], *, limit: int = 12) -> tuple[str, ...]:
+    kept: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        value = ' '.join(str(item).split()).strip()
+        if not value:
+            continue
+        key = _normalized_match_text(value)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        kept.append(value)
+        if len(kept) >= limit:
+            break
+    return tuple(kept)
+
+
+def _fallback_subject_sheet(*, query: str, planning_analysis: PlanningAnalysis | None = None) -> SubjectSheet:
+    planning = planning_analysis or _build_fallback_planning_analysis(query)
+    primary_name = next(((item.canonical_name or item.surface_form).strip() for item in planning.entity_hypotheses if (item.canonical_name or item.surface_form).strip()), query.strip())
+    aliases = _dedupe_text_items([primary_name, query.strip(), *[(item.surface_form or '').strip() for item in planning.entity_hypotheses]], limit=10)
+    anchor_terms = _dedupe_text_items(list(_subject_anchor_variants(query, subject_sheet=None, planning_analysis=planning)) + list(aliases), limit=12)
+    related = tuple(
+        SubjectEntity(
+            name=(item.canonical_name or item.surface_form).strip(),
+            type=item.entity_type or 'unknown',
+            role='other',
+            confidence=0.5,
+        )
+        for item in planning.entity_hypotheses
+        if (item.canonical_name or item.surface_form).strip() and (item.canonical_name or item.surface_form).strip() != primary_name
+    )
+    return SubjectSheet(
+        query_summary=query.strip(),
+        primary_subject=SubjectEntity(name=primary_name, type='unknown', confidence=0.5),
+        related_entities=related,
+        aliases=aliases,
+        anchor_terms=anchor_terms,
+        proceeding_terms=_dedupe_text_items(['kontrola', 'ustalenia', 'decyzje', 'zalecenia', 'komunikat', 'postępowanie'], limit=8),
+        must_have_signals=_dedupe_text_items(['official source or institutional source', 'subject match', 'control or findings or decision context'], limit=6),
+        acceptable_adjacent_signals=_dedupe_text_items(['stanowisko miasta', 'stanowisko szpitala', 'komunikat urzędowy', 'śledztwo lub czynności'], limit=6),
+        disqualifying_signals=_dedupe_text_items(['general report unrelated to subject', 'other hospital', 'generic health system report'], limit=6),
+        official_source_hints=(SubjectHint(kind='source_type', value='official_docs'), SubjectHint(kind='domain', value='gov.pl'), SubjectHint(kind='domain', value='nik.gov.pl')),
+    )
+
+
+def _build_subject_sheet_prompt(*, query: str, planning_analysis: PlanningAnalysis | None, fallback: SubjectSheet) -> str:
+    planning_context = ''
+    if planning_analysis is not None:
+        planning_context = json.dumps({
+            'goal': planning_analysis.goal,
+            'focus_areas': list(planning_analysis.focus_areas),
+            'constraints': list(planning_analysis.constraints),
+            'entity_hypotheses': [
+                {
+                    'surface_form': item.surface_form,
+                    'entity_type': item.entity_type,
+                    'canonical_name': item.canonical_name,
+                    'candidate_meanings': list(item.candidate_meanings),
+                    'confidence': item.confidence,
+                }
+                for item in planning_analysis.entity_hypotheses
+            ],
+        }, ensure_ascii=False)
+    fallback_payload = json.dumps({
+        'query_summary': fallback.query_summary,
+        'primary_subject': {'name': fallback.primary_subject.name, 'type': fallback.primary_subject.type, 'confidence': fallback.primary_subject.confidence},
+        'related_entities': [vars(item) for item in fallback.related_entities],
+        'aliases': list(fallback.aliases),
+        'anchor_terms': list(fallback.anchor_terms),
+        'proceeding_terms': list(fallback.proceeding_terms),
+        'must_have_signals': list(fallback.must_have_signals),
+        'acceptable_adjacent_signals': list(fallback.acceptable_adjacent_signals),
+        'disqualifying_signals': list(fallback.disqualifying_signals),
+        'official_source_hints': [vars(item) for item in fallback.official_source_hints],
+    }, ensure_ascii=False)
+    return (
+        'Return strict JSON only. Build a compact subject sheet for research-hit acceptance. '
+        'Prefer precise subject/entity framing over broad summaries. '
+        'Do not invent extra institutions unless strongly implied by the query or planning context.\n'
+        'Schema keys: query_summary, primary_subject, related_entities, aliases, anchor_terms, proceeding_terms, must_have_signals, acceptable_adjacent_signals, disqualifying_signals, official_source_hints.\n'
+        'primary_subject keys: name, type, confidence. related_entities keys: name, type, role, confidence. official_source_hints keys: kind, value.\n'
+        f'Query: {query}\n'
+        f'Planning context: {planning_context or "NONE"}\n'
+        f'Fallback subject sheet: {fallback_payload}\n'
+    )
+
+
+def _subject_entity_from_payload(item: Any) -> SubjectEntity | None:
+    if not isinstance(item, dict):
+        return None
+    name = str(item.get('name', '')).strip()
+    if not name:
+        return None
+    try:
+        confidence = float(item.get('confidence', 0.0))
+    except Exception:
+        confidence = 0.0
+    return SubjectEntity(name=name, type=str(item.get('type', 'unknown')).strip() or 'unknown', role=str(item.get('role', 'other')).strip() or 'other', confidence=max(0.0, min(1.0, confidence)))
+
+
+def _subject_sheet_from_llm_payload(payload: Any, *, fallback: SubjectSheet) -> SubjectSheet | None:
+    if not isinstance(payload, dict):
+        return None
+    primary = _subject_entity_from_payload(payload.get('primary_subject'))
+    if primary is None:
+        primary = fallback.primary_subject
+    related = tuple(item for item in (_subject_entity_from_payload(entry) for entry in payload.get('related_entities', [])) if item is not None)
+    hints = []
+    for entry in payload.get('official_source_hints', []):
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get('kind', '')).strip()
+        value = str(entry.get('value', '')).strip()
+        if kind and value:
+            hints.append(SubjectHint(kind=kind, value=value))
+    sheet = SubjectSheet(
+        query_summary=str(payload.get('query_summary', '')).strip() or fallback.query_summary,
+        primary_subject=primary,
+        related_entities=related or fallback.related_entities,
+        aliases=_dedupe_text_items(list(payload.get('aliases', [])) + list(fallback.aliases), limit=12),
+        anchor_terms=_dedupe_text_items(list(payload.get('anchor_terms', [])) + list(fallback.anchor_terms), limit=12),
+        proceeding_terms=_dedupe_text_items(list(payload.get('proceeding_terms', [])) + list(fallback.proceeding_terms), limit=10),
+        must_have_signals=_dedupe_text_items(list(payload.get('must_have_signals', [])) + list(fallback.must_have_signals), limit=8),
+        acceptable_adjacent_signals=_dedupe_text_items(list(payload.get('acceptable_adjacent_signals', [])) + list(fallback.acceptable_adjacent_signals), limit=8),
+        disqualifying_signals=_dedupe_text_items(list(payload.get('disqualifying_signals', [])) + list(fallback.disqualifying_signals), limit=8),
+        official_source_hints=tuple(hints) or fallback.official_source_hints,
+    )
+    if not sheet.primary_subject.name.strip():
+        return None
+    return sheet
 
 def _build_planning_analysis_prompt(query: str, *, fallback: PlanningAnalysis) -> str:
     return (
@@ -3180,7 +4108,46 @@ def _project_source_refs(
     refs: list[ResearchSource] = []
     seen_urls: set[str] = set()
     projected_sources = result.sources
-    if _classify_query(result.query) is ResearchQueryClass.PROCEDURAL_ADMIN:
+    if _query_prefers_official_supporting(result.query):
+        finding_map = {}
+        core_urls = {item.url for item in (result.evidence_pack.core if result.evidence_pack is not None else ())}
+        supporting_urls = {item.url for item in (result.evidence_pack.supporting if result.evidence_pack is not None else ())}
+        background_urls = {item.url for item in (result.evidence_pack.background if result.evidence_pack is not None else ())}
+        for finding in result.raw_findings:
+            official_verdict = None
+            if '[llm_official_evidence:primary]' in finding.summary:
+                official_verdict = 'primary'
+            elif '[llm_official_evidence:supporting]' in finding.summary:
+                official_verdict = 'supporting'
+            elif '[llm_official_evidence:collateral]' in finding.summary:
+                official_verdict = 'collateral'
+            finding_map[finding.url] = type('FindingProxy', (), {'official_evidence_verdict': official_verdict})()
+        def _source_projection_rank(source: ResearchSource) -> tuple[int, int, int, int, str]:
+            url = source.url
+            source_type = _source_type(source.url, source.title)
+            verdict = getattr(finding_map.get(url, None), 'official_evidence_verdict', None)
+            lowered = url.lower()
+            is_pdf_like = lowered.endswith('.pdf') or '/plik/' in lowered or '/pobierz,' in lowered
+            bucket = 6
+            if url in core_urls and source_type == 'official_docs' and verdict != 'collateral' and not is_pdf_like:
+                bucket = 0
+            elif url in supporting_urls and source_type == 'official_docs' and verdict != 'collateral' and not is_pdf_like:
+                bucket = 1
+            elif source_type == 'official_docs' and verdict == 'primary' and not is_pdf_like:
+                bucket = 2
+            elif source_type == 'official_docs' and verdict != 'collateral' and not is_pdf_like:
+                bucket = 3
+            elif source_type == 'official_docs' and not is_pdf_like:
+                bucket = 4
+            elif source_type in {'docs', 'vendor_docs'}:
+                bucket = 5
+            pdf_penalty = 1 if is_pdf_like else 0
+            background_penalty = 1 if url in background_urls else 0
+            collateral_penalty = 1 if verdict == 'collateral' else 0
+            primary_penalty = 0 if verdict == 'primary' else 1
+            return (bucket, primary_penalty, pdf_penalty, background_penalty, collateral_penalty, source.title.lower())
+        projected_sources = tuple(sorted(result.sources, key=_source_projection_rank))
+    elif _classify_query(result.query) is ResearchQueryClass.PROCEDURAL_ADMIN:
         official_sources = [
             source for source in result.sources
             if _source_type(source.url, source.title) == 'official_docs'
@@ -3280,7 +4247,7 @@ def _compile_research_artifact(result: ResearchResultArtifact) -> CompiledResear
     source_refs = _project_source_refs(result, supporting_evidence)
     key_claims = _project_claims(result, supporting_evidence)
     open_questions, next_checks = _project_followup(result)
-    title = result.query.strip() or 'Compiled research artifact'
+    title = _generate_short_report_title(query=result.query, findings=tuple(ExtractedFinding(url=f.url, title=f.title, summary=f.summary) for f in result.raw_findings))
     return CompiledResearchArtifact(
         artifact_id=f"cra-{result.job_id}",
         source_job_id=result.job_id,
@@ -3567,6 +4534,12 @@ class FakeResearchWorker:
         synthesize: ResearchSynthesizer | None = None,
         pdf_ingest: ResearchPdfIngestor | None = None,
         stop_rails: DeterministicStopRails | None = None,
+        relevance_judge: "LlmSearchRelevanceJudge | None" = None,
+        subject_sheet_builder: "LlmSubjectSheetBuilder | None" = None,
+        official_subject_precision_judge: "LlmOfficialSubjectPrecisionJudge | None" = None,
+        official_evidence_judge: "LlmOfficialEvidenceJudge | None" = None,
+        official_evidence_family_judge: "LlmOfficialEvidenceFamilyJudge | None" = None,
+        official_html_content_enricher: "OfficialHtmlContentEnricher | None" = None,
     ) -> None:
         self.persistence = persistence
         self.planner = planner or StubResearchPlanner()
@@ -3578,6 +4551,12 @@ class FakeResearchWorker:
         self.synthesize = synthesize or StubSynthesizer()
         self.pdf_ingest = pdf_ingest
         self.stop_rails = stop_rails or DeterministicStopRails()
+        self.relevance_judge = relevance_judge
+        self.subject_sheet_builder = subject_sheet_builder
+        self.official_subject_precision_judge = official_subject_precision_judge
+        self.official_evidence_judge = official_evidence_judge
+        self.official_evidence_family_judge = official_evidence_family_judge
+        self.official_html_content_enricher = official_html_content_enricher
 
     def __call__(self, job_id: str) -> ResearchResultArtifact | None:
         started_at_monotonic = perf_counter()
@@ -3603,6 +4582,7 @@ class FakeResearchWorker:
             problem_analysis=problem_analysis,
             planning_analysis=planning_analysis,
         )
+        subject_sheet = self.subject_sheet_builder(query=running.query, planning_analysis=planning_analysis) if self.subject_sheet_builder is not None else _fallback_subject_sheet(query=running.query, planning_analysis=planning_analysis)
         running = replace(running, planning_analysis=planning_analysis, problem_analysis=problem_analysis, execution_plan=plan)
         self.persistence.jobs.save_job(running)
         _emit_progress(self.persistence, job_id, ResearchJobStatus.RUNNING, ResearchPhase.PLANNING, round=1, message=f"Planning around {len(plan.steps)} step(s) with strategy {plan.strategy.value}.")
@@ -3645,6 +4625,11 @@ class FakeResearchWorker:
                 planning_analysis=planning_analysis,
             )
             provider_names = _resolve_search_provider_names(self.search, configured_provider=None)
+            query_path_trace = _query_generation_trace(
+                plan=plan,
+                planning_analysis=planning_analysis,
+                round_number=round_number,
+            )
             _emit_progress(self.persistence, 
                 job_id,
                 ResearchJobStatus.RUNNING,
@@ -3659,6 +4644,7 @@ class FakeResearchWorker:
                     'stage': 'query_generation',
                     'queries': list(queries),
                     'providers_attempted': list(provider_names),
+                    'query_path_trace': query_path_trace,
                 },
             )
             executed_query_count += len(queries)
@@ -3719,12 +4705,12 @@ class FakeResearchWorker:
                 )
                 self.persistence.jobs.save_job(errored)
                 return None
-            provider_candidates = _provider_candidate_diagnostics(hits=hits, query=running.query)
+            provider_candidates = _provider_candidate_diagnostics(hits=hits, query=running.query, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
             unified_raw_hits = getattr(self.search, 'last_unified_hits', ()) if self.search is not None else ()
             unified_official_enough = getattr(self.search, 'last_unified_official_enough', None) if self.search is not None else None
-            rejection_details = _search_rejection_details(query=running.query, existing_hits=all_hits, candidate_hits=hits)
-            rejection_summary = _search_rejection_summary(query=running.query, existing_hits=all_hits, candidate_hits=hits)
-            new_hits = _dedupe_hits(all_hits, hits, query=running.query)
+            rejection_details = _search_rejection_details(query=running.query, existing_hits=all_hits, candidate_hits=hits, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
+            rejection_summary = _search_rejection_summary(query=running.query, existing_hits=all_hits, candidate_hits=hits, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
+            new_hits = _dedupe_hits(all_hits, hits, query=running.query, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
             all_hits.extend(new_hits)
             total_urls = len(all_hits)
             _emit_progress(self.persistence, 
@@ -3741,7 +4727,7 @@ class FakeResearchWorker:
                     'raw_hits': len(hits),
                     'accepted_new_hits': len(new_hits),
                     'provider_candidates': provider_candidates,
-                    'unified_raw_candidates': _provider_candidate_diagnostics(hits=tuple(unified_raw_hits), query=running.query),
+                    'unified_raw_candidates': _provider_candidate_diagnostics(hits=tuple(unified_raw_hits), query=running.query, subject_sheet=subject_sheet, planning_analysis=planning_analysis),
                     'unified_official_enough': unified_official_enough,
                     'search_rejection': rejection_details,
                 },
@@ -3767,8 +4753,8 @@ class FakeResearchWorker:
                         executed_query_count += len(refined_queries)
                         retry_hits = self.search(tuple(refined_queries), round_number=round_number)
                         executed_provider_names.extend(_actual_search_provider_names(self.search))
-                        retry_summary = _search_rejection_summary(query=running.query, existing_hits=all_hits, candidate_hits=retry_hits)
-                        retry_new_hits = _dedupe_hits(all_hits, retry_hits, query=running.query)
+                        retry_summary = _search_rejection_summary(query=running.query, existing_hits=all_hits, candidate_hits=retry_hits, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
+                        retry_new_hits = _dedupe_hits(all_hits, retry_hits, query=running.query, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
                         all_hits.extend(retry_new_hits)
                         total_urls = len(all_hits)
                         _emit_progress(self.persistence, 
@@ -3844,9 +4830,65 @@ class FakeResearchWorker:
                     self.persistence.jobs.save_job(errored)
                     return None
 
-            filter_analysis = _filter_hits_for_extraction_with_diagnostics(query=running.query, hits=tuple(new_hits))
+            filter_analysis = _filter_hits_for_extraction_with_diagnostics(query=running.query, hits=tuple(new_hits), relevance_judge=self.relevance_judge, official_evidence_judge=self.official_evidence_judge if hasattr(self, 'official_evidence_judge') else None, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
+            filter_diag_map = {item['url']: item for item in filter_analysis.get('diagnostics', [])}
             filter_outcome = filter_analysis['outcome']
             filtered_hits = list(filter_outcome.kept_hits)
+            subject_precision_trace: list[dict[str, object]] = []
+            judge_activation_trace = {
+                'judge_present': self.official_subject_precision_judge is not None,
+                'filtered_hit_count': len(filtered_hits),
+                'official_candidate_count': sum(1 for hit in filtered_hits if _source_type(hit.url, hit.title) == 'official_docs'),
+                'candidate_source_types': [
+                    {
+                        'url': hit.url,
+                        'title': hit.title,
+                        'source_type': _source_type(hit.url, hit.title),
+                    }
+                    for hit in filtered_hits[:12]
+                ],
+                'worker_class': self.__class__.__name__,
+                'module_file': __file__,
+            }
+            if self.official_subject_precision_judge is not None and filtered_hits:
+                promoted_hits: list[SearchHit] = []
+                untouched_hits: list[SearchHit] = []
+                demoted_hits: list[SearchHit] = []
+                for hit in filtered_hits:
+                    source_type = _source_type(hit.url, hit.title)
+                    if source_type != 'official_docs':
+                        untouched_hits.append(hit)
+                        continue
+                    match, confidence, reason = self.official_subject_precision_judge.judge_hit(
+                        query=running.query,
+                        hit=hit,
+                        subject_sheet=subject_sheet,
+                    )
+                    llm_official_prefix = ''
+                    if filter_diag_map.get(hit.url, {}).get('llm_official_evidence_verdict'):
+                        llm_verdict = filter_diag_map[hit.url]['llm_official_evidence_verdict']
+                        llm_conf = float(filter_diag_map[hit.url].get('llm_official_evidence_confidence') or 0.0)
+                        llm_official_prefix = f"[llm_official_evidence:{llm_verdict}] llm_official_confidence={llm_conf:.2f}; "
+                    tagged_hit = SearchHit(
+                        url=hit.url,
+                        title=hit.title,
+                        snippet=f"{llm_official_prefix}[official_subject:{match}] [priority_band:{'exact_subject_winner' if match == 'exact_subject' else 'official_related' if match == 'related_but_broad' else 'off_topic'}] confidence={confidence:.2f}; reason={reason} — {hit.snippet}",
+                    )
+                    subject_precision_trace.append({
+                        'url': hit.url,
+                        'title': hit.title,
+                        'source_type': source_type,
+                        'match': match,
+                        'confidence': round(confidence, 4),
+                        'reason': reason,
+                    })
+                    if match == 'exact_subject':
+                        promoted_hits.append(tagged_hit)
+                    elif match == 'off_topic':
+                        demoted_hits.append(tagged_hit)
+                    else:
+                        untouched_hits.append(tagged_hit)
+                filtered_hits = [*promoted_hits, *untouched_hits, *demoted_hits]
             if not filtered_hits and new_hits:
                 filtered_hits = list(new_hits)
             pre_extraction_seen += filter_outcome.seen_count
@@ -3876,6 +4918,9 @@ class FakeResearchWorker:
                     'diagnostics': filter_analysis['diagnostics'],
                     'kept_urls': filter_analysis['kept_urls'],
                     'dropped_urls': filter_analysis['dropped_urls'],
+                    'subject_precision_trace': subject_precision_trace,
+                    'judge_activation_trace': judge_activation_trace,
+                    'trace_schema_version': 'judge_activation_v1',
                 },
             )
 
@@ -3883,6 +4928,17 @@ class FakeResearchWorker:
             if isinstance(extractor, StubExtractor):
                 extractor = StubExtractor(query=running.query)
             findings = extractor(tuple(filtered_hits))
+            findings = _lift_exact_subject_official_findings(
+                query=running.query,
+                findings=findings,
+            )
+            if self.official_html_content_enricher is not None:
+                findings = tuple(
+                    self.official_html_content_enricher.enrich(query=running.query, finding=finding)
+                    if '[official_subject:exact_subject]' in finding.summary and _source_type(finding.url, finding.title) == 'official_docs' and not _looks_like_pdf_artifact(SearchHit(url=finding.url, title=finding.title, snippet=finding.summary))
+                    else finding
+                    for finding in findings
+                )
             if self.pdf_ingest is not None:
                 enriched_findings: list[ExtractedFinding] = []
                 for finding in findings:
@@ -3929,15 +4985,19 @@ class FakeResearchWorker:
                 details={
                     'stage': 'extraction',
                     'input_urls': [hit.url for hit in filtered_hits],
-                    'findings': [
-                        {'url': finding.url, 'title': finding.title, 'summary': finding.summary}
-                        for finding in findings
-                    ],
+                    'findings': [_finding_trace_payload(finding) for finding in findings],
                 },
             )
 
             cumulative_findings = tuple(all_findings)
-            packed = _pack_evidence_for_synthesis(query=running.query, findings=cumulative_findings)
+            family_trace: list[dict[str, object]] = []
+            family_activation_trace = {
+                'family_judge_present': getattr(self, 'official_evidence_family_judge', None) is not None,
+                'worker_class': self.__class__.__name__,
+                'module_file': __file__,
+            }
+            ranked_for_pack = _top_findings(cumulative_findings, limit=max(6, len(cumulative_findings)), query=running.query, family_judge=getattr(self, 'official_evidence_family_judge', None), family_trace_sink=family_trace, family_activation_trace_sink=family_activation_trace)
+            packed = _pack_evidence_for_synthesis(query=running.query, findings=ranked_for_pack)
             evidence_pack = _to_research_evidence_pack(query=running.query, packed=packed)
             packed_core_count = len(packed.core)
             packed_supporting_count = len(packed.supporting)
@@ -3952,9 +5012,11 @@ class FakeResearchWorker:
                 message='Packed evidence for synthesis.',
                 details={
                     'stage': 'evidence_pack',
-                    'core': [{'url': item.url, 'title': item.title} for item in packed.core],
-                    'supporting': [{'url': item.url, 'title': item.title} for item in packed.supporting],
-                    'background': [{'url': item.url, 'title': item.title} for item in packed.background],
+                    'family_activation_trace': family_activation_trace,
+                    'official_family_trace': family_trace,
+                    'core': [_finding_trace_payload(item, bucket='core') for item in packed.core],
+                    'supporting': [_finding_trace_payload(item, bucket='supporting') for item in packed.supporting],
+                    'background': [_finding_trace_payload(item, bucket='background') for item in packed.background],
                 },
             )
             branch_evaluation = _evaluate_branch_proposals(
@@ -4252,6 +5314,8 @@ def _dedupe_hits(
     candidate_hits: tuple[SearchHit, ...],
     *,
     query: str,
+    subject_sheet: SubjectSheet | None = None,
+    planning_analysis: PlanningAnalysis | None = None,
 ) -> list[SearchHit]:
     seen = {hit.url for hit in existing_hits}
     domain_counts: dict[str, int] = {}
@@ -4262,7 +5326,7 @@ def _dedupe_hits(
     for hit in candidate_hits:
         if hit.url in seen:
             continue
-        if not _is_relevant_hit(query=query, hit=hit):
+        if not _llm_or_heuristic_relevant_hit(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis):
             continue
         domain = _normalized_domain(hit.url)
         limit = _max_hits_per_domain(query, domain)
@@ -4275,8 +5339,122 @@ def _dedupe_hits(
 
 
 
-def _search_rejection_summary(*, query: str, existing_hits: list[SearchHit], candidate_hits: tuple[SearchHit, ...]) -> str:
-    analysis = _search_rejection_details(query=query, existing_hits=existing_hits, candidate_hits=candidate_hits)
+
+
+def _build_official_subject_precision_prompt(
+    *,
+    query: str,
+    hit: SearchHit,
+    subject_sheet: "SubjectSheet | None" = None,
+    preview_text: str | None = None,
+) -> str:
+    subject_context = ""
+    if subject_sheet is not None:
+        primary_subject_obj = getattr(subject_sheet, 'primary_subject', None)
+        primary_subject = getattr(primary_subject_obj, 'name', primary_subject_obj) or ""
+        raw_aliases = getattr(subject_sheet, 'subject_aliases', None)
+        if raw_aliases is None:
+            raw_aliases = getattr(subject_sheet, 'aliases', ()) or ()
+        raw_entities = getattr(subject_sheet, 'entities', None)
+        if raw_entities is None:
+            raw_entities = getattr(subject_sheet, 'related_entities', ()) or ()
+        aliases = ", ".join(str(alias) for alias in tuple(raw_aliases)[:6])
+        entities = ", ".join(
+            getattr(entity, 'canonical_name', getattr(entity, 'name', str(entity)))
+            for entity in tuple(raw_entities)[:6]
+        )
+        subject_context = (
+            f"Primary subject: {primary_subject}\n"
+            f"Subject aliases: {aliases}\n"
+            f"Key entities: {entities}\n"
+        )
+    preview_block = f"Preview text:\n{preview_text}\n" if preview_text else ""
+    return f"""
+You are judging whether an official source is about the exact subject requested by the user.
+
+User query:
+{query}
+
+{subject_context}Candidate source:
+- URL: {hit.url}
+- Title: {hit.title}
+- Snippet: {hit.snippet}
+
+{preview_block}Classify this source into exactly one bucket:
+- exact_subject: directly about the user's specific case, entity, event, institution matter, or target issue
+- related_but_broad: official and related domain/institutionally, but broader, adjacent, or about a different case
+- off_topic: not materially about the user’s requested subject
+
+Be strict. A general KNF, NIK, ministry, or sector report is not exact_subject unless it is clearly about the named case.
+
+Return JSON only with this exact schema:
+{{
+  "subject_match": "exact_subject|related_but_broad|off_topic",
+  "confidence": 0.0,
+  "reason": "string"
+}}
+""".strip()
+
+
+def _build_official_evidence_family_prompt(*, query: str, findings: tuple[ExtractedFinding, ...]) -> str:
+    lines = []
+    for idx, finding in enumerate(findings):
+        lines.append(
+            f'[{idx}]\nTitle: {finding.title}\nURL: {finding.url}\nSummary: {_clean_report_summary_text(finding.summary)}\n'
+        )
+    findings_block = '\n'.join(lines)
+    return (
+        'You are identifying which official pages in one topical family are canonical enough to keep as the main evidence pages.\n'
+        'Return strict JSON only: {"canonical_indexes":[0,1],"reason":"short"}.\n'
+        'Pick the smallest set of pages that directly answer the query.\n'
+        'Do not keep collateral, homepage, portal, or loosely related official pages unless they are necessary.\n\n'
+        f'User query: {query}\n\n'
+        f'Candidate pages:\n{findings_block}\n'
+    )
+
+
+def _build_official_evidence_judge_prompt(*, query: str, hit: SearchHit, planning_analysis: PlanningAnalysis | None = None) -> str:
+    query_class = planning_analysis.query_class.value if planning_analysis is not None else _classify_query(query).value
+    goal = planning_analysis.goal if planning_analysis is not None else ''
+    return (
+        'You are judging whether an official/public-law source is semantically useful for answering the user query.\n'
+        'Return strict JSON only: {"verdict":"primary|supporting|collateral|reject","confidence":0.0-1.0,"reason":"short"}.\n'
+        'Use primary for a source that directly answers the query.\n'
+        'Use supporting for a useful official source that helps but is not central.\n'
+        'Use collateral for official but only loosely related/admin/background material.\n'
+        'Use reject for off-topic or unhelpful material.\n\n'
+        f'Query class: {query_class}\n'
+        f'Goal: {goal}\n'
+        f'User query: {query}\n\n'
+        f'Title: {hit.title}\n'
+        f'URL: {hit.url}\n'
+        f'Snippet: {hit.snippet}\n'
+    )
+
+
+def _build_search_relevance_prompt(*, query: str, hit: SearchHit) -> str:
+    return (
+        "Return strict JSON only with keys relevant (boolean), confidence (number), reason (string).\n"
+        "Judge whether this found page/item is relevant enough to keep as candidate evidence for the research query.\n"
+        "Prefer keeping official/institutional pages if they plausibly concern the named subject, control, decision, finding, or follow-up.\n"
+        "Reject clearly off-topic, generic, or unrelated pages.\n\n"
+        f"Query: {query}\n"
+        f"URL: {hit.url}\n"
+        f"Title: {hit.title}\n"
+        f"Snippet: {hit.snippet}\n"
+    )
+
+
+def _llm_or_heuristic_relevant_hit(*, query: str, hit: SearchHit, relevance_judge: "LlmSearchRelevanceJudge | None" = None, subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> bool:
+    heuristic = _is_relevant_hit(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
+    if heuristic:
+        return True
+    if relevance_judge is None:
+        return False
+    return relevance_judge.accept_hit(query=query, hit=hit)
+
+def _search_rejection_summary(*, query: str, existing_hits: list[SearchHit], candidate_hits: tuple[SearchHit, ...], subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> str:
+    analysis = _search_rejection_details(query=query, existing_hits=existing_hits, candidate_hits=candidate_hits, subject_sheet=subject_sheet, planning_analysis=planning_analysis)
     parts = [f"accepted={analysis['accepted']}"]
     reason_counts = analysis['reason_counts']
     for key in ('duplicate', 'low_relevance', 'domain_limit'):
@@ -4286,7 +5464,7 @@ def _search_rejection_summary(*, query: str, existing_hits: list[SearchHit], can
     return ', '.join(parts)
 
 
-def _search_rejection_details(*, query: str, existing_hits: list[SearchHit], candidate_hits: tuple[SearchHit, ...]) -> dict[str, object]:
+def _search_rejection_details(*, query: str, existing_hits: list[SearchHit], candidate_hits: tuple[SearchHit, ...], subject_sheet: SubjectSheet | None = None, planning_analysis: PlanningAnalysis | None = None) -> dict[str, object]:
     seen = {hit.url for hit in existing_hits}
     domain_counts: dict[str, int] = {}
     for hit in existing_hits:
@@ -4315,7 +5493,7 @@ def _search_rejection_details(*, query: str, existing_hits: list[SearchHit], can
             reasons['duplicate'] += 1
             rejected_hits.append({**record, 'reason': 'duplicate'})
             continue
-        if not _is_relevant_hit(query=query, hit=hit):
+        if not _is_relevant_hit(query=query, hit=hit, subject_sheet=subject_sheet, planning_analysis=planning_analysis):
             reasons['low_relevance'] += 1
             rejected_hits.append({**record, 'reason': 'low_relevance'})
             continue
