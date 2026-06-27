@@ -487,3 +487,20 @@ Current posture:
 
 Best next bounded slice:
 - shift from evidence-policy tweaking to broader v2 closure/packaging work, or explicitly define a post-baseline authority/relevance policy track if that is now the goal
+
+## 2026-06-27 — SourceTrace v2 closure / packaging checkpoint
+
+Recorded the current closure posture for the bounded v2 line.
+
+What changed:
+- wrote `docs/sourcetrace-v2-closure-packaging-checkpoint-2026-06-27.md`
+- separated what is already closed enough for the bounded baseline from what remains explicitly out of scope
+- defined what should count as release-like closure for this line without pretending it is full product closure
+
+Current posture:
+- v2 can now be described not only as a stack of slices, but as a bounded baseline system with a closure posture
+- evidence-policy work is baseline-frozen and no longer the default destination for more iteration
+- the next sensible work should be either packaging/closure polish or a deliberate post-baseline expansion track
+
+Best next bounded slice:
+- write one concise v2 release/closure note and one short v2-only operator/start-here note, or explicitly open a post-baseline track if new capability work is desired
