@@ -95,3 +95,21 @@ Verification:
 
 Best next bounded slice:
 - checkpoint this pair of persisted-readback slices in git so the v2 continuation point is clean before taking on another behavior change
+
+## 2026-06-27 — SourceTrace v2 broader migration plan checkpoint
+
+Recorded a bounded planning artifact for wider v2 migration sequencing.
+
+What changed:
+- added `docs/sourcetrace-v2-broader-migration-plan-2026-06-27.md`
+- captured a 6-slice broader migration path instead of jumping to full v1 parity planning
+- made the next recommended slice explicit: `real search adapter + retrieval input path`
+- recorded guardrails to avoid pulling v1 orchestration sprawl into v2
+
+Current posture:
+- v2 now has not only a proven minimal spine, but also a bounded next-phase migration frame
+- broader migration is now shaped as staged capability proofs, not parity pressure
+- the immediate recommendation remains to prove one real evidence-input seam before widening operator or product surface further
+
+Best next bounded slice:
+- implement `Slice 1 — Real search adapter + retrieval input path` from the broader migration plan
