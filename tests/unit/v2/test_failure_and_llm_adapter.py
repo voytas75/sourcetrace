@@ -88,3 +88,35 @@ def test_stage_failure_is_captured_as_failed_stage_receipt() -> None:
     assert collector.stage_receipts[-1].status == StageStatus.FAILED
     rollup = collector.build_rollup(job_id="job-2", run_id="run-2")
     assert rollup.failed_stages == 1
+
+
+def test_stage_receipt_prefers_execution_truth_over_profile_defaults() -> None:
+    class GatewayWithExecutionTruth:
+        def generate(self, *, profile_name: str, prompt: str):
+            from sourcetrace_v2.adapters.llm.interfaces import LlmCallResult
+            return LlmCallResult(
+                text="ok",
+                provider="azure",
+                model="gpt-5.4",
+                provider_name="openai-responses",
+                model_name="gpt-5.4-mini-real",
+                total_tokens=12,
+            )
+
+    collector = ReceiptCollector()
+    stage = SimpleLlmStage(profile_name="planning_default", llm=GatewayWithExecutionTruth())
+
+    stage.run(
+        context=ExecutionContext(
+            job_id="job-3",
+            run_id="run-3",
+            feature=FeatureId.DEEP_RESEARCH,
+            stage_id=StageId.PLANNING,
+            call_site="test.execution_truth",
+        ),
+        collector=collector,
+        input_text="hello",
+    )
+
+    assert collector.llm_receipts[0].provider == "openai-responses"
+    assert collector.llm_receipts[0].model == "gpt-5.4-mini-real"

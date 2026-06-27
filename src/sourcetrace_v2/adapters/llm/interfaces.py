@@ -10,6 +10,8 @@ class LlmCallResult:
     text: str
     provider: str
     model: str
+    provider_name: str | None = None
+    model_name: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
