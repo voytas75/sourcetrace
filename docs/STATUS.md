@@ -198,3 +198,24 @@ Verification:
 
 Best next bounded slice:
 - either promote SearxNG to the preferred non-stub v2 runtime path, or add one compact selected-evidence projection layer above raw candidate lists
+
+## 2026-06-27 — SourceTrace v2 Unified Search readiness checkpoint
+
+Closed the next bounded v2 readiness slice for Unified Search integration.
+
+What changed:
+- added `src/sourcetrace_v2/adapters/search/unified_search.py`
+- added optional Unified Search bootstrap loader in `src/sourcetrace_v2/runtime/bootstrap/unified_search.py`
+- introduced a preferred-search runtime path that tries Unified Search first and falls back to SearxNG
+- kept the v2 dependency posture safe: no hard dependency on `mycrewhelper`, no forced default runtime switch
+
+Current posture:
+- v2 is now ready for Unified Search integration without making Unified Search mandatory
+- the retrieval contract remains stable: `SearchGateway -> retrieval stage -> typed candidates -> evidence_input/result summary`
+- fallback posture is explicit and bounded instead of implicit or ad hoc
+
+Verification:
+- focused bounded v2 tests passed after the slice (`19 passed`)
+
+Best next bounded slice:
+- add one compact selected-evidence projection above raw candidate lists so the output starts separating answer-driving evidence from raw retrieval input

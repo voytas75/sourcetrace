@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sourcetrace_v2.core.contracts.read_models import PersistedExecutionView
+from sourcetrace_v2.projections.api.evidence import project_selected_evidence
 
 
 def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[str, object]:
@@ -34,6 +35,7 @@ def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[st
                 for candidate in (artifact.evidence_candidates if artifact is not None else ())
             ],
         },
+        "selected_evidence": project_selected_evidence(artifact=artifact),
         "rollup": {
             "llm_calls": view.rollup.llm_calls,
             "input_tokens": view.rollup.input_tokens,

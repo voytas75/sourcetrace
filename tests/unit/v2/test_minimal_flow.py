@@ -29,6 +29,9 @@ def test_minimal_flow_emits_result_and_rollup() -> None:
     assert "top_source=stub-search:Stub result 1" in payload["result"]["summary"]
     assert payload["evidence_input"]["query"].startswith("stub:research_fast:")
     assert payload["evidence_input"]["candidate_count"] == 3
+    assert payload["selected_evidence"]["selected_count"] == 2
+    assert payload["selected_evidence"]["selection_basis"] == "top_ranked_retrieval_candidates"
+    assert payload["selected_evidence"]["items"][0]["provider"] == "stub-search"
     assert payload["evidence_input"]["candidates"][0]["provider"] == "stub-search"
     assert payload["rollup"]["llm_calls"] == 4
     assert payload["rollup"]["total_tokens"] == 384

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sourcetrace_v2.core.domain.models import ResearchJob, ResearchResultArtifact, ResearchRun
 from sourcetrace_v2.execution.receipts.collector import ReceiptCollector
+from sourcetrace_v2.projections.api.evidence import project_selected_evidence
 
 
 def project_minimal_result(*, job: ResearchJob, run: ResearchRun, artifact: ResearchResultArtifact, collector: ReceiptCollector) -> dict[str, object]:
@@ -33,6 +34,7 @@ def project_minimal_result(*, job: ResearchJob, run: ResearchRun, artifact: Rese
                 for candidate in artifact.evidence_candidates
             ],
         },
+        "selected_evidence": project_selected_evidence(artifact=artifact),
         "rollup": {
             "llm_calls": rollup.llm_calls,
             "input_tokens": rollup.input_tokens,
