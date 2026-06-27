@@ -35,6 +35,8 @@ def test_project_persisted_execution_view_returns_clean_json_shape() -> None:
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["evidence_input"]["candidates"][0]["provider"] == "stub-search"
     assert payload["selected_evidence"]["selected_count"] == 2
+    assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 ranked retrieval candidates"
+    assert payload["selected_evidence"]["dropped_count"] == 1
     assert payload["selected_evidence"]["items"][0]["provider"] == "stub-search"
     assert payload["rollup"]["llm_calls"] == 4
     assert payload["rollup"]["degraded_calls"] == 4
@@ -72,6 +74,7 @@ def test_run_then_get_http_path_returns_projection_payload() -> None:
     assert payload["compiled_artifact"]["present"] is True
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["selected_evidence"]["selected_count"] == 2
+    assert payload["selected_evidence"]["rejected_reasons"][0]["reason"] == "rank_limit"
     assert payload["rollup"]["total_tokens"] == 384
     assert payload["receipts"]["stage_count"] == 10
     assert payload["receipts"]["llm_count"] == 4
@@ -97,6 +100,7 @@ def test_get_persisted_execution_http_returns_404_with_absent_persistence_block(
     assert payload["persistence"]["marker_state"] is None
     assert payload["compiled_artifact"]["present"] is False
     assert payload["selected_evidence"]["selected_count"] == 0
+    assert payload["selected_evidence"]["selection_notes"][0] == "no retrieval candidates available for promotion"
 
 
 def test_get_persisted_execution_http_returns_202_with_partial_persistence_block() -> None:

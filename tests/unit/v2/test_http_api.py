@@ -24,6 +24,7 @@ def test_handle_run_minimal_flow_request_returns_created_json_response() -> None
     assert payload["compiled_artifact"]["present"] is True
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["selected_evidence"]["selected_count"] == 2
+    assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 ranked retrieval candidates"
     assert payload["rollup"]["total_tokens"] == 384
 
 
@@ -51,6 +52,7 @@ def test_handle_get_persisted_execution_request_returns_projection() -> None:
     assert payload["compiled_artifact"]["present"] is True
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["selected_evidence"]["selected_count"] == 2
+    assert payload["selected_evidence"]["dropped_count"] == 1
     assert payload["rollup"]["degraded_calls"] == 4
 
 
@@ -69,6 +71,7 @@ def test_handle_get_persisted_execution_request_returns_not_found() -> None:
     assert payload["artifact"]["present"] is False
     assert payload["compiled_artifact"]["present"] is False
     assert payload["selected_evidence"]["selected_count"] == 0
+    assert payload["selected_evidence"]["selection_notes"][0] == "no retrieval candidates available for promotion"
 
 
 def test_handle_get_persisted_execution_request_returns_incomplete() -> None:
@@ -94,4 +97,5 @@ def test_handle_get_persisted_execution_request_returns_incomplete() -> None:
     assert payload["artifact"]["present"] is False
     assert payload["compiled_artifact"]["present"] is True
     assert payload["selected_evidence"]["selected_count"] == 0
+    assert payload["selected_evidence"]["selection_notes"][0] == "no retrieval candidates available for promotion"
     assert payload["receipts"]["llm_count"] == 4
