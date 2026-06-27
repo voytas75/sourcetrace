@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from sourcetrace_v2.app.composition.runtime import RuntimeAssembly
-from sourcetrace_v2.core.contracts.persistence import ReceiptRepository, ResultArtifactRepository
 from sourcetrace_v2.core.contracts.read_models import PersistedViewStatus
 from sourcetrace_v2.projections.api.http import HttpResponse, json_response
 from sourcetrace_v2.projections.api.readback import project_persisted_execution_view
@@ -24,8 +23,8 @@ def handle_run_minimal_flow_request(*, job_id: str, run_id: str, seed_text: str,
     return json_response(payload, status_code=201)
 
 
-def handle_get_persisted_execution_request(*, job_id: str, run_id: str, results: ResultArtifactRepository, receipts: ReceiptRepository) -> HttpResponse:
-    view = load_persisted_execution_view(job_id=job_id, run_id=run_id, results=results, receipts=receipts)
+def handle_get_persisted_execution_request(*, job_id: str, run_id: str, runtime: RuntimeAssembly) -> HttpResponse:
+    view = load_persisted_execution_view(job_id=job_id, run_id=run_id, results=runtime.results, receipts=runtime.receipts)
     payload = project_persisted_execution_view(view=view)
     if view.status is PersistedViewStatus.NOT_FOUND:
         return json_response(payload, status_code=404)

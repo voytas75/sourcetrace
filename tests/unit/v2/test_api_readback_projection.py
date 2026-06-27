@@ -1,31 +1,25 @@
-from sourcetrace_v2.adapters.storage.memory import InMemoryReceiptRepository, InMemoryResultArtifactRepository
-from sourcetrace_v2.app.composition.minimal_flow import run_minimal_flow
-from sourcetrace_v2.app.services.api_demo import get_persisted_minimal_flow_payload
+import json
+
+from sourcetrace_v2.app.composition.runtime import build_stubbed_memory_runtime
+from sourcetrace_v2.app.services.http_api import handle_get_persisted_execution_request, handle_run_minimal_flow_request
 from sourcetrace_v2.app.services.readback import load_persisted_execution_view
-from sourcetrace_v2.execution.receipts.persisted_collector import PersistedReceiptCollector
 from sourcetrace_v2.projections.api.readback import project_persisted_execution_view
 
 
 def test_project_persisted_execution_view_returns_clean_json_shape() -> None:
-    result_repo = InMemoryResultArtifactRepository()
-    receipt_repo = InMemoryReceiptRepository()
-    job, run, artifact, collector = run_minimal_flow(
+    runtime = build_stubbed_memory_runtime()
+    handle_run_minimal_flow_request(
         job_id="job-api",
         run_id="run-api",
         seed_text="please use fallback",
+        runtime=runtime,
     )
-    persisted = PersistedReceiptCollector(repository=receipt_repo)
-    for receipt in collector.stage_receipts:
-        persisted.append_stage(receipt)
-    for receipt in collector.llm_receipts:
-        persisted.append_llm(receipt)
-    result_repo.save_result(artifact)
 
     view = load_persisted_execution_view(
-        job_id=job.job_id,
-        run_id=run.run_id,
-        results=result_repo,
-        receipts=receipt_repo,
+        job_id="job-api",
+        run_id="run-api",
+        results=runtime.results,
+        receipts=runtime.receipts,
     )
     payload = project_persisted_execution_view(view=view)
 
@@ -40,16 +34,25 @@ def test_project_persisted_execution_view_returns_clean_json_shape() -> None:
     assert payload["receipts"]["llm"][0]["profile"] == "planning_default"
 
 
-def test_api_demo_returns_projection_payload() -> None:
-    payload = get_persisted_minimal_flow_payload(
-        job_id="job-api-demo",
-        run_id="run-api-demo",
+def test_run_then_get_http_path_returns_projection_payload() -> None:
+    runtime = build_stubbed_memory_runtime()
+    handle_run_minimal_flow_request(
+        job_id="job-api-http",
+        run_id="run-api-http",
         seed_text="test query",
+        runtime=runtime,
     )
 
-    assert payload["job_id"] == "job-api-demo"
-    assert payload["run_id"] == "run-api-demo"
-    assert payload["job_status"] == "done"
+    response = handle_get_persisted_execution_request(
+        job_id="job-api-http",
+        run_id="run-api-http",
+        runtime=runtime,
+    )
+    payload = json.loads(response.body)
+
+    assert payload["job_id"] == "job-api-http"
+    assert payload["run_id"] == "run-api-http"
+    assert payload["status"] == "found"
     assert payload["artifact"]["present"] is True
     assert payload["rollup"]["total_tokens"] == 384
     assert payload["receipts"]["stage_count"] == 8

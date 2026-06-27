@@ -1,7 +1,9 @@
+import logging
 from pathlib import Path
 
 from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
 from sourcetrace_v2.adapters.storage.jsonl import JsonlReceiptRepository, JsonlResultArtifactRepository
+from sourcetrace_v2.app.composition.runtime import RuntimeAssembly
 from sourcetrace_v2.app.services.http_api import handle_get_persisted_execution_request
 from sourcetrace_v2.app.services.run_use_case import run_and_persist_minimal_flow
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
@@ -45,11 +47,18 @@ def test_jsonl_storage_can_back_http_get_readback(tmp_path: Path) -> None:
         config=config,
     )
 
+    runtime = RuntimeAssembly(
+        config=config,
+        llm=llm,
+        results=results,
+        receipts=receipts,
+        logger=logging.getLogger("test-jsonl"),
+    )
+
     response = handle_get_persisted_execution_request(
         job_id="job-jsonl-http",
         run_id="run-jsonl-http",
-        results=results,
-        receipts=receipts,
+        runtime=runtime,
     )
 
     assert response.status_code == 200
