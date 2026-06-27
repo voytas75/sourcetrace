@@ -1,5 +1,14 @@
 # SourceTrace developer notes
 
+> Current posture: `sourcetrace_v2` is the active implementation line. The existing Deep Research / `src/sourcetrace/**` runtime remains useful as legacy reference and migration context, but should not be treated as the default forward path.
+>
+> Start with:
+> - `docs/STATUS.md`
+> - `docs/sourcetrace-v2-full-closure-map-2026-06-27.md`
+> - relevant `docs/sourcetrace-v2-*.md` notes
+>
+> See also: `docs/sourcetrace-v2-docs-posture-2026-06-27.md`
+
 This file holds developer- and operator-facing details that would overload `README.md`.
 
 Use `README.md` as the public-facing repo entry point.
@@ -17,6 +26,8 @@ uv run pytest -q
 ```
 
 ## Runtime modes
+The legacy runtime notes below are still useful for operating the current pre-v2 stack, but they are not the primary implementation direction anymore.
+
 SourceTrace currently has two practical local run modes.
 
 ### Command help surfaces
@@ -162,10 +173,11 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pret
 ## Documentation usage
 Start from:
 - `README.md` for public repo framing
-- `docs/architecture-ssot.md` for architecture baseline
-- `docs/execution-blueprint.md` for implementation blueprint
-- `docs/deep-research-implementation-slice-v1.md` for the original delivered Deep Research slice
-- `docs/deep-research-status-checkpoint-2026-06-22.md` for the current Deep Research restart point after the 2026-06-21/22 improvement chain
+- `docs/STATUS.md` for the active v2 checkpoint chain
+- `docs/sourcetrace-v2-full-closure-map-2026-06-27.md` for closure sequencing
+- `docs/sourcetrace-v2-docs-posture-2026-06-27.md` for active-vs-legacy docs posture
+- relevant `docs/sourcetrace-v2-*.md` contract/brief/checkpoint notes for the slice you are touching
 
+Use v1 / deep-research docs as legacy reference and migration evidence unless the task is explicitly about the legacy runtime.
 Use tracked docs for durable product truth.
 Keep transient working notes and local process artifacts outside public-facing repo surfaces.

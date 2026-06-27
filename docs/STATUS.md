@@ -277,3 +277,20 @@ Verification:
 
 Best next bounded slice:
 - do a bounded docs unification pass so v2 is clearly the active line and v1 is explicitly marked legacy where needed
+
+## 2026-06-27 — SourceTrace docs posture unification checkpoint
+
+Closed a bounded docs pass to make the active line explicit.
+
+What changed:
+- wrote `docs/sourcetrace-v2-docs-posture-2026-06-27.md`
+- updated `README-dev.md` so `sourcetrace_v2` is clearly the active implementation line
+- explicitly downgraded existing v1 / deep-research runtime docs to legacy-reference status for normal forward work
+
+Current posture:
+- repo docs now point new implementation work toward v2 first
+- legacy runtime docs are still preserved for migration/support context
+- the docs split is explicit without trying to rewrite the whole historical corpus in one pass
+
+Best next bounded slice:
+- implement `compiled artifact persistence + readback v1` as the next knowledge-layer closure step, or do a small follow-up pass that tags the most important legacy docs headers explicitly
