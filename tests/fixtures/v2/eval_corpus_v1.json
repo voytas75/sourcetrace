@@ -1,0 +1,49 @@
+[
+  {
+    "case_id": "stub-minimal-flow",
+    "runtime": "stubbed_memory",
+    "job_id": "eval-job-stub",
+    "run_id": "eval-run-stub",
+    "seed_text": "test query",
+    "expect": {
+      "status": "found",
+      "evidence_input_candidate_count": 3,
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard",
+      "compiled_artifact_present": true,
+      "compiled_readback_status": "found"
+    }
+  },
+  {
+    "case_id": "searxng-provider-backed",
+    "runtime": "searxng_stubbed_jsonl",
+    "job_id": "eval-job-searxng",
+    "run_id": "eval-run-searxng",
+    "seed_text": "test query",
+    "expect": {
+      "status": "found",
+      "evidence_input_candidate_count": 3,
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard",
+      "compiled_artifact_present": true,
+      "compiled_readback_status": "found",
+      "top_provider": "searxng"
+    }
+  },
+  {
+    "case_id": "preferred-search-unified-first",
+    "runtime": "preferred_search_stubbed_jsonl",
+    "job_id": "eval-job-unified",
+    "run_id": "eval-run-unified",
+    "seed_text": "policy",
+    "expect": {
+      "status": "found",
+      "evidence_input_candidate_count": 3,
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard",
+      "compiled_artifact_present": true,
+      "compiled_readback_status": "found",
+      "top_provider": "procedural_admin_unified_search"
+    }
+  }
+]

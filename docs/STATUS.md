@@ -314,3 +314,20 @@ Verification:
 
 Best next bounded slice:
 - add one non-rank quality rule to `selected_evidence` (`selected-evidence policy v1`), or formalize compiled-artifact readback as its own explicit HTTP/read-model slice
+
+## 2026-06-27 — SourceTrace v2 eval corpus v1 checkpoint
+
+Closed the next bounded confidence slice after the retrieval/evidence/compiled-artifact surfaces.
+
+What changed:
+- added a small runnable eval corpus fixture at `tests/fixtures/v2/eval_corpus_v1.json`
+- added `tests/unit/v2/test_eval_corpus_v1.py` to execute the corpus across stub, SearxNG-backed, and preferred-search runtime paths
+- pinned expectations for retrieval count, selected-evidence shape, selection basis, compiled artifact presence, and compiled readback status
+
+Current posture:
+- v2 now has a small but real reusable evaluation set instead of only slice-local tests
+- provider-backed and stubbed paths are both represented
+- this is still a bounded corpus, not a benchmark harness or quality scoreboard
+
+Best next bounded slice:
+- run one bounded benchmark/quality pass over this corpus and use the findings to justify the next quality-oriented slice
