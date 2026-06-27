@@ -419,3 +419,20 @@ Current posture:
 
 Best next bounded slice:
 - run a quality pass v3 over this richer corpus and decide whether the next bottleneck is still corpus realism or finally a new evidence-quality rule
+
+## 2026-06-27 — SourceTrace v2 bounded quality pass v3 checkpoint
+
+Closed a third bounded quality pass after `eval corpus v3`.
+
+What changed:
+- wrote `docs/sourcetrace-v2-bounded-quality-pass-v3-2026-06-27.md`
+- checked the policy-v2 surface against more realistic topical fixture shapes
+- narrowed the remaining gap diagnosis from generic corpus realism to authority-vs-relevance collision realism
+
+Current posture:
+- the current bounded v2 policy stack is coherent across synthetic but increasingly realistic topical cases
+- there is still no evidence that more heuristics are the right next move
+- the next best signal should come from sharper corpus collisions, not from adding another generic rule first
+
+Best next bounded slice:
+- add `eval corpus v4` focused on authority-vs-relevance and official-vs-commentary collisions before changing policy again
