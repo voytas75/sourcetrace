@@ -88,3 +88,10 @@ class ExecutionRollup:
     total_tokens: int = 0
     degraded_calls: int = 0
     failed_stages: int = 0
+
+
+@dataclass(frozen=True)
+class RunPersistenceMarker:
+    job_id: str
+    run_id: str
+    status: str = "committed"

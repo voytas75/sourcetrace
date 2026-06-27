@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RunPersistenceMarker, StageExecutionReceipt
 
 
 @dataclass
 class InMemoryResultArtifactRepository:
     artifacts: dict[tuple[str, str], ResearchResultArtifact] = field(default_factory=dict)
+    markers: dict[tuple[str, str], RunPersistenceMarker] = field(default_factory=dict)
 
     def save_result(self, artifact: ResearchResultArtifact) -> ResearchResultArtifact:
         self.artifacts[(artifact.job_id, artifact.run_id)] = artifact
@@ -15,6 +16,13 @@ class InMemoryResultArtifactRepository:
 
     def get_result(self, *, job_id: str, run_id: str) -> ResearchResultArtifact | None:
         return self.artifacts.get((job_id, run_id))
+
+    def save_run_marker(self, marker: RunPersistenceMarker) -> RunPersistenceMarker:
+        self.markers[(marker.job_id, marker.run_id)] = marker
+        return marker
+
+    def get_run_marker(self, *, job_id: str, run_id: str) -> RunPersistenceMarker | None:
+        return self.markers.get((job_id, run_id))
 
 
 @dataclass

@@ -1,17 +1,21 @@
 from sourcetrace_v2.adapters.storage.memory import InMemoryReceiptRepository, InMemoryResultArtifactRepository
 from sourcetrace_v2.core.domain.identifiers import StageId, StageStatus
-from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RunPersistenceMarker, StageExecutionReceipt
 from sourcetrace_v2.execution.receipts.persisted_collector import PersistedReceiptCollector
 
 
 def test_in_memory_result_repository_roundtrip() -> None:
     repo = InMemoryResultArtifactRepository()
     artifact = ResearchResultArtifact(job_id="job-1", run_id="run-1", result_text="hello")
+    marker = RunPersistenceMarker(job_id="job-1", run_id="run-1")
 
     repo.save_result(artifact)
+    repo.save_run_marker(marker)
 
     assert repo.get_result(job_id="job-1", run_id="run-1") == artifact
+    assert repo.get_run_marker(job_id="job-1", run_id="run-1") == marker
     assert repo.get_result(job_id="job-1", run_id="run-2") is None
+    assert repo.get_run_marker(job_id="job-1", run_id="run-2") is None
 
 
 def test_persisted_receipt_collector_stores_receipts() -> None:

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, fields
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Iterable, TypeVar
+from typing import Any
 
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus, StageId, StageStatus
-from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, StageExecutionReceipt
-
-T = TypeVar("T")
+from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RunPersistenceMarker, StageExecutionReceipt
 
 
 def _serialize_dataclass(instance: Any) -> dict[str, Any]:
@@ -48,6 +46,7 @@ class JsonlResultArtifactRepository:
     def __init__(self, base_dir: str | Path) -> None:
         self.base_dir = Path(base_dir)
         self.path = self.base_dir / "result_artifacts.jsonl"
+        self.marker_path = self.base_dir / "run_markers.jsonl"
 
     def save_result(self, artifact: ResearchResultArtifact) -> ResearchResultArtifact:
         _append_jsonl(self.path, _serialize_dataclass(artifact))
@@ -65,6 +64,23 @@ class JsonlResultArtifactRepository:
             run_id=match["run_id"],
             result_text=match["result_text"],
             summary=match.get("summary", ""),
+        )
+
+    def save_run_marker(self, marker: RunPersistenceMarker) -> RunPersistenceMarker:
+        _append_jsonl(self.marker_path, _serialize_dataclass(marker))
+        return marker
+
+    def get_run_marker(self, *, job_id: str, run_id: str) -> RunPersistenceMarker | None:
+        match: dict[str, Any] | None = None
+        for row in _read_jsonl(self.marker_path):
+            if row.get("job_id") == job_id and row.get("run_id") == run_id:
+                match = row
+        if match is None:
+            return None
+        return RunPersistenceMarker(
+            job_id=match["job_id"],
+            run_id=match["run_id"],
+            status=match.get("status", "committed"),
         )
 
 
