@@ -113,3 +113,21 @@ Current posture:
 
 Best next bounded slice:
 - implement `Slice 1 — Real search adapter + retrieval input path` from the broader migration plan
+
+## 2026-06-27 — SourceTrace v2 Slice 1 retrieval brief checkpoint
+
+Recorded a bounded implementation brief for the next v2 capability slice.
+
+What changed:
+- added `docs/sourcetrace-v2-search-adapter-retrieval-input-slice-brief-2026-06-27.md`
+- made the next capability target concrete: one real evidence-input seam on the v2 spine
+- recommended an explicit `retrieval` stage instead of hiding retrieval inside a vague sub-step
+- defined DoD, failure signals, projection posture, and implementation order for the slice
+
+Current posture:
+- v2 planning is now specific enough to begin implementation of the first post-spine capability slice
+- the next bounded move is no longer abstract “search work”, but a constrained retrieval-attribution slice
+- scope is still controlled: one adapter, one bounded seam, one truthful projection path
+
+Best next bounded slice:
+- start implementation of `Slice 1 — real search adapter + retrieval input path`
