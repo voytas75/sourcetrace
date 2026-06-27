@@ -70,6 +70,7 @@ def test_env_backed_litellm_like_runtime_can_drive_run_http_path(tmp_path, monke
     assert payload["status"] == "found"
     assert payload["rollup"]["llm_calls"] == 4
     assert payload["rollup"]["total_tokens"] == 60
+    assert calls[0]["model"] == "azure/gpt-5.4"
     assert calls[0]["api_key"] == "secret"
     assert calls[0]["base_url"] == "https://example.test/openai/v1"
     assert calls[0]["api_version"] == "2024-10-21"

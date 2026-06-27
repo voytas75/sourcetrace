@@ -8,6 +8,7 @@ class RuntimeProfile:
     name: str
     provider: str
     model: str
+    provider_model_id: str | None = None
     mode: str = "text"
     temperature: float = 0.0
     max_output_tokens: int = 800

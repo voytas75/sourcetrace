@@ -24,8 +24,11 @@ class LiteLikeLlmGateway(LlmTextGateway):
 
     def generate(self, *, profile_name: str, prompt: str) -> LlmCallResult:
         profile = resolve_profile(self.config, profile_name)
+        completion_model = profile.provider_model_id or profile.model
+        if profile.provider == "azure":
+            completion_model = f"azure/{completion_model}"
         response = self.completion_fn(
-            model=profile.model,
+            model=completion_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=profile.temperature,
             max_tokens=profile.max_output_tokens,

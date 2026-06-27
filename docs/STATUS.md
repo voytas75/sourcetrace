@@ -521,3 +521,22 @@ Current posture:
 
 Best next bounded slice:
 - stop here and treat the bounded v2 baseline as closed enough, or explicitly open the next named track if new work is wanted
+
+## 2026-06-28 — SourceTrace v2 production-readiness track / live LLM path v1 checkpoint
+
+Opened a separate production-readiness track and closed the first live-LLM runtime slice.
+
+What changed:
+- wrote `docs/sourcetrace-v2-production-readiness-track-2026-06-28.md`
+- wrote `docs/sourcetrace-v2-live-llm-runtime-path-v1-2026-06-28.md`
+- added provider-specific model ids to runtime profiles
+- added a real env-backed LiteLLM live runtime path
+- fixed Azure `research_fast` compatibility by setting a config-level temperature compatible with `gpt-5.4-mini`
+
+Current posture:
+- v2 now has a real provider-configured live LLM runtime path instead of only a seam plus injected callback story
+- Azure is the first real provider implementation, but the config shape is no longer locked to raw logical model names only
+- this does not make v2 fully production-ready yet, but it removes one of the sharpest blockers
+
+Best next bounded slice:
+- rerun and evaluate the live smoke path, then decide whether the next blocker is PDF/document read, operator entrypoint polish, or another provider/runtime compatibility edge

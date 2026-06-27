@@ -19,6 +19,7 @@ from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
 from sourcetrace_v2.runtime.config.models import RuntimeConfig
 from sourcetrace_v2.runtime.logging.setup import configure_logging
 from sourcetrace_v2.runtime.bootstrap.litellm import EnvBootstrapRequest, resolve_litellm_bootstrap_from_env
+from sourcetrace_v2.runtime.bootstrap.litellm_client import litellm_completion
 from sourcetrace_v2.runtime.bootstrap.search import SearchEnvBootstrapRequest, resolve_searxng_bootstrap_from_env
 from sourcetrace_v2.runtime.bootstrap.unified_search import load_mycrewhelper_unified_search_web
 
@@ -96,6 +97,48 @@ def build_env_backed_litellm_like_jsonl_runtime(*, base_dir: str | Path, complet
         base_dir=base_dir,
         completion_fn=completion_fn,
         bootstrap=bootstrap,
+    )
+
+
+def build_env_backed_live_litellm_jsonl_runtime(*, base_dir: str | Path, api_key_env: str, base_url_env: str | None = None, api_version_env: str | None = None) -> RuntimeAssembly:
+    return build_env_backed_litellm_like_jsonl_runtime(
+        base_dir=base_dir,
+        completion_fn=litellm_completion,
+        api_key_env=api_key_env,
+        base_url_env=base_url_env,
+        api_version_env=api_version_env,
+    )
+
+
+def build_env_backed_live_litellm_with_searxng_jsonl_runtime(*, base_dir: str | Path, api_key_env: str, search_base_url_env: str, base_url_env: str | None = None, api_version_env: str | None = None, search_language_env: str | None = None, search_timeout_env: str | None = None) -> RuntimeAssembly:
+    bootstrap = resolve_litellm_bootstrap_from_env(
+        EnvBootstrapRequest(
+            api_key_env=api_key_env,
+            base_url_env=base_url_env,
+            api_version_env=api_version_env,
+        )
+    )
+    config = build_default_runtime_config()
+    logger = configure_logging(config.logging)
+    llm = LiteLikeLlmGateway(config=config, completion_fn=litellm_completion, bootstrap=bootstrap)
+    search = SearxNGSearchGateway(
+        bootstrap=resolve_searxng_bootstrap_from_env(
+            SearchEnvBootstrapRequest(
+                base_url_env=search_base_url_env,
+                language_env=search_language_env,
+                timeout_env=search_timeout_env,
+            )
+        )
+    )
+    results = JsonlResultArtifactRepository(base_dir)
+    receipts = JsonlReceiptRepository(base_dir)
+    return RuntimeAssembly(
+        config=config,
+        llm=llm,
+        search=search,
+        results=results,
+        receipts=receipts,
+        logger=logger,
     )
 
 
