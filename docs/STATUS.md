@@ -294,3 +294,23 @@ Current posture:
 
 Best next bounded slice:
 - implement `compiled artifact persistence + readback v1` as the next knowledge-layer closure step, or do a small follow-up pass that tags the most important legacy docs headers explicitly
+
+## 2026-06-27 — SourceTrace v2 explain/debug contract v1 checkpoint
+
+Closed a bounded explain/debug slice over the current `selected_evidence` surface.
+
+What changed:
+- extended `selected_evidence` with compact explain/debug fields
+- added `selection_notes`, `dropped_count`, and `rejected_reasons`
+- kept the current bounded selection policy intact instead of widening into a scoring subsystem
+
+Current posture:
+- v2 now shows not only what evidence was promoted, but also why and what was dropped by the current rule
+- the operator/debug surface is more self-explaining without hiding the still-simple policy
+- this remains a compact contract, not a large evidence-evaluation framework
+
+Verification:
+- focused bounded v2 tests passed after the slice (`18 passed`)
+
+Best next bounded slice:
+- add one non-rank quality rule to `selected_evidence` (`selected-evidence policy v1`), or formalize compiled-artifact readback as its own explicit HTTP/read-model slice
