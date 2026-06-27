@@ -470,3 +470,20 @@ Current posture:
 
 Best next bounded slice:
 - choose whether to freeze the current evidence-policy baseline for v2, or define a separate post-baseline authority/relevance policy track
+
+## 2026-06-27 — SourceTrace v2 evidence-policy baseline freeze checkpoint
+
+Closed the baseline decision for the current bounded v2 evidence-selection stack.
+
+What changed:
+- wrote `docs/sourcetrace-v2-evidence-policy-baseline-freeze-2026-06-27.md`
+- explicitly froze the current evidence-selection policy as the bounded v2 baseline
+- defined reopen conditions so future policy work must be requirement-driven or corpus-driven
+
+Current posture:
+- `selected_evidence` policy should now be treated as stable for the bounded v2 line
+- further heuristic tweaks are no longer the default next move
+- any future authority/relevance policy expansion should be opened as a deliberate post-baseline track, not as drift inside the current closure line
+
+Best next bounded slice:
+- shift from evidence-policy tweaking to broader v2 closure/packaging work, or explicitly define a post-baseline authority/relevance policy track if that is now the goal
