@@ -357,6 +357,33 @@ def _snippet_candidates(pages: list[_PageText], query_tokens: set[str], limit: i
     return unique
 
 
+def _context_chunks(pages: list[_PageText], query_tokens: set[str], limit: int = 6) -> list[str]:
+    ranked: list[tuple[float, str]] = []
+    section_snippets = _section_snippet_candidates(pages, query_tokens, limit=limit)
+    for snippet in section_snippets:
+        ranked.append((1.0 + _score_text(query_tokens, snippet), snippet[:1400]))
+    if len(ranked) < limit:
+        for page in pages:
+            page_bonus = _page_score(page, query_tokens)
+            text = ' '.join(page.text.split())
+            if len(text) < 120:
+                continue
+            excerpt = text[:1600]
+            score = _score_text(query_tokens, excerpt) + page_bonus
+            if any(cue in _normalize_text(excerpt) for cue in _FINDING_CUES):
+                score += 0.2
+            if score > 0:
+                ranked.append((score, f"[page {page.page_number}] {excerpt}"[:1700]))
+    ranked.sort(key=lambda item: (item[0], len(item[1])), reverse=True)
+    unique: list[str] = []
+    for _, chunk in ranked:
+        if chunk not in unique:
+            unique.append(chunk)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
 def openclaw_pdf_capability(*, pdf: str, prompt: str, pages: str = "") -> dict[str, object]:
     path, cleanup = _resolve_local_pdf(pdf)
     try:
@@ -377,6 +404,7 @@ def openclaw_pdf_capability(*, pdf: str, prompt: str, pages: str = "") -> dict[s
         evidence_pages = evidence_pages[:5]
 
         findings = _snippet_candidates(working_pages, query_tokens, limit=8)
+        context_chunks = _context_chunks(working_pages, query_tokens, limit=6)
 
         title = _best_title(selected_pages, title_hint, path)
         scope = _best_scope(working_pages, query_tokens, title_hint, path)
@@ -401,6 +429,7 @@ def openclaw_pdf_capability(*, pdf: str, prompt: str, pages: str = "") -> dict[s
             "document_scope": scope,
             "entity_match_summary": entity,
             "key_findings": findings[:8],
+            "context_chunks": context_chunks[:6],
             "evidence_pages": evidence_pages,
             "confidence": min(1.0, max(0.0, score)),
         }
@@ -432,7 +461,7 @@ def build_native_pdf_ingestor_with_llm(
             pages=page_spec,
             prompt=_full_prompt(query=query, title=title),
         )
-        snippets = tuple(full.get("key_findings") or ()) if isinstance(full, dict) else ()
+        snippets = tuple(full.get("context_chunks") or full.get("key_findings") or ()) if isinstance(full, dict) else ()
         fallback = PdfIngestResult(
             relevant=bool(full.get("relevant", False)) if isinstance(full, dict) else False,
             confidence=float(full.get("confidence", 0.0)) if isinstance(full, dict) else 0.0,

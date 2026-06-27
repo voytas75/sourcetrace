@@ -92,3 +92,49 @@ def test_native_pdf_ingestor_reads_preview_across_first_three_pages(monkeypatch)
     assert calls[0] == "1-3"
     assert calls[1] == "11,12,18,19"
     assert result.confidence == 0.75
+
+
+def test_native_pdf_ingestor_prefers_context_chunks_over_thin_findings(monkeypatch) -> None:
+    def fake_capability(*, pdf: str, prompt: str, pages: str = "") -> dict[str, object]:
+        if pages == "1-3":
+            return {
+                "document_title": "Doc",
+                "main_entity": "Entity",
+                "document_scope": "Scope",
+                "relevance_verdict": "relevant",
+                "reason": "ok",
+                "candidate_pages": [11, 12],
+                "confidence": 0.5,
+            }
+        return {
+            "relevant": True,
+            "document_scope": "Scope",
+            "entity_match_summary": "Entity",
+            "key_findings": ["thin finding"],
+            "context_chunks": ["[page 11] longer substantive context", "[page 12] another chunk"],
+            "evidence_pages": [11, 12],
+            "confidence": 0.75,
+        }
+
+    captured = {}
+
+    def fake_judge(**kwargs):
+        captured['snippets'] = kwargs['snippets']
+        class _Debug:
+            fallback_used = True
+            raw_text = ""
+            parsed_json = None
+            snippets = kwargs["snippets"]
+            candidate_pages = kwargs["candidate_pages"]
+            result = kwargs["fallback"]
+        return _Debug()
+
+    monkeypatch.setattr(
+        "sourcetrace.runtime_pdf_backend_openclaw.openclaw_pdf_capability",
+        fake_capability,
+    )
+
+    ingest = build_native_pdf_ingestor_with_llm(llm_judge=fake_judge)
+    ingest(query="Q", url="https://example.test/doc.pdf", title="Doc", triage_verdict="relevant")
+
+    assert captured['snippets'] == ("[page 11] longer substantive context", "[page 12] another chunk")
