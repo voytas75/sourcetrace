@@ -331,3 +331,20 @@ Current posture:
 
 Best next bounded slice:
 - run one bounded benchmark/quality pass over this corpus and use the findings to justify the next quality-oriented slice
+
+## 2026-06-27 — SourceTrace v2 bounded quality pass checkpoint
+
+Closed a short quality pass over the new v2 eval corpus.
+
+What changed:
+- wrote `docs/sourcetrace-v2-bounded-quality-pass-2026-06-27.md`
+- used the eval corpus to confirm coherence across stub, SearxNG-backed, and preferred-search runtime paths
+- recorded the sharpest remaining weakness as evidence-quality depth rather than contract-shape instability
+
+Current posture:
+- v2 now has both a runnable eval corpus and one explicit quality-pass checkpoint over it
+- contract-level coherence is good across the currently exercised bounded surfaces
+- the next real decisions should now be driven by evidence-quality ambition rather than missing infrastructure seams
+
+Best next bounded slice:
+- either extend the eval corpus (`eval corpus v2`) or add one more bounded evidence-quality rule (`selected-evidence policy v2`)
