@@ -30,8 +30,8 @@ def test_minimal_flow_emits_result_and_rollup() -> None:
     assert payload["evidence_input"]["query"].startswith("stub:research_fast:")
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["selected_evidence"]["selected_count"] == 2
-    assert payload["selected_evidence"]["selection_basis"] == "top_ranked_retrieval_candidates"
-    assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 ranked retrieval candidates"
+    assert payload["selected_evidence"]["selection_basis"] == "rank_with_minimal_content_guard"
+    assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 retrieval candidates after minimal content guard"
     assert payload["selected_evidence"]["dropped_count"] == 1
     assert payload["selected_evidence"]["rejected_reasons"][0]["reason"] == "rank_limit"
     assert payload["selected_evidence"]["items"][0]["provider"] == "stub-search"
