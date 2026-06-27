@@ -348,3 +348,20 @@ Current posture:
 
 Best next bounded slice:
 - either extend the eval corpus (`eval corpus v2`) or add one more bounded evidence-quality rule (`selected-evidence policy v2`)
+
+## 2026-06-27 — SourceTrace v2 eval corpus v2 checkpoint
+
+Extended the bounded eval corpus with a few more representative cases.
+
+What changed:
+- added `tests/fixtures/v2/eval_corpus_v2.json`
+- added `tests/unit/v2/test_eval_corpus_v2.py`
+- expanded coverage beyond happy-path run flows to include a thin selected-evidence case and a compiled-readback partial-path case
+
+Current posture:
+- the v2 eval surface is now more representative without turning into a benchmark harness
+- corpus coverage now includes stub flow, provider-backed flow, preferred-search flow, thin evidence selection, and partial compiled readback
+- this remains small and cheap enough to run as a bounded regression boundary
+
+Best next bounded slice:
+- use this richer corpus for one follow-up quality decision: either `selected-evidence policy v2` or a slightly broader quality pass over more realistic topic shapes

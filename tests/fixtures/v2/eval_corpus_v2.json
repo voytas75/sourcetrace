@@ -1,0 +1,114 @@
+[
+  {
+    "case_id": "stub-minimal-flow",
+    "kind": "run_flow",
+    "runtime": "stubbed_memory",
+    "job_id": "eval2-job-stub",
+    "run_id": "eval2-run-stub",
+    "seed_text": "test query",
+    "expect": {
+      "status": "found",
+      "evidence_input_candidate_count": 3,
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard",
+      "compiled_artifact_present": true,
+      "compiled_readback_status": "found"
+    }
+  },
+  {
+    "case_id": "searxng-provider-backed",
+    "kind": "run_flow",
+    "runtime": "searxng_stubbed_jsonl",
+    "job_id": "eval2-job-searxng",
+    "run_id": "eval2-run-searxng",
+    "seed_text": "test query",
+    "expect": {
+      "status": "found",
+      "evidence_input_candidate_count": 3,
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard",
+      "compiled_artifact_present": true,
+      "compiled_readback_status": "found",
+      "top_provider": "searxng"
+    }
+  },
+  {
+    "case_id": "preferred-search-unified-first",
+    "kind": "run_flow",
+    "runtime": "preferred_search_stubbed_jsonl",
+    "job_id": "eval2-job-unified",
+    "run_id": "eval2-run-unified",
+    "seed_text": "policy",
+    "expect": {
+      "status": "found",
+      "evidence_input_candidate_count": 3,
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard",
+      "compiled_artifact_present": true,
+      "compiled_readback_status": "found",
+      "top_provider": "procedural_admin_unified_search"
+    }
+  },
+  {
+    "case_id": "selected-evidence-thin-first-candidate",
+    "kind": "selected_evidence_only",
+    "artifact": {
+      "job_id": "eval2-job-thin",
+      "run_id": "eval2-run-thin",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:thin",
+          "job_id": "eval2-job-thin",
+          "run_id": "eval2-run-thin",
+          "provider": "provider-a",
+          "query": "query",
+          "title": "Thin",
+          "url": "https://example.test/thin",
+          "snippet": "",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:rich1",
+          "job_id": "eval2-job-thin",
+          "run_id": "eval2-run-thin",
+          "provider": "provider-b",
+          "query": "query",
+          "title": "Rich 1",
+          "url": "https://example.test/rich-1",
+          "snippet": "Useful snippet",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:rich2",
+          "job_id": "eval2-job-thin",
+          "run_id": "eval2-run-thin",
+          "provider": "provider-c",
+          "query": "query",
+          "title": "Rich 2",
+          "url": "https://example.test/rich-2",
+          "snippet": "Another useful snippet",
+          "rank": 3
+        }
+      ]
+    },
+    "expect": {
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard",
+      "first_selected_title": "Rich 1",
+      "missing_minimal_content_dropped": 1
+    }
+  },
+  {
+    "case_id": "compiled-readback-partial-compiled-only",
+    "kind": "compiled_partial",
+    "job_id": "eval2-job-compiled-partial",
+    "run_id": "eval2-run-compiled-partial",
+    "expect": {
+      "status": "incomplete",
+      "compiled_artifact_present": true,
+      "run_artifact_present": false,
+      "marker_present": false
+    }
+  }
+]
