@@ -53,3 +53,45 @@ Current posture:
 
 Best next bounded slice:
 - add a thin persisted run-envelope/read model projection that exposes marker state and persistence completeness more explicitly without widening transport/framework scope
+
+## 2026-06-27 — SourceTrace v2 persisted run-envelope projection checkpoint
+
+Closed the next bounded v2 slice on persisted readback clarity.
+
+What changed:
+- added `PersistedRunEnvelope` as a thin read-model layer over persisted run state
+- made persistence completeness explicit as `absent | partial | complete`
+- exposed marker presence/state and artifact presence directly in the persisted envelope
+- extended API readback projection with a dedicated `persistence` block
+- kept storage adapters, persistence flow, and transport surface otherwise unchanged
+
+Current posture:
+- persisted run semantics are now explicit instead of being inferred from raw fields
+- marker state and persistence completeness are visible in the read model and API projection
+- scope stayed bounded: no new backend, no framework expansion, no persistence rewrite
+
+Verification:
+- bounded v2 tests passed after the slice (`10 passed`)
+
+Best next bounded slice:
+- add a minimal HTTP contract test matrix for `404/202/200` that asserts the new `persistence` block across not-found / incomplete / found readback states
+\n## 2026-06-27 — SourceTrace v2 HTTP readback persistence contract checkpoint
+
+Closed the next bounded v2 slice on HTTP readback surface semantics.
+
+What changed:
+- added a minimal HTTP contract matrix for persisted readback states `404 / 202 / 200`
+- asserted the `persistence` block explicitly across `not_found / incomplete / found`
+- covered both partial persistence variants: artifact-only and marker-only
+- tightened the happy-path HTTP projection assertions for marker state and persistence presence
+
+Current posture:
+- HTTP readback semantics now state persisted completeness explicitly across all three status classes
+- transport semantics are better pinned without widening scope beyond tests
+- persistence envelope + HTTP projection surface is now materially harder to regress silently
+
+Verification:
+- bounded v2 tests passed after the slice (`12 passed`)
+
+Best next bounded slice:
+- checkpoint this pair of persisted-readback slices in git so the v2 continuation point is clean before taking on another behavior change

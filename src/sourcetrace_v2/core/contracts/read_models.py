@@ -12,9 +12,27 @@ class PersistedViewStatus(StrEnum):
     INCOMPLETE = "incomplete"
 
 
+class PersistenceCompleteness(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    ABSENT = "absent"
+
+
+@dataclass(frozen=True)
+class PersistedRunEnvelope:
+    job_id: str
+    run_id: str
+    status: PersistedViewStatus
+    persistence_completeness: PersistenceCompleteness
+    artifact_present: bool
+    marker_present: bool
+    marker_state: str | None
+
+
 @dataclass(frozen=True)
 class PersistedExecutionView:
     status: PersistedViewStatus
+    envelope: PersistedRunEnvelope
     artifact: ResearchResultArtifact | None
     marker: RunPersistenceMarker | None
     stage_receipts: tuple[StageExecutionReceipt, ...]

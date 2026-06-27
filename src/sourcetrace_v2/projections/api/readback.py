@@ -5,10 +5,17 @@ from sourcetrace_v2.core.contracts.read_models import PersistedExecutionView
 
 def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[str, object]:
     artifact = view.artifact
+    envelope = view.envelope
     return {
         "status": view.status.value,
-        "job_id": view.rollup.job_id,
-        "run_id": view.rollup.run_id,
+        "job_id": envelope.job_id,
+        "run_id": envelope.run_id,
+        "persistence": {
+            "completeness": envelope.persistence_completeness.value,
+            "artifact_present": envelope.artifact_present,
+            "marker_present": envelope.marker_present,
+            "marker_state": envelope.marker_state,
+        },
         "artifact": {
             "present": artifact is not None,
             "summary": artifact.summary if artifact is not None else None,
