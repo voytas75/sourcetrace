@@ -15,6 +15,13 @@ from sourcetrace_v2.runtime.logging.context import LoggingContext
 from sourcetrace_v2.runtime.logging.events import EventLogger
 
 
+def _build_result_summary(*, seed_text: str, evidence_query: str, evidence_candidates: tuple) -> str:
+    if evidence_candidates:
+        top = evidence_candidates[0]
+        return f"minimal v2 flow | query={evidence_query or seed_text} | top_source={top.provider}:{top.title}"
+    return f"minimal v2 flow | query={evidence_query or seed_text} | top_source=none"
+
+
 @dataclass(frozen=True)
 class ExecutionOutcome:
     job: ResearchJob
@@ -115,7 +122,11 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
         job_id=job_id,
         run_id=run_id,
         result_text=current_text,
-        summary="minimal v2 flow",
+        summary=_build_result_summary(
+            seed_text=seed_text,
+            evidence_query=evidence_query,
+            evidence_candidates=evidence_candidates,
+        ),
         evidence_query=evidence_query,
         evidence_candidates=evidence_candidates,
     )

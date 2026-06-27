@@ -25,6 +25,8 @@ def test_minimal_flow_emits_result_and_rollup() -> None:
     assert payload["job"]["job_id"] == "job-v2-test"
     assert payload["job"]["status"] == "done"
     assert payload["run"]["run_id"] == "run-v2-test"
+    assert payload["result"]["summary"].startswith("minimal v2 flow | query=stub:research_fast:")
+    assert "top_source=stub-search:Stub result 1" in payload["result"]["summary"]
     assert payload["evidence_input"]["query"].startswith("stub:research_fast:")
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["evidence_input"]["candidates"][0]["provider"] == "stub-search"

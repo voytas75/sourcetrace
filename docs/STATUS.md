@@ -156,3 +156,25 @@ Verification:
 
 Best next bounded slice:
 - replace the stub-only search path with one real provider-backed adapter while preserving the same retrieval-stage and provenance projection contracts
+
+## 2026-06-27 — SourceTrace v2 SearxNG-backed retrieval adapter checkpoint
+
+Closed the next bounded v2 retrieval slice by introducing one real provider-backed search path.
+
+What changed:
+- added `src/sourcetrace_v2/adapters/search/searxng.py`
+- introduced `SearxNGBootstrap`, `SearxNGSearchGateway`, and `SearchGatewayError`
+- added env bootstrap support in `src/sourcetrace_v2/runtime/bootstrap/search.py`
+- added dedicated runtime assembly paths for SearxNG-backed v2 runs
+- preserved the existing v2 contract: `search seam -> retrieval stage -> typed candidates -> evidence_input projection`
+
+Current posture:
+- v2 now has both a bounded stub search seam and one real provider-backed retrieval path
+- real retrieval is still isolated behind explicit runtime paths rather than silently replacing all stubbed defaults
+- this keeps risk low while proving that the retrieval-stage contract survives contact with a real backend
+
+Verification:
+- focused bounded v2 tests passed after the slice (`19 passed`)
+
+Best next bounded slice:
+- decide whether to make SearxNG the preferred non-stub v2 runtime path, or move up one layer and implement one more meaningful research workflow over the now-real retrieval input
