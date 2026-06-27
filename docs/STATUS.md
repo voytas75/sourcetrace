@@ -402,3 +402,20 @@ Current posture:
 
 Best next bounded slice:
 - extend the corpus again (`eval corpus v3`) with a few more realistic topic shapes before changing evidence policy further
+
+## 2026-06-27 — SourceTrace v2 eval corpus v3 checkpoint
+
+Extended the bounded corpus again, this time toward more realistic topic shapes.
+
+What changed:
+- added `tests/fixtures/v2/eval_corpus_v3.json`
+- added `tests/unit/v2/test_eval_corpus_v3.py`
+- introduced more realistic remote-work, IT-admin, official-vs-duplicate-domain, and thin-news-vs-richer-source cases while keeping the harness bounded and synthetic
+
+Current posture:
+- the corpus is still lightweight, but it is less toy-like than v1/v2
+- realistic topical shapes now exist for both run-flow and selected-evidence-only paths
+- this should make future policy changes harder to justify without evidence and easier to evaluate when they are justified
+
+Best next bounded slice:
+- run a quality pass v3 over this richer corpus and decide whether the next bottleneck is still corpus realism or finally a new evidence-quality rule

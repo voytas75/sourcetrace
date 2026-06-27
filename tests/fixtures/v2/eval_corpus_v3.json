@@ -1,0 +1,144 @@
+[
+  {
+    "case_id": "run-flow-remote-work-topic",
+    "kind": "run_flow",
+    "runtime": "preferred_search_stubbed_jsonl",
+    "job_id": "eval3-job-remote-work",
+    "run_id": "eval3-run-remote-work",
+    "seed_text": "remote work health policy",
+    "search_results": [
+      {"url": "https://gov.example.test/remote-work-guidance", "title": "Remote work guidance", "snippet": "Official guidance on remote work and health."},
+      {"url": "https://research.example.test/remote-work-study", "title": "Remote work study", "snippet": "Study on remote work health outcomes."},
+      {"url": "https://news.example.test/remote-work-article", "title": "Remote work article", "snippet": "News summary of the policy debate."}
+    ],
+    "expect": {
+      "status": "found",
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+      "top_provider": "procedural_admin_unified_search"
+    }
+  },
+  {
+    "case_id": "run-flow-it-admin-topic",
+    "kind": "run_flow",
+    "runtime": "searxng_stubbed_jsonl",
+    "job_id": "eval3-job-it-admin",
+    "run_id": "eval3-run-it-admin",
+    "seed_text": "it admin identity hardening",
+    "search_results": [
+      {"url": "https://learn.example.test/identity-hardening", "title": "Identity hardening guidance", "content": "Official IT admin hardening guidance."},
+      {"url": "https://community.example.test/identity-hardening-thread", "title": "Community hardening thread", "content": "Operator discussion and pitfalls."},
+      {"url": "https://blog.example.test/identity-hardening-blog", "title": "Identity hardening blog", "content": "Personal write-up with notes."}
+    ],
+    "expect": {
+      "status": "found",
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+      "top_provider": "searxng"
+    }
+  },
+  {
+    "case_id": "selected-evidence-realistic-official-vs-duplicate-domain",
+    "kind": "selected_evidence_only",
+    "artifact": {
+      "job_id": "eval3-job-official",
+      "run_id": "eval3-run-official",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:o1",
+          "job_id": "eval3-job-official",
+          "run_id": "eval3-run-official",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work health policy",
+          "title": "Official ministry guidance",
+          "url": "https://gov.example.test/policy/remote-work-guidance",
+          "snippet": "Ministry guidance on remote work safety and employer obligations.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:o2",
+          "job_id": "eval3-job-official",
+          "run_id": "eval3-run-official",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work health policy",
+          "title": "Official ministry FAQ",
+          "url": "https://gov.example.test/policy/remote-work-faq",
+          "snippet": "FAQ covering the same remote work policy area.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:o3",
+          "job_id": "eval3-job-official",
+          "run_id": "eval3-run-official",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work health policy",
+          "title": "Independent study summary",
+          "url": "https://research.example.test/remote-work-health-study",
+          "snippet": "Research summary on remote work and health effects.",
+          "rank": 3
+        }
+      ]
+    },
+    "expect": {
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+      "first_selected_title": "Official ministry guidance",
+      "second_selected_title": "Independent study summary",
+      "missing_minimal_content_dropped": 0,
+      "domain_diversity_dropped": 1
+    }
+  },
+  {
+    "case_id": "selected-evidence-realistic-thin-news-vs-richer-source",
+    "kind": "selected_evidence_only",
+    "artifact": {
+      "job_id": "eval3-job-news-thin",
+      "run_id": "eval3-run-news-thin",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:n1",
+          "job_id": "eval3-job-news-thin",
+          "run_id": "eval3-run-news-thin",
+          "provider": "searxng",
+          "query": "identity hardening",
+          "title": "Quick news brief",
+          "url": "https://news.example.test/identity-hardening-brief",
+          "snippet": "",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:n2",
+          "job_id": "eval3-job-news-thin",
+          "run_id": "eval3-run-news-thin",
+          "provider": "searxng",
+          "query": "identity hardening",
+          "title": "Official hardening guide",
+          "url": "https://learn.example.test/security/identity-hardening-guide",
+          "snippet": "Detailed identity hardening guidance for administrators.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:n3",
+          "job_id": "eval3-job-news-thin",
+          "run_id": "eval3-run-news-thin",
+          "provider": "searxng",
+          "query": "identity hardening",
+          "title": "Operator checklist",
+          "url": "https://ops.example.test/checklists/identity-hardening",
+          "snippet": "Practical checklist for rolling out identity hardening changes.",
+          "rank": 3
+        }
+      ]
+    },
+    "expect": {
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+      "first_selected_title": "Official hardening guide",
+      "second_selected_title": "Operator checklist",
+      "missing_minimal_content_dropped": 1,
+      "domain_diversity_dropped": 0
+    }
+  }
+]
