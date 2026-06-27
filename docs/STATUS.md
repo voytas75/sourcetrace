@@ -504,3 +504,20 @@ Current posture:
 
 Best next bounded slice:
 - write one concise v2 release/closure note and one short v2-only operator/start-here note, or explicitly open a post-baseline track if new capability work is desired
+
+## 2026-06-27 — SourceTrace v2 packaging notes checkpoint
+
+Closed the last obvious small packaging/closure docs gap for the bounded v2 line.
+
+What changed:
+- wrote `docs/sourcetrace-v2-release-closure-note-2026-06-27.md`
+- wrote `docs/sourcetrace-v2-operator-start-here-2026-06-27.md`
+- made the continuation posture explicit for both closure/packaging mode and post-baseline expansion mode
+
+Current posture:
+- v2 now has a baseline closure note, a packaging checkpoint, and a simple operator start-here path
+- restartability is materially better than before
+- further work should now either be small packaging polish or an explicitly named new track
+
+Best next bounded slice:
+- stop here and treat the bounded v2 baseline as closed enough, or explicitly open the next named track if new work is wanted
