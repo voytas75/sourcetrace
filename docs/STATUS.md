@@ -219,3 +219,40 @@ Verification:
 
 Best next bounded slice:
 - add one compact selected-evidence projection above raw candidate lists so the output starts separating answer-driving evidence from raw retrieval input
+
+## 2026-06-27 — SourceTrace v2 compact selected-evidence projection checkpoint
+
+Closed the next bounded v2 workflow slice above raw retrieval input.
+
+What changed:
+- added a compact `selected_evidence` projection alongside the existing raw `evidence_input` block
+- selection stays intentionally simple and deterministic: top-ranked retrieval candidates only
+- preserved the old contract instead of replacing it, so operator/debug consumers still see the full raw candidate list
+
+Current posture:
+- v2 now distinguishes between raw retrieval input and a compact answer-driving evidence view
+- this is still not full evidence packing or evidence-role classification
+- the output is materially less hollow while remaining bounded and inspectable
+
+Verification:
+- focused bounded v2 tests passed after the slice (`15 passed`)
+
+Best next bounded slice:
+- either refine `selected_evidence` with one more compact judgment rule, or start the first truly minimal compiled-artifact projection above the current run artifact
+
+## 2026-06-27 — SourceTrace v2 full-closure map checkpoint
+
+Added a short closure map for finishing v2 as a bounded system.
+
+What changed:
+- wrote `docs/sourcetrace-v2-full-closure-map-2026-06-27.md`
+- reduced “full v2” to six closure slices instead of vague parity goals
+- made the sequencing explicit: knowledge-layer first, then evidence-selection quality, then eval confidence
+
+Current posture:
+- v2 no longer lacks only implementation slices; it now also has a bounded closure map
+- the next recommended move remains the first minimal compiled-artifact projection
+- the map explicitly rejects widening into v1 parity or broad runtime/platform work
+
+Best next bounded slice:
+- implement `compiled artifact contract v1` as the first knowledge-layer slice above the current run artifact
