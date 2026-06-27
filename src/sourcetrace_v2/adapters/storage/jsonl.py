@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, fields
+from pathlib import Path
+from typing import Any, Iterable, TypeVar
+
+from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus, StageId, StageStatus
+from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, StageExecutionReceipt
+
+T = TypeVar("T")
+
+
+def _serialize_dataclass(instance: Any) -> dict[str, Any]:
+    payload = asdict(instance)
+    for key, value in list(payload.items()):
+        if hasattr(value, "value"):
+            payload[key] = value.value
+    return payload
+
+
+def _enum_value(enum_cls, value: str | None):
+    if value is None:
+        return None
+    return enum_cls(value)
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+class JsonlResultArtifactRepository:
+    def __init__(self, base_dir: str | Path) -> None:
+        self.base_dir = Path(base_dir)
+        self.path = self.base_dir / "result_artifacts.jsonl"
+
+    def save_result(self, artifact: ResearchResultArtifact) -> ResearchResultArtifact:
+        _append_jsonl(self.path, _serialize_dataclass(artifact))
+        return artifact
+
+    def get_result(self, *, job_id: str, run_id: str) -> ResearchResultArtifact | None:
+        match: dict[str, Any] | None = None
+        for row in _read_jsonl(self.path):
+            if row.get("job_id") == job_id and row.get("run_id") == run_id:
+                match = row
+        if match is None:
+            return None
+        return ResearchResultArtifact(
+            job_id=match["job_id"],
+            run_id=match["run_id"],
+            result_text=match["result_text"],
+            summary=match.get("summary", ""),
+        )
+
+
+class JsonlReceiptRepository:
+    def __init__(self, base_dir: str | Path) -> None:
+        self.base_dir = Path(base_dir)
+        self.stage_path = self.base_dir / "stage_receipts.jsonl"
+        self.llm_path = self.base_dir / "llm_receipts.jsonl"
+
+    def append_stage(self, receipt: StageExecutionReceipt) -> StageExecutionReceipt:
+        _append_jsonl(self.stage_path, _serialize_dataclass(receipt))
+        return receipt
+
+    def append_llm(self, receipt: LlmExecutionReceipt) -> LlmExecutionReceipt:
+        _append_jsonl(self.llm_path, _serialize_dataclass(receipt))
+        return receipt
+
+    def list_stage_receipts(self, *, job_id: str, run_id: str) -> tuple[StageExecutionReceipt, ...]:
+        rows = [row for row in _read_jsonl(self.stage_path) if row.get("job_id") == job_id and row.get("run_id") == run_id]
+        return tuple(
+            StageExecutionReceipt(
+                receipt_id=row["receipt_id"],
+                job_id=row["job_id"],
+                run_id=row["run_id"],
+                stage_id=StageId(row["stage_id"]),
+                call_site=row["call_site"],
+                status=StageStatus(row["status"]),
+                attempt=row.get("attempt", 1),
+                round_number=row.get("round_number"),
+                detail=row.get("detail", ""),
+                degradation_reason=_enum_value(DegradationReason, row.get("degradation_reason")),
+            )
+            for row in rows
+        )
+
+    def list_llm_receipts(self, *, job_id: str, run_id: str) -> tuple[LlmExecutionReceipt, ...]:
+        rows = [row for row in _read_jsonl(self.llm_path) if row.get("job_id") == job_id and row.get("run_id") == run_id]
+        return tuple(
+            LlmExecutionReceipt(
+                receipt_id=row["receipt_id"],
+                job_id=row["job_id"],
+                run_id=row["run_id"],
+                stage_id=StageId(row["stage_id"]),
+                call_site=row["call_site"],
+                profile=row["profile"],
+                provider=row["provider"],
+                model=row["model"],
+                coverage_status=ReceiptCoverageStatus(row.get("coverage_status", "tracked")),
+                input_tokens=row.get("input_tokens"),
+                output_tokens=row.get("output_tokens"),
+                total_tokens=row.get("total_tokens"),
+                finish_reason=row.get("finish_reason"),
+                degradation_reason=_enum_value(DegradationReason, row.get("degradation_reason")),
+            )
+            for row in rows
+        )

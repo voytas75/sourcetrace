@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from sourcetrace_v2.core.contracts.read_models import PersistedExecutionView
+
+
+def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[str, object]:
+    artifact = view.artifact
+    return {
+        "status": view.status.value,
+        "job_id": view.rollup.job_id,
+        "run_id": view.rollup.run_id,
+        "artifact": {
+            "present": artifact is not None,
+            "summary": artifact.summary if artifact is not None else None,
+            "text": artifact.result_text if artifact is not None else None,
+        },
+        "rollup": {
+            "llm_calls": view.rollup.llm_calls,
+            "input_tokens": view.rollup.input_tokens,
+            "output_tokens": view.rollup.output_tokens,
+            "total_tokens": view.rollup.total_tokens,
+            "degraded_calls": view.rollup.degraded_calls,
+            "failed_stages": view.rollup.failed_stages,
+        },
+        "receipts": {
+            "stage_count": len(view.stage_receipts),
+            "llm_count": len(view.llm_receipts),
+            "stages": [
+                {
+                    "receipt_id": receipt.receipt_id,
+                    "stage_id": receipt.stage_id.value,
+                    "status": receipt.status.value,
+                    "call_site": receipt.call_site,
+                    "degradation_reason": receipt.degradation_reason.value if receipt.degradation_reason is not None else None,
+                }
+                for receipt in view.stage_receipts
+            ],
+            "llm": [
+                {
+                    "receipt_id": receipt.receipt_id,
+                    "stage_id": receipt.stage_id.value,
+                    "profile": receipt.profile,
+                    "provider": receipt.provider,
+                    "model": receipt.model,
+                    "coverage_status": receipt.coverage_status.value,
+                    "total_tokens": receipt.total_tokens,
+                    "finish_reason": receipt.finish_reason,
+                    "degradation_reason": receipt.degradation_reason.value if receipt.degradation_reason is not None else None,
+                }
+                for receipt in view.llm_receipts
+            ],
+        },
+    }
