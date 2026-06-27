@@ -453,3 +453,20 @@ Current posture:
 
 Best next bounded slice:
 - run `quality pass v4` over the new collision-focused corpus and use that to decide whether a policy-v3 change is justified at all
+
+## 2026-06-27 — SourceTrace v2 bounded quality pass v4 checkpoint
+
+Closed the collision-focused quality pass after `eval corpus v4`.
+
+What changed:
+- wrote `docs/sourcetrace-v2-bounded-quality-pass-v4-2026-06-27.md`
+- checked policy v2 against authority-vs-relevance and official-vs-commentary collision fixtures
+- concluded that the current selected-evidence stack is good enough for the bounded v2 baseline
+
+Current posture:
+- the evidence-selection layer no longer looks like the main unfinished weakness in the bounded v2 track
+- further policy tweaks should now be requirement-driven, not reflexive
+- the smarter next move is probably to freeze the current baseline or explicitly open a more ambitious post-baseline policy track
+
+Best next bounded slice:
+- choose whether to freeze the current evidence-policy baseline for v2, or define a separate post-baseline authority/relevance policy track
