@@ -385,3 +385,20 @@ Verification:
 
 Best next bounded slice:
 - run a quality pass v2 over the richer corpus, or add one more small realism-oriented eval case before changing policy again
+
+## 2026-06-27 — SourceTrace v2 bounded quality pass v2 checkpoint
+
+Closed a second bounded quality pass after `selected-evidence policy v2`.
+
+What changed:
+- wrote `docs/sourcetrace-v2-bounded-quality-pass-v2-2026-06-27.md`
+- verified both `eval_corpus_v1` and `eval_corpus_v2` against the current policy-v2 surface
+- sharpened the remaining-gap diagnosis from heuristic fragility to corpus realism
+
+Current posture:
+- v2 is coherent across the bounded contract, evidence-selection, compiled-artifact, and provider-backed surfaces it currently exercises
+- the next likely bottleneck is not missing plumbing or one more tiny heuristic, but more realistic evaluation cases
+- policy changes should now be justified by new corpus evidence rather than taste
+
+Best next bounded slice:
+- extend the corpus again (`eval corpus v3`) with a few more realistic topic shapes before changing evidence policy further
