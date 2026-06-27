@@ -365,3 +365,23 @@ Current posture:
 
 Best next bounded slice:
 - use this richer corpus for one follow-up quality decision: either `selected-evidence policy v2` or a slightly broader quality pass over more realistic topic shapes
+
+## 2026-06-27 — SourceTrace v2 selected-evidence policy v2 checkpoint
+
+Closed one more bounded evidence-quality slice over the current selected-evidence surface.
+
+What changed:
+- extended `selected_evidence` with a lightweight domain-diversity preference above the existing minimal-content guard
+- kept the policy deterministic and compact instead of widening into a scoring engine
+- expanded policy/eval tests to cover both thin-content and same-domain competition cases
+
+Current posture:
+- selected evidence is now chosen by a small but more credible quality stack: minimal content guard + explain/debug + domain diversity preference
+- the policy is still bounded and cheap to reason about
+- eval corpus v2 now exercises the new diversity rule explicitly
+
+Verification:
+- focused bounded v2 tests passed after the slice (`12 passed`)
+
+Best next bounded slice:
+- run a quality pass v2 over the richer corpus, or add one more small realism-oriented eval case before changing policy again

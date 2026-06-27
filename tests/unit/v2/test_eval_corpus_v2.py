@@ -111,11 +111,15 @@ def test_eval_corpus_v2_cases(monkeypatch, tmp_path) -> None:
             )
             payload = project_selected_evidence(artifact=artifact)
             expect = case["expect"]
-            assert payload["selected_evidence_count"] if False else True
             assert payload["selected_count"] == expect["selected_evidence_count"]
             assert payload["selection_basis"] == expect["selection_basis"]
-            assert payload["items"][0]["title"] == expect["first_selected_title"]
+            if "first_selected_title" in expect:
+                assert payload["items"][0]["title"] == expect["first_selected_title"]
+            if "second_selected_title" in expect:
+                assert payload["items"][1]["title"] == expect["second_selected_title"]
             assert payload["rejected_reasons"][1]["count"] == expect["missing_minimal_content_dropped"]
+            if "domain_diversity_dropped" in expect:
+                assert payload["rejected_reasons"][2]["count"] == expect["domain_diversity_dropped"]
 
         elif kind == "compiled_partial":
             runtime = build_stubbed_memory_runtime()

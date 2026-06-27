@@ -24,7 +24,7 @@ def test_handle_run_minimal_flow_request_returns_created_json_response() -> None
     assert payload["compiled_artifact"]["present"] is True
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["selected_evidence"]["selected_count"] == 2
-    assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 retrieval candidates after minimal content guard"
+    assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 retrieval candidates after minimal content guard and domain diversity pass"
     assert payload["rollup"]["total_tokens"] == 384
 
 

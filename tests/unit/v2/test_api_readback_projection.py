@@ -35,7 +35,7 @@ def test_project_persisted_execution_view_returns_clean_json_shape() -> None:
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["evidence_input"]["candidates"][0]["provider"] == "stub-search"
     assert payload["selected_evidence"]["selected_count"] == 2
-    assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 retrieval candidates after minimal content guard"
+    assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 retrieval candidates after minimal content guard and domain diversity pass"
     assert payload["selected_evidence"]["dropped_count"] == 1
     assert payload["selected_evidence"]["items"][0]["provider"] == "stub-search"
     assert payload["rollup"]["llm_calls"] == 4
