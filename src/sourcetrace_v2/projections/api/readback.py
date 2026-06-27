@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sourcetrace_v2.core.contracts.read_models import PersistedExecutionView
+from sourcetrace_v2.projections.api.compiled_artifacts import project_compiled_artifact
 from sourcetrace_v2.projections.api.evidence import project_selected_evidence
 
 
@@ -22,6 +23,9 @@ def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[st
             "summary": artifact.summary if artifact is not None else None,
             "text": artifact.result_text if artifact is not None else None,
         },
+        "compiled_artifact": project_compiled_artifact(
+            artifact=view.compiled_artifact if hasattr(view, "compiled_artifact") else None
+        ),
         "evidence_input": {
             "query": artifact.evidence_query if artifact is not None else "",
             "candidate_count": len(artifact.evidence_candidates) if artifact is not None else 0,

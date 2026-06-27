@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledEvidenceSnapshot, CompiledResearchArtifact
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus, StageId, StageStatus
 from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker, StageExecutionReceipt
 
@@ -46,6 +47,7 @@ class JsonlResultArtifactRepository:
     def __init__(self, base_dir: str | Path) -> None:
         self.base_dir = Path(base_dir)
         self.path = self.base_dir / "result_artifacts.jsonl"
+        self.compiled_path = self.base_dir / "compiled_artifacts.jsonl"
         self.marker_path = self.base_dir / "run_markers.jsonl"
 
     def save_result(self, artifact: ResearchResultArtifact) -> ResearchResultArtifact:
@@ -68,6 +70,28 @@ class JsonlResultArtifactRepository:
             evidence_candidates=tuple(
                 RetrievedEvidenceCandidate(**candidate) for candidate in match.get("evidence_candidates", [])
             ),
+        )
+
+    def save_compiled_artifact(self, artifact: CompiledResearchArtifact) -> CompiledResearchArtifact:
+        _append_jsonl(self.compiled_path, _serialize_dataclass(artifact))
+        return artifact
+
+    def get_compiled_artifact(self, *, job_id: str, run_id: str) -> CompiledResearchArtifact | None:
+        match: dict[str, Any] | None = None
+        for row in _read_jsonl(self.compiled_path):
+            if row.get("job_id") == job_id and row.get("run_id") == run_id:
+                match = row
+        if match is None:
+            return None
+        return CompiledResearchArtifact(
+            artifact_id=match["artifact_id"],
+            job_id=match["job_id"],
+            run_id=match["run_id"],
+            summary=match.get("summary", ""),
+            selected_evidence=tuple(
+                CompiledEvidenceSnapshot(**item) for item in match.get("selected_evidence", [])
+            ),
+            confidence_note=match.get("confidence_note", "bounded_v2_compiled_artifact"),
         )
 
     def save_run_marker(self, marker: RunPersistenceMarker) -> RunPersistenceMarker:

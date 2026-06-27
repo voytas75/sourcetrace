@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledResearchArtifact
 from sourcetrace_v2.core.domain.models import ExecutionRollup, LlmExecutionReceipt, ResearchResultArtifact, RunPersistenceMarker, StageExecutionReceipt
 
 
@@ -34,7 +35,8 @@ class PersistedExecutionView:
     status: PersistedViewStatus
     envelope: PersistedRunEnvelope
     artifact: ResearchResultArtifact | None
-    marker: RunPersistenceMarker | None
-    stage_receipts: tuple[StageExecutionReceipt, ...]
-    llm_receipts: tuple[LlmExecutionReceipt, ...]
-    rollup: ExecutionRollup
+    compiled_artifact: CompiledResearchArtifact | None = None
+    marker: RunPersistenceMarker | None = None
+    stage_receipts: tuple[StageExecutionReceipt, ...] = ()
+    llm_receipts: tuple[LlmExecutionReceipt, ...] = ()
+    rollup: ExecutionRollup = ExecutionRollup(job_id="", run_id="")

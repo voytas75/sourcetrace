@@ -256,3 +256,24 @@ Current posture:
 
 Best next bounded slice:
 - implement `compiled artifact contract v1` as the first knowledge-layer slice above the current run artifact
+
+## 2026-06-27 — SourceTrace v2 compiled artifact contract v1 checkpoint
+
+Closed the first minimal knowledge-layer slice above the current run artifact.
+
+What changed:
+- added `CompiledResearchArtifact` and `CompiledEvidenceSnapshot` contracts
+- added a bounded builder that derives a compiled artifact from the current run artifact
+- extended in-memory and JSONL persistence with compiled artifact save/load support
+- exposed a compact `compiled_artifact` block in readback/HTTP projection
+
+Current posture:
+- v2 now has a separate minimal knowledge-layer object rather than only a run artifact
+- the compiled artifact is still intentionally thin and derived from current selected evidence
+- persistence semantics are honest: compiled artifact can survive independently from the run artifact in partial paths
+
+Verification:
+- focused bounded v2 tests passed after the slice (`15 passed`)
+
+Best next bounded slice:
+- do a bounded docs unification pass so v2 is clearly the active line and v1 is explicitly marked legacy where needed

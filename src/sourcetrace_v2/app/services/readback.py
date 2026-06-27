@@ -13,6 +13,7 @@ from sourcetrace_v2.execution.rollups.builder import build_execution_rollup
 def load_persisted_execution_view(*, job_id: str, run_id: str, results: ResultArtifactRepository, receipts: ReceiptRepository) -> PersistedExecutionView:
     artifact = results.get_result(job_id=job_id, run_id=run_id)
     marker = results.get_run_marker(job_id=job_id, run_id=run_id)
+    compiled_artifact = results.get_compiled_artifact(job_id=job_id, run_id=run_id)
     stage_receipts = receipts.list_stage_receipts(job_id=job_id, run_id=run_id)
     llm_receipts = receipts.list_llm_receipts(job_id=job_id, run_id=run_id)
     rollup = build_execution_rollup(
@@ -43,6 +44,7 @@ def load_persisted_execution_view(*, job_id: str, run_id: str, results: ResultAr
         status=status,
         envelope=envelope,
         artifact=artifact,
+        compiled_artifact=compiled_artifact,
         marker=marker,
         stage_receipts=stage_receipts,
         llm_receipts=llm_receipts,

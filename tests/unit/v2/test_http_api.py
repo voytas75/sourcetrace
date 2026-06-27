@@ -21,6 +21,7 @@ def test_handle_run_minimal_flow_request_returns_created_json_response() -> None
     assert payload["run_id"] == "run-http-run"
     assert payload["status"] == "found"
     assert payload["artifact"]["present"] is True
+    assert payload["compiled_artifact"]["present"] is True
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["selected_evidence"]["selected_count"] == 2
     assert payload["rollup"]["total_tokens"] == 384
@@ -47,6 +48,7 @@ def test_handle_get_persisted_execution_request_returns_projection() -> None:
     assert payload["job_id"] == "job-http-get"
     assert payload["run_id"] == "run-http-get"
     assert payload["artifact"]["present"] is True
+    assert payload["compiled_artifact"]["present"] is True
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["selected_evidence"]["selected_count"] == 2
     assert payload["rollup"]["degraded_calls"] == 4
@@ -65,6 +67,7 @@ def test_handle_get_persisted_execution_request_returns_not_found() -> None:
     assert response.status_code == 404
     assert payload["status"] == "not_found"
     assert payload["artifact"]["present"] is False
+    assert payload["compiled_artifact"]["present"] is False
     assert payload["selected_evidence"]["selected_count"] == 0
 
 
@@ -89,5 +92,6 @@ def test_handle_get_persisted_execution_request_returns_incomplete() -> None:
     assert response.status_code == 202
     assert payload["status"] == "incomplete"
     assert payload["artifact"]["present"] is False
+    assert payload["compiled_artifact"]["present"] is True
     assert payload["selected_evidence"]["selected_count"] == 0
     assert payload["receipts"]["llm_count"] == 4
