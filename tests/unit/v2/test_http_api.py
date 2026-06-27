@@ -21,6 +21,7 @@ def test_handle_run_minimal_flow_request_returns_created_json_response() -> None
     assert payload["run_id"] == "run-http-run"
     assert payload["status"] == "found"
     assert payload["artifact"]["present"] is True
+    assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["rollup"]["total_tokens"] == 384
 
 
@@ -45,6 +46,7 @@ def test_handle_get_persisted_execution_request_returns_projection() -> None:
     assert payload["job_id"] == "job-http-get"
     assert payload["run_id"] == "run-http-get"
     assert payload["artifact"]["present"] is True
+    assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["rollup"]["degraded_calls"] == 4
 
 

@@ -9,6 +9,7 @@ def test_build_stubbed_jsonl_runtime_returns_assembled_dependencies(tmp_path) ->
     assert runtime.results is not None
     assert runtime.receipts is not None
     assert runtime.llm is not None
+    assert runtime.search is not None
     assert runtime.logger is not None
 
 
@@ -29,6 +30,7 @@ def test_build_litellm_like_jsonl_runtime_returns_real_provider_shaped_assembly(
     assert runtime.results is not None
     assert runtime.receipts is not None
     assert runtime.llm is not None
+    assert runtime.search is not None
     assert runtime.logger is not None
 
 
@@ -53,6 +55,7 @@ def test_build_env_backed_litellm_like_jsonl_runtime_reads_bootstrap_from_env(tm
 
     assert runtime.results is not None
     assert runtime.receipts is not None
+    assert runtime.search is not None
 
     result = runtime.llm.generate(profile_name="planning_default", prompt="hello")
     assert result.text == "ok"

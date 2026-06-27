@@ -31,9 +31,11 @@ def test_project_persisted_execution_view_returns_clean_json_shape() -> None:
     assert payload["persistence"]["marker_present"] is True
     assert payload["persistence"]["marker_state"] == "committed"
     assert payload["artifact"]["present"] is True
+    assert payload["evidence_input"]["candidate_count"] == 3
+    assert payload["evidence_input"]["candidates"][0]["provider"] == "stub-search"
     assert payload["rollup"]["llm_calls"] == 4
     assert payload["rollup"]["degraded_calls"] == 4
-    assert payload["receipts"]["stage_count"] == 8
+    assert payload["receipts"]["stage_count"] == 10
     assert payload["receipts"]["llm_count"] == 4
     assert payload["receipts"]["stages"][0]["stage_id"] == "planning"
     assert payload["receipts"]["llm"][0]["profile"] == "planning_default"
@@ -64,8 +66,9 @@ def test_run_then_get_http_path_returns_projection_payload() -> None:
     assert payload["persistence"]["marker_present"] is True
     assert payload["persistence"]["marker_state"] == "committed"
     assert payload["artifact"]["present"] is True
+    assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["rollup"]["total_tokens"] == 384
-    assert payload["receipts"]["stage_count"] == 8
+    assert payload["receipts"]["stage_count"] == 10
     assert payload["receipts"]["llm_count"] == 4
 
 

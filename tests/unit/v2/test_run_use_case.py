@@ -1,4 +1,5 @@
 from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
+from sourcetrace_v2.adapters.search.stub import StubSearchGateway
 from sourcetrace_v2.adapters.storage.memory import InMemoryReceiptRepository, InMemoryResultArtifactRepository
 from sourcetrace_v2.app.services.run_use_case import run_and_persist_minimal_flow
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
@@ -15,6 +16,7 @@ def test_run_and_persist_minimal_flow_returns_found_view() -> None:
         run_id="run-run-use-case",
         seed_text="test query",
         llm=llm,
+        search=StubSearchGateway(),
         results=result_repo,
         receipts=receipt_repo,
         config=config,
@@ -22,5 +24,7 @@ def test_run_and_persist_minimal_flow_returns_found_view() -> None:
 
     assert view.status.value == "found"
     assert view.artifact is not None
+    assert view.artifact.evidence_query.startswith("stub:research_fast:")
+    assert len(view.artifact.evidence_candidates) == 3
     assert view.rollup.total_tokens == 384
     assert len(view.llm_receipts) == 4

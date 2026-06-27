@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus, StageId, StageStatus
-from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RunPersistenceMarker, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker, StageExecutionReceipt
 
 
 def _serialize_dataclass(instance: Any) -> dict[str, Any]:
@@ -64,6 +64,10 @@ class JsonlResultArtifactRepository:
             run_id=match["run_id"],
             result_text=match["result_text"],
             summary=match.get("summary", ""),
+            evidence_query=match.get("evidence_query", ""),
+            evidence_candidates=tuple(
+                RetrievedEvidenceCandidate(**candidate) for candidate in match.get("evidence_candidates", [])
+            ),
         )
 
     def save_run_marker(self, marker: RunPersistenceMarker) -> RunPersistenceMarker:

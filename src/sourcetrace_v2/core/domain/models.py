@@ -39,11 +39,26 @@ class ResearchRun:
 
 
 @dataclass(frozen=True)
+class RetrievedEvidenceCandidate:
+    candidate_id: str
+    job_id: str
+    run_id: str
+    provider: str
+    query: str
+    title: str
+    url: str
+    snippet: str = ""
+    rank: int = 1
+
+
+@dataclass(frozen=True)
 class ResearchResultArtifact:
     job_id: str
     run_id: str
     result_text: str
     summary: str = ""
+    evidence_query: str = ""
+    evidence_candidates: tuple[RetrievedEvidenceCandidate, ...] = ()
 
 
 @dataclass(frozen=True)

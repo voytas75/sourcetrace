@@ -20,6 +20,19 @@ def project_minimal_result(*, job: ResearchJob, run: ResearchRun, artifact: Rese
             "summary": artifact.summary,
             "text": artifact.result_text,
         },
+        "evidence_input": {
+            "query": artifact.evidence_query,
+            "candidate_count": len(artifact.evidence_candidates),
+            "candidates": [
+                {
+                    "title": candidate.title,
+                    "url": candidate.url,
+                    "provider": candidate.provider,
+                    "rank": candidate.rank,
+                }
+                for candidate in artifact.evidence_candidates
+            ],
+        },
         "rollup": {
             "llm_calls": rollup.llm_calls,
             "input_tokens": rollup.input_tokens,

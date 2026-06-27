@@ -17,6 +17,7 @@ class JobStatus(StrEnum):
 class StageId(StrEnum):
     PLANNING = "planning"
     QUERY_REFINEMENT = "query_refinement"
+    RETRIEVAL = "retrieval"
     EVIDENCE_JUDGE = "evidence_judge"
     SYNTHESIS = "synthesis"
 

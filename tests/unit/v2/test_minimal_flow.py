@@ -10,6 +10,7 @@ def test_minimal_flow_emits_result_and_rollup() -> None:
         run_id="run-v2-test",
         seed_text="test query",
         llm=runtime.llm,
+        search=runtime.search,
         config=runtime.config,
         logger=runtime.logger,
     )
@@ -24,8 +25,11 @@ def test_minimal_flow_emits_result_and_rollup() -> None:
     assert payload["job"]["job_id"] == "job-v2-test"
     assert payload["job"]["status"] == "done"
     assert payload["run"]["run_id"] == "run-v2-test"
+    assert payload["evidence_input"]["query"].startswith("stub:research_fast:")
+    assert payload["evidence_input"]["candidate_count"] == 3
+    assert payload["evidence_input"]["candidates"][0]["provider"] == "stub-search"
     assert payload["rollup"]["llm_calls"] == 4
     assert payload["rollup"]["total_tokens"] == 384
     assert payload["receipts"]["llm"] == 4
-    assert payload["receipts"]["stages"] == 8
+    assert payload["receipts"]["stages"] == 10
     assert outcome.artifact.result_text.startswith("stub:")

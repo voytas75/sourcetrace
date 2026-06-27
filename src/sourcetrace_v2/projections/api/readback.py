@@ -21,6 +21,19 @@ def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[st
             "summary": artifact.summary if artifact is not None else None,
             "text": artifact.result_text if artifact is not None else None,
         },
+        "evidence_input": {
+            "query": artifact.evidence_query if artifact is not None else "",
+            "candidate_count": len(artifact.evidence_candidates) if artifact is not None else 0,
+            "candidates": [
+                {
+                    "title": candidate.title,
+                    "url": candidate.url,
+                    "provider": candidate.provider,
+                    "rank": candidate.rank,
+                }
+                for candidate in (artifact.evidence_candidates if artifact is not None else ())
+            ],
+        },
         "rollup": {
             "llm_calls": view.rollup.llm_calls,
             "input_tokens": view.rollup.input_tokens,

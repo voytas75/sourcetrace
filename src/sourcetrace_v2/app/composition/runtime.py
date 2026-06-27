@@ -7,6 +7,8 @@ from typing import Any, Callable
 
 from sourcetrace_v2.adapters.llm.litellm_like import LiteLikeBootstrap, LiteLikeLlmGateway
 from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
+from sourcetrace_v2.adapters.search.interfaces import SearchGateway
+from sourcetrace_v2.adapters.search.stub import StubSearchGateway
 from sourcetrace_v2.adapters.storage.memory import InMemoryReceiptRepository, InMemoryResultArtifactRepository
 from sourcetrace_v2.adapters.storage.jsonl import JsonlReceiptRepository, JsonlResultArtifactRepository
 from sourcetrace_v2.adapters.llm.interfaces import LlmTextGateway
@@ -21,6 +23,7 @@ from sourcetrace_v2.runtime.bootstrap.litellm import EnvBootstrapRequest, resolv
 class RuntimeAssembly:
     config: RuntimeConfig
     llm: LlmTextGateway
+    search: SearchGateway
     results: ResultArtifactRepository
     receipts: ReceiptRepository
     logger: logging.Logger
@@ -30,11 +33,13 @@ def build_stubbed_memory_runtime() -> RuntimeAssembly:
     config = build_default_runtime_config()
     logger = configure_logging(config.logging)
     llm = StubLlmGateway(config)
+    search = StubSearchGateway()
     results = InMemoryResultArtifactRepository()
     receipts = InMemoryReceiptRepository()
     return RuntimeAssembly(
         config=config,
         llm=llm,
+        search=search,
         results=results,
         receipts=receipts,
         logger=logger,
@@ -45,11 +50,13 @@ def build_stubbed_jsonl_runtime(*, base_dir: str | Path) -> RuntimeAssembly:
     config = build_default_runtime_config()
     logger = configure_logging(config.logging)
     llm = StubLlmGateway(config)
+    search = StubSearchGateway()
     results = JsonlResultArtifactRepository(base_dir)
     receipts = JsonlReceiptRepository(base_dir)
     return RuntimeAssembly(
         config=config,
         llm=llm,
+        search=search,
         results=results,
         receipts=receipts,
         logger=logger,
@@ -60,11 +67,13 @@ def build_litellm_like_jsonl_runtime(*, base_dir: str | Path, completion_fn: Cal
     config = build_default_runtime_config()
     logger = configure_logging(config.logging)
     llm = LiteLikeLlmGateway(config=config, completion_fn=completion_fn, bootstrap=bootstrap)
+    search = StubSearchGateway()
     results = JsonlResultArtifactRepository(base_dir)
     receipts = JsonlReceiptRepository(base_dir)
     return RuntimeAssembly(
         config=config,
         llm=llm,
+        search=search,
         results=results,
         receipts=receipts,
         logger=logger,
