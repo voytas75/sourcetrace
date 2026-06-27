@@ -3,7 +3,7 @@ import json
 from sourcetrace_v2.app.composition.runtime import build_stubbed_memory_runtime
 from sourcetrace_v2.app.services.compiled_artifacts import build_compiled_artifact
 from sourcetrace_v2.app.services.execution import execute_minimal_research_flow
-from sourcetrace_v2.app.services.http_api import handle_run_minimal_flow_request
+from sourcetrace_v2.app.services.http_api import handle_get_persisted_compiled_artifact_request, handle_run_minimal_flow_request
 from sourcetrace_v2.app.services.readback import load_persisted_execution_view
 from sourcetrace_v2.projections.api.compiled_artifacts import project_compiled_artifact
 
@@ -63,3 +63,12 @@ def test_run_http_projection_exposes_compiled_artifact_block() -> None:
     assert payload["compiled_artifact"]["present"] is True
     assert payload["compiled_artifact"]["artifact_id"] == "compiled:job-compiled-payload:run-compiled-payload"
     assert len(payload["compiled_artifact"]["selected_evidence"]) == 2
+
+    compiled_response = handle_get_persisted_compiled_artifact_request(
+        job_id="job-compiled-payload",
+        run_id="run-compiled-payload",
+        runtime=runtime,
+    )
+    compiled_payload = json.loads(compiled_response.body)
+    assert compiled_response.status_code == 200
+    assert compiled_payload["compiled_artifact"]["artifact_id"] == "compiled:job-compiled-payload:run-compiled-payload"
