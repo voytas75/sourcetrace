@@ -14,6 +14,7 @@ from sourcetrace_v2.core.contracts.persistence import ReceiptRepository, ResultA
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
 from sourcetrace_v2.runtime.config.models import RuntimeConfig
 from sourcetrace_v2.runtime.logging.setup import configure_logging
+from sourcetrace_v2.runtime.bootstrap.litellm import EnvBootstrapRequest, resolve_litellm_bootstrap_from_env
 
 
 @dataclass(frozen=True)
@@ -67,4 +68,19 @@ def build_litellm_like_jsonl_runtime(*, base_dir: str | Path, completion_fn: Cal
         results=results,
         receipts=receipts,
         logger=logger,
+    )
+
+
+def build_env_backed_litellm_like_jsonl_runtime(*, base_dir: str | Path, completion_fn: Callable[..., dict[str, Any]], api_key_env: str, base_url_env: str | None = None, api_version_env: str | None = None) -> RuntimeAssembly:
+    bootstrap = resolve_litellm_bootstrap_from_env(
+        EnvBootstrapRequest(
+            api_key_env=api_key_env,
+            base_url_env=base_url_env,
+            api_version_env=api_version_env,
+        )
+    )
+    return build_litellm_like_jsonl_runtime(
+        base_dir=base_dir,
+        completion_fn=completion_fn,
+        bootstrap=bootstrap,
     )
