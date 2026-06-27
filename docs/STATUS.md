@@ -178,3 +178,23 @@ Verification:
 
 Best next bounded slice:
 - decide whether to make SearxNG the preferred non-stub v2 runtime path, or move up one layer and implement one more meaningful research workflow over the now-real retrieval input
+
+## 2026-06-27 — SourceTrace v2 retrieval-aware result summary checkpoint
+
+Closed one small workflow-level slice above the real retrieval seam.
+
+What changed:
+- replaced the static v2 result summary with a retrieval-aware summary line
+- summary now carries the effective retrieval query and top evidence candidate identity
+- preserved the bounded surface: no new persistence backend, no evidence packing system, no compiled artifact layer
+
+Current posture:
+- v2 output is still intentionally minimal, but no longer looks blind to the retrieved evidence it actually used
+- the final artifact now carries one compact workflow-level judgment boundary above raw candidate provenance
+- this is still not full evidence packing; it is just enough to make the minimal run output materially less hollow
+
+Verification:
+- focused bounded v2 tests passed after the slice (`12 passed`)
+
+Best next bounded slice:
+- either promote SearxNG to the preferred non-stub v2 runtime path, or add one compact selected-evidence projection layer above raw candidate lists

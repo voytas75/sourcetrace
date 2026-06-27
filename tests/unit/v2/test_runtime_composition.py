@@ -1,4 +1,4 @@
-from sourcetrace_v2.app.composition.runtime import build_env_backed_litellm_like_jsonl_runtime, build_litellm_like_jsonl_runtime, build_stubbed_jsonl_runtime
+from sourcetrace_v2.app.composition.runtime import build_env_backed_litellm_like_jsonl_runtime, build_env_backed_preferred_search_stubbed_jsonl_runtime, build_litellm_like_jsonl_runtime, build_stubbed_jsonl_runtime
 from sourcetrace_v2.adapters.llm.litellm_like import LiteLikeBootstrap
 
 
@@ -62,3 +62,18 @@ def test_build_env_backed_litellm_like_jsonl_runtime_reads_bootstrap_from_env(tm
     assert result.input_tokens == 10
     assert result.output_tokens == 20
     assert result.total_tokens == 30
+
+
+def test_build_env_backed_preferred_search_stubbed_jsonl_runtime_falls_back_without_unified(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("TEST_SEARXNG_BASE_URL", "http://127.0.0.1:8080")
+    monkeypatch.setattr(
+        "sourcetrace_v2.app.composition.runtime.load_mycrewhelper_unified_search_web",
+        lambda: None,
+    )
+
+    runtime = build_env_backed_preferred_search_stubbed_jsonl_runtime(
+        base_dir=tmp_path,
+        base_url_env="TEST_SEARXNG_BASE_URL",
+    )
+
+    assert runtime.search is not None
