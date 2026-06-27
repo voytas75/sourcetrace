@@ -1,0 +1,125 @@
+[
+  {
+    "case_id": "authority-vs-relevance-official-broad-vs-direct-commentary",
+    "kind": "selected_evidence_only",
+    "artifact": {
+      "job_id": "eval4-job-authority-relevance",
+      "run_id": "eval4-run-authority-relevance",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:ar1",
+          "job_id": "eval4-job-authority-relevance",
+          "run_id": "eval4-run-authority-relevance",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work health reporting obligations",
+          "title": "Official labour ministry portal",
+          "url": "https://gov.example.test/labour/remote-work",
+          "snippet": "Broad official portal page covering remote work obligations.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:ar2",
+          "job_id": "eval4-job-authority-relevance",
+          "run_id": "eval4-run-authority-relevance",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work health reporting obligations",
+          "title": "Detailed legal commentary on reporting obligations",
+          "url": "https://legal.example.test/remote-work-reporting-obligations",
+          "snippet": "Focused commentary on the exact reporting obligation question.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:ar3",
+          "job_id": "eval4-job-authority-relevance",
+          "run_id": "eval4-run-authority-relevance",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work health reporting obligations",
+          "title": "Official FAQ on remote work reporting",
+          "url": "https://gov.example.test/labour/remote-work-faq",
+          "snippet": "More specific official FAQ on remote work reporting.",
+          "rank": 3
+        }
+      ]
+    },
+    "expect": {
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+      "first_selected_title": "Official labour ministry portal",
+      "second_selected_title": "Detailed legal commentary on reporting obligations",
+      "missing_minimal_content_dropped": 0,
+      "domain_diversity_dropped": 1
+    }
+  },
+  {
+    "case_id": "official-vs-commentary-institutional-guidance",
+    "kind": "selected_evidence_only",
+    "artifact": {
+      "job_id": "eval4-job-official-commentary",
+      "run_id": "eval4-run-official-commentary",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:oc1",
+          "job_id": "eval4-job-official-commentary",
+          "run_id": "eval4-run-official-commentary",
+          "provider": "searxng",
+          "query": "identity hardening checklist",
+          "title": "Institutional identity hardening baseline",
+          "url": "https://learn.example.test/security/identity-hardening-baseline",
+          "snippet": "Institutional baseline guidance for identity hardening.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:oc2",
+          "job_id": "eval4-job-official-commentary",
+          "run_id": "eval4-run-official-commentary",
+          "provider": "searxng",
+          "query": "identity hardening checklist",
+          "title": "Consultancy blog checklist",
+          "url": "https://consulting.example.test/identity-hardening-checklist",
+          "snippet": "Checklist blog with direct operator wording.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:oc3",
+          "job_id": "eval4-job-official-commentary",
+          "run_id": "eval4-run-official-commentary",
+          "provider": "searxng",
+          "query": "identity hardening checklist",
+          "title": "Institutional deployment FAQ",
+          "url": "https://learn.example.test/security/identity-hardening-faq",
+          "snippet": "FAQ for rollout and deployment caveats.",
+          "rank": 3
+        }
+      ]
+    },
+    "expect": {
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+      "first_selected_title": "Institutional identity hardening baseline",
+      "second_selected_title": "Consultancy blog checklist",
+      "missing_minimal_content_dropped": 0,
+      "domain_diversity_dropped": 1
+    }
+  },
+  {
+    "case_id": "run-flow-official-commentary-collision",
+    "kind": "run_flow",
+    "runtime": "preferred_search_stubbed_jsonl",
+    "job_id": "eval4-job-run-collision",
+    "run_id": "eval4-run-collision",
+    "seed_text": "remote work reporting obligations",
+    "search_results": [
+      {"url": "https://gov.example.test/labour/remote-work", "title": "Official labour ministry portal", "snippet": "Broad official portal page covering remote work obligations."},
+      {"url": "https://legal.example.test/remote-work-reporting-obligations", "title": "Detailed legal commentary on reporting obligations", "snippet": "Focused commentary on the exact reporting obligation question."},
+      {"url": "https://gov.example.test/labour/remote-work-faq", "title": "Official FAQ on remote work reporting", "snippet": "More specific official FAQ on remote work reporting."}
+    ],
+    "expect": {
+      "status": "found",
+      "selected_evidence_count": 2,
+      "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+      "top_provider": "procedural_admin_unified_search"
+    }
+  }
+]

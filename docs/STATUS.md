@@ -436,3 +436,20 @@ Current posture:
 
 Best next bounded slice:
 - add `eval corpus v4` focused on authority-vs-relevance and official-vs-commentary collisions before changing policy again
+
+## 2026-06-27 — SourceTrace v2 eval corpus v4 checkpoint
+
+Extended the bounded corpus toward authority-vs-relevance and official-vs-commentary collisions.
+
+What changed:
+- added `tests/fixtures/v2/eval_corpus_v4.json`
+- added `tests/unit/v2/test_eval_corpus_v4.py`
+- introduced explicit collision cases for official-broad vs direct commentary, institutional guidance vs consultancy commentary, and a run-flow collision case over the same topic shape
+
+Current posture:
+- the bounded corpus now starts to stress the exact decision boundary that earlier quality passes identified as the next weak point
+- this still does not prove the policy is optimal, but it makes future policy changes far less guessy
+- the next best move is to run a quality pass v4 over this collision-focused corpus before deciding whether policy should change again
+
+Best next bounded slice:
+- run `quality pass v4` over the new collision-focused corpus and use that to decide whether a policy-v3 change is justified at all
