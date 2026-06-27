@@ -131,3 +131,28 @@ Current posture:
 
 Best next bounded slice:
 - start implementation of `Slice 1 — real search adapter + retrieval input path`
+
+## 2026-06-27 — SourceTrace v2 retrieval seam + evidence-input projection checkpoint
+
+Closed the first post-spine implementation slice for v2.
+
+What changed:
+- added explicit `StageId.RETRIEVAL`
+- added typed `RetrievedEvidenceCandidate`
+- introduced a v2 search seam via `adapters/search/interfaces.py` and `adapters/search/stub.py`
+- added a dedicated `RetrievalStage` between `query_refinement` and `evidence_judge`
+- extended `ResearchResultArtifact` with `evidence_query` and `evidence_candidates`
+- exposed evidence-input provenance through minimal projection, persisted readback projection, and JSONL roundtrip
+- extended runtime assembly with a `search` dependency
+
+Current posture:
+- v2 now has a real evidence-input seam rather than only an execution/persistence proof
+- retrieval is explicitly attributable as its own stage and survives into artifact/readback surfaces
+- the slice stayed bounded: one adapter seam, one retrieval stage, one provenance projection path
+- search provider breadth is still intentionally narrow; this proves the seam, not provider richness
+
+Verification:
+- bounded v2 tests passed after the slice (`15 passed`)
+
+Best next bounded slice:
+- replace the stub-only search path with one real provider-backed adapter while preserving the same retrieval-stage and provenance projection contracts
