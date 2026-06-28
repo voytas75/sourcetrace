@@ -1375,6 +1375,40 @@ Verification:
 Best next bounded slice:
 - `operator-trust-contract-v1` — define a light operator-facing truth contract for result usability so runtime success is not confused with trustworthy research quality
 
+## 2026-06-28 — SourceTrace v2 operator-trust-contract-v1 checkpoint
+
+Closed the next production-gap slice above retrieval/storage internals.
+
+What changed:
+- added `src/sourcetrace_v2/projections/api/trust.py`
+- added a `trust` block to persisted execution readback projection
+- added focused coverage in `tests/unit/v2/test_operator_trust_contract.py`
+- added `docs/operator-trust-contract-v1-2026-06-28.md`
+
+What this slice contains:
+- a small operator-facing trust contract with four statuses:
+  - `usable`
+  - `weak`
+  - `needs_review`
+  - `degraded`
+- compact reasons explaining why the run received that trust status
+- currently bounded signals include:
+  - incomplete persistence
+  - stage failure
+  - degraded LLM calls
+  - thin selected-evidence / candidate pool conditions
+
+What this slice showed:
+- SourceTrace now distinguishes more clearly between technical run success and trustworthy-enough output
+- this improves operator honesty without adding new retrieval heuristics or pretending to solve confidence modeling completely
+
+Verification:
+- focused tests passed (`8 passed`)
+- slice note recorded in `docs/operator-trust-contract-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `jsonl-durability-posture-v1` — decide explicitly whether the current JSONL substrate is acceptable for the current deployment posture under stated limits, or whether one more bounded durability fix is required before calling the storage line good enough
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
