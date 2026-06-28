@@ -673,3 +673,26 @@ Verification:
 
 Best next bounded slice:
 - pause and reassess the next practical production-readiness gap from this stronger baseline; the sharpest next move is likely either typed PDF evidence carry-forward or a thin operator readback/status CLI companion rather than more runtime plumbing
+
+## 2026-06-28 — SourceTrace v2 operator-readback-status-cli-companion-v1 checkpoint
+
+Closed the next narrow operator-facing gap after the live run entrypoint.
+
+What changed:
+- added a repo-owned v2 readback CLI in `src/sourcetrace_v2/operator/readback.py`
+- added a package hook in `pyproject.toml` as `sourcetrace-v2-readback`
+- the CLI exposes two bounded persisted-view modes: `execution` and `compiled`
+- it loads existing JSONL-backed persisted views and emits the same operator-facing JSON projections already used by the HTTP/service path
+- added focused coverage in `tests/unit/v2/test_operator_readback.py`
+
+Current posture:
+- v2 now has a simple repo-owned operator pair: one command to run a bounded live flow and one command to read back persisted execution/compiled state
+- operators no longer need ad hoc inline Python for the basic run -> inspect loop on JSONL-backed artifacts
+- this stays intentionally narrow: it is a CLI companion over existing readback services, not a new runtime manager or dashboard
+
+Verification:
+- focused operator tests passed (`7 passed`)
+- real smoke passed through the full operator loop: `run_status=found`, `execution_status=found`, `compiled_status=found`, `execution_receipts=10`, `compiled_artifact.present=true`
+
+Best next bounded slice:
+- if the next real pain is evidence semantics, move to typed PDF evidence carry-forward; if the next real pain is operator ergonomics, the next narrow move would be lightweight filtering/summary polish on the readback CLI rather than new runtime plumbing
