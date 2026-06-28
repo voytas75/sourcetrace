@@ -743,3 +743,34 @@ Verification:
 
 Best next bounded slice:
 - if you want stronger proof, do a positive live-PDF-hit verification slice with a query/fixture shaped to force a PDF winner; otherwise the sharper remaining work is probably not more PDF plumbing but broader evidence-quality or operator-summary priorities
+
+## 2026-06-28 — SourceTrace v2 authority-relevance-outcome-evaluation-v1 checkpoint
+
+Closed a bounded outcome-evaluation slice over the current authority/relevance selection surface without changing policy.
+
+What changed:
+- added a small authority/relevance outcome fixture at `tests/fixtures/v2/authority_relevance_outcome_eval_v1.json`
+- added `tests/unit/v2/test_authority_relevance_outcome_eval_v1.py`
+- evaluated a few representative authority-vs-relevance cases against two concrete output surfaces:
+  - selected-evidence projection
+  - compiled selected-evidence artifact
+- encoded explicit human verdict expectations as bounded outcome criteria: `must_include`, `must_exclude`, and a short case note
+
+What this slice shows:
+- the current bounded policy still produces coherent operator-facing pairs for the exercised cases
+- the present selection surface is acceptable when asked to balance:
+  - one authoritative institutional source
+  - one more direct practical/commentary source
+  - while dropping thin or duplicate-domain alternatives
+- this gives a better quality checkpoint than raw regression expectations alone because it states what outcome shape is considered acceptable and why
+
+Current posture:
+- this is still an evaluation slice, not a policy-change slice
+- no judgment-contract expansion, no deterministic heuristic additions, and no runtime plumbing changes were needed
+- for the exercised fixture cases, the current authority/relevance posture is good enough to keep moving without immediate policy edits
+
+Verification:
+- focused evaluation tests passed (`5 passed`)
+
+Best next bounded slice:
+- either extend this into a small `authority-relevance-outcome-evaluation-v2` set with a few harder real-world collisions, or stay disciplined and wait for a concrete failure before touching the selection policy again

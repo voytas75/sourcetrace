@@ -1,0 +1,167 @@
+[
+  {
+    "case_id": "official-broad-vs-direct-commentary",
+    "query": "remote work reporting obligations",
+    "artifact": {
+      "job_id": "ar-outcome-job-1",
+      "run_id": "ar-outcome-run-1",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:1",
+          "job_id": "ar-outcome-job-1",
+          "run_id": "ar-outcome-run-1",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work reporting obligations",
+          "title": "Official labour ministry portal",
+          "url": "https://gov.example.test/labour/remote-work",
+          "snippet": "Broad official portal page covering remote work obligations.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:2",
+          "job_id": "ar-outcome-job-1",
+          "run_id": "ar-outcome-run-1",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work reporting obligations",
+          "title": "Detailed legal commentary on reporting obligations",
+          "url": "https://legal.example.test/remote-work-reporting-obligations",
+          "snippet": "Focused commentary on the exact reporting obligation question.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:3",
+          "job_id": "ar-outcome-job-1",
+          "run_id": "ar-outcome-run-1",
+          "provider": "procedural_admin_unified_search",
+          "query": "remote work reporting obligations",
+          "title": "Official FAQ on remote work reporting",
+          "url": "https://gov.example.test/labour/remote-work-faq",
+          "snippet": "More specific official FAQ on remote work reporting.",
+          "rank": 3
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Official labour ministry portal",
+        "Detailed legal commentary on reporting obligations"
+      ],
+      "must_exclude": [
+        "Official FAQ on remote work reporting"
+      ],
+      "note": "Current bounded policy reasonably balances official authority with one direct commentary source under domain-diversity constraints, even though the official FAQ is more specific than the broad portal."
+    }
+  },
+  {
+    "case_id": "institutional-baseline-vs-blog-checklist",
+    "query": "identity hardening checklist",
+    "artifact": {
+      "job_id": "ar-outcome-job-2",
+      "run_id": "ar-outcome-run-2",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:1",
+          "job_id": "ar-outcome-job-2",
+          "run_id": "ar-outcome-run-2",
+          "provider": "searxng",
+          "query": "identity hardening checklist",
+          "title": "Institutional identity hardening baseline",
+          "url": "https://learn.example.test/security/identity-hardening-baseline",
+          "snippet": "Institutional baseline guidance for identity hardening.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:2",
+          "job_id": "ar-outcome-job-2",
+          "run_id": "ar-outcome-run-2",
+          "provider": "searxng",
+          "query": "identity hardening checklist",
+          "title": "Consultancy blog checklist",
+          "url": "https://consulting.example.test/identity-hardening-checklist",
+          "snippet": "Checklist blog with direct operator wording.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:3",
+          "job_id": "ar-outcome-job-2",
+          "run_id": "ar-outcome-run-2",
+          "provider": "searxng",
+          "query": "identity hardening checklist",
+          "title": "Institutional deployment FAQ",
+          "url": "https://learn.example.test/security/identity-hardening-faq",
+          "snippet": "FAQ for rollout and deployment caveats.",
+          "rank": 3
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Institutional identity hardening baseline",
+        "Consultancy blog checklist"
+      ],
+      "must_exclude": [
+        "Institutional deployment FAQ"
+      ],
+      "note": "The bounded policy still produces a coherent operator-facing pair: one authoritative baseline plus one practically worded checklist source."
+    }
+  },
+  {
+    "case_id": "official-specific-vs-commentary-vs-thin-duplicate",
+    "query": "retention policy legal hold steps",
+    "artifact": {
+      "job_id": "ar-outcome-job-3",
+      "run_id": "ar-outcome-run-3",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:1",
+          "job_id": "ar-outcome-job-3",
+          "run_id": "ar-outcome-run-3",
+          "provider": "procedural_admin_unified_search",
+          "query": "retention policy legal hold steps",
+          "title": "Official records retention legal hold guidance",
+          "url": "https://gov.example.test/records/legal-hold-guidance",
+          "snippet": "Official guidance on legal hold procedure and retention exceptions.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:2",
+          "job_id": "ar-outcome-job-3",
+          "run_id": "ar-outcome-run-3",
+          "provider": "procedural_admin_unified_search",
+          "query": "retention policy legal hold steps",
+          "title": "Law firm explainer on legal hold steps",
+          "url": "https://lawfirm.example.test/legal-hold-steps",
+          "snippet": "Direct operational explainer of legal hold actions and sequencing.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:3",
+          "job_id": "ar-outcome-job-3",
+          "run_id": "ar-outcome-run-3",
+          "provider": "procedural_admin_unified_search",
+          "query": "retention policy legal hold steps",
+          "title": "Official records portal landing page",
+          "url": "https://gov.example.test/records",
+          "snippet": "",
+          "rank": 3
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Official records retention legal hold guidance",
+        "Law firm explainer on legal hold steps"
+      ],
+      "must_exclude": [
+        "Official records portal landing page"
+      ],
+      "note": "This is the strongest bounded shape: specific official guidance plus one direct commentary source, while thin official landing content stays out."
+    }
+  }
+]
