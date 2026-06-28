@@ -929,6 +929,34 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-source-mix-shaping-v1` — improve the odds that official/institutional sources survive into the bounded candidate pool without changing downstream selector policy in the same slice
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-source-mix-shaping-v1 checkpoint
+
+Closed the first bounded upstream shaping slice after the source-mix diagnostics.
+
+What changed:
+- added a narrow source-mix shaping step in `src/sourcetrace_v2/execution/stages/retrieval.py`
+- shaping activates only when the query implies official/institutional intent
+- shaping lightly reorders retrieved candidates toward more institutional-looking sources before later selection
+- added focused coverage in `tests/unit/v2/test_source_mix_shaping.py`
+
+What this slice showed:
+- this is a valid upstream move: it improves institutional-source survival pressure without touching downstream selector policy
+- strongest institutional cases (for example breach notification) did not regress
+- weaker cases (for example legal hold steps) improved somewhat in result shape, but still do not consistently land a clearly public-institutional pair
+- this confirms the remaining gap is now about shallow source typing / approximate institutional detection more than about the absence of any upstream shaping at all
+
+Current posture:
+- keep downstream authority/relevance selector policy unchanged
+- treat this slice as a bounded retrieval/source-ordering improvement, not a final authority solution
+- the next sharp move, if we keep pushing this line, is better source typing rather than more ad hoc shaping rules
+
+Verification:
+- focused tests passed (`4 passed`)
+- small live check recorded in `docs/authority-relevance-source-mix-shaping-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-source-typing-v1` — add explicit source-type metadata early enough to support cleaner upstream shaping and diagnostics without changing selector policy in the same slice
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.

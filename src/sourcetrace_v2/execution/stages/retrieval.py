@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from urllib.parse import urlparse
 
 from sourcetrace_v2.adapters.pdf.interfaces import PdfReadGateway
 from sourcetrace_v2.adapters.search.interfaces import SearchGateway
@@ -42,6 +43,10 @@ class RetrievalStage:
                 query=input_text,
                 limit=self.limit,
             )
+            candidates = self._shape_source_mix(
+                candidates=candidates,
+                query=input_text,
+            )
             candidates = self._enrich_pdf_candidates(
                 candidates=candidates,
                 query=input_text,
@@ -75,6 +80,21 @@ class RetrievalStage:
             )
         )
         return RetrievalStageResult(retrieval_query=input_text, candidates=candidates)
+
+    def _shape_source_mix(
+        self,
+        *,
+        candidates: tuple[RetrievedEvidenceCandidate, ...],
+        query: str,
+    ) -> tuple[RetrievedEvidenceCandidate, ...]:
+        if len(candidates) < 2 or not _query_implies_institutional_preference(query):
+            return candidates
+        scored: list[tuple[int, int, RetrievedEvidenceCandidate]] = []
+        for index, candidate in enumerate(candidates):
+            scored.append((_institutional_source_score(candidate), index, candidate))
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        reordered = tuple(item[2] for item in scored)
+        return tuple(replace(candidate, rank=index + 1) for index, candidate in enumerate(reordered))
 
     def _enrich_pdf_candidates(
         self,
@@ -122,6 +142,37 @@ class RetrievalStage:
                 )
             )
         return tuple(enriched)
+
+
+def _query_implies_institutional_preference(query: str) -> bool:
+    lowered = query.lower()
+    markers = (
+        "official",
+        "authority",
+        "guidance",
+        "regulation",
+        "compliance",
+        "policy",
+        "government",
+        "ministry",
+        "commission",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _institutional_source_score(candidate: RetrievedEvidenceCandidate) -> int:
+    host = urlparse(candidate.url).netloc.lower()
+    title = candidate.title.lower()
+    score = 0
+    if host.endswith(".gov") or ".gov." in host or host.endswith(".gov.uk") or host.endswith("europa.eu") or host.endswith("archives.gov"):
+        score += 3
+    if host.endswith("microsoft.com") or host.endswith("learn.microsoft.com") or host.endswith("ico.org.uk") or host.endswith("ftc.gov"):
+        score += 3
+    if any(token in title for token in ("official", "authority", "commission", "ministry", "government", "national archives", "microsoft learn", "federal trade commission")):
+        score += 1
+    if candidate.snippet.strip():
+        score += 1
+    return score
 
 
 def _looks_like_pdf_candidate(candidate: RetrievedEvidenceCandidate) -> bool:
