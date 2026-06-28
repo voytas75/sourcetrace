@@ -904,6 +904,31 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-source-mix-diagnostics-v1` — inspect why some corrected live queries still land commentary/vendor-heavy candidate pools instead of stronger institutional sources before changing policy
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-source-mix-diagnostics-v1 checkpoint
+
+Ran the next bounded diagnostic pass after the handoff repair and live rerun.
+
+What changed:
+- added `docs/authority-relevance-source-mix-diagnostics-v1-2026-06-28.md`
+- inspected the current search/retrieval surface for the remaining weak live cases
+- checked whether institutional sources were absent entirely or merely losing in provider ranking / shallow truncation
+
+What this slice showed:
+- the remaining weakness is best described as **source-mix bias under plain retrieval**
+- the search layer is currently very thin: plain query in, top-N rows out, almost no source-type metadata, no institutional biasing before truncation
+- for strong cases like breach notification, institutional sources already appear near the top and the system behaves well enough
+- for weaker cases like legal hold steps, institutional sources do appear in raw provider output, but practical/vendor sources outrank them early enough that the bounded candidate pool still leans commentary-heavy
+
+Current posture:
+- this is still an upstream retrieval/source-ordering problem, not a reason to expand downstream selector policy first
+- after the query-handoff fix, the next honest pressure point is how to improve institutional source survival into the candidate pool for queries that imply an official/institutional preference
+
+Verification:
+- findings recorded in `docs/authority-relevance-source-mix-diagnostics-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-source-mix-shaping-v1` — improve the odds that official/institutional sources survive into the bounded candidate pool without changing downstream selector policy in the same slice
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
