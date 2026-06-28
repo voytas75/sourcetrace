@@ -871,3 +871,25 @@ Verification:
 
 Best next bounded slice:
 - `authority-relevance-query-handoff-contract-v1` — introduce a bounded retrieval-query handoff so retrieval consumes an explicit search-intent string rather than freeform answer prose
+
+## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
+
+Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
+
+What changed:
+- added `docs/authority-relevance-query-handoff-contract-v1-2026-06-28.md`
+- changed the minimal v2 flow so retrieval input is built from normalized `seed_text`
+- stopped passing `query_refinement` freeform prose into the retrieval adapter
+- added focused regression coverage for the bounded handoff contract
+
+What this fixes:
+- retrieval no longer consumes assistant-style answer prose as `evidence_query` in the minimal v2 flow
+- persisted execution readback now reflects the actual bounded seed-derived search intent used for retrieval
+
+Current posture:
+- keep downstream authority/relevance selection policy unchanged
+- treat this as an upstream handoff repair, not a selector-policy expansion
+
+Verification:
+- focused v2 handoff/retrieval tests were updated to pin the new behavior (`5 passed`)
+- live smoke on `legal hold steps records retention official guidance` confirmed `evidence_query` now exactly matches the bounded seed query and no longer drifts into assistant-style prose

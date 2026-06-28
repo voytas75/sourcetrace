@@ -83,7 +83,7 @@ def test_env_backed_searxng_runtime_can_drive_run_http_path(tmp_path, monkeypatc
     payload = json.loads(response.body)
     assert response.status_code == 201
     assert payload["status"] == "found"
-    assert payload["artifact"]["summary"].startswith("minimal v2 flow | query=stub:research_fast:")
+    assert payload["artifact"]["summary"].startswith("minimal v2 flow | query=test query")
     assert "top_source=searxng:Alpha" in payload["artifact"]["summary"]
     assert payload["evidence_input"]["candidate_count"] == 3
     assert payload["evidence_input"]["candidates"][0]["provider"] == "searxng"

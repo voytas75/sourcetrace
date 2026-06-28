@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from sourcetrace_v2.core.domain.identifiers import FeatureId, StageId
@@ -15,11 +16,20 @@ from sourcetrace_v2.runtime.logging.context import LoggingContext
 from sourcetrace_v2.runtime.logging.events import EventLogger
 
 
+AUTHORITY_RELEVANCE_QUERY_HANDOFF_CONTRACT_V1 = "authority-relevance-query-handoff-contract-v1"
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
 def _build_result_summary(*, seed_text: str, evidence_query: str, evidence_candidates: tuple) -> str:
     if evidence_candidates:
         top = evidence_candidates[0]
         return f"minimal v2 flow | query={evidence_query or seed_text} | top_source={top.provider}:{top.title}"
     return f"minimal v2 flow | query={evidence_query or seed_text} | top_source=none"
+
+
+def _build_retrieval_query_handoff(*, seed_text: str) -> str:
+    normalized = _WHITESPACE_RE.sub(" ", seed_text).strip()
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -38,6 +48,7 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
     current_text = seed_text
     evidence_query = ""
     evidence_candidates = ()
+    retrieval_query = _build_retrieval_query_handoff(seed_text=seed_text)
     event_logger.info(
         "research flow started",
         context=LoggingContext(job_id=job_id, run_id=run_id, feature=FeatureId.DEEP_RESEARCH.value, event_name="job.started"),
@@ -72,7 +83,7 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
                         call_site=call_site,
                     ),
                     collector=collector,
-                    input_text=current_text,
+                    input_text=retrieval_query,
                 )
                 evidence_query = result.retrieval_query
                 evidence_candidates = result.candidates

@@ -24,7 +24,7 @@ def test_run_and_persist_minimal_flow_returns_found_view() -> None:
 
     assert view.status.value == "found"
     assert view.artifact is not None
-    assert view.artifact.evidence_query.startswith("stub:research_fast:")
+    assert view.artifact.evidence_query == "test query"
     assert len(view.artifact.evidence_candidates) == 3
     assert view.rollup.total_tokens == 384
     assert len(view.llm_receipts) == 4
