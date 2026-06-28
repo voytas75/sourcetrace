@@ -82,12 +82,18 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for index, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
             rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            is_last_nonempty = not any(remaining.strip() for remaining in lines[index + 1 :])
+            if is_last_nonempty:
+                break
+            raise
     return rows
 
 

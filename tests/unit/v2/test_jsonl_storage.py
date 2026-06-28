@@ -1,6 +1,8 @@
 import logging
 from pathlib import Path
 
+import pytest
+
 from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
 from sourcetrace_v2.adapters.search.stub import StubSearchGateway
 from sourcetrace_v2.adapters.storage.jsonl import JsonlReceiptRepository, JsonlResultArtifactRepository
@@ -143,3 +145,32 @@ def test_jsonl_storage_preserves_compiled_judgment_readback_shape(tmp_path: Path
     assert '"selected_evidence_contract_version": "authority-relevance-judgment-contract-v1"' in response.body
     assert '"contract_version": "authority-relevance-judgment-contract-v1"' in response.body
     assert '"answer_fit"' in response.body
+
+
+def test_jsonl_storage_tolerates_truncated_trailing_result_line(tmp_path: Path) -> None:
+    results = JsonlResultArtifactRepository(tmp_path)
+    results.save_result(
+        artifact=__import__('sourcetrace_v2.core.domain.models', fromlist=['ResearchResultArtifact']).ResearchResultArtifact(
+            job_id='job-tail',
+            run_id='run-tail',
+            result_text='ok',
+        )
+    )
+    results.path.write_text(results.path.read_text(encoding='utf-8') + '{"job_id":"broken"', encoding='utf-8')
+
+    loaded = results.get_result(job_id='job-tail', run_id='run-tail')
+
+    assert loaded is not None
+    assert loaded.result_text == 'ok'
+
+
+def test_jsonl_storage_raises_on_nontrailing_corruption(tmp_path: Path) -> None:
+    results = JsonlResultArtifactRepository(tmp_path)
+    results.path.write_text(
+        '{"job_id":"broken"\n'
+        '{"job_id":"job-ok","run_id":"run-ok","result_text":"ok","summary":"","evidence_query":"","evidence_candidates":[]}',
+        encoding='utf-8',
+    )
+
+    with pytest.raises(ValueError):
+        results.get_result(job_id='job-ok', run_id='run-ok')

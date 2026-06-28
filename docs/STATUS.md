@@ -1348,6 +1348,33 @@ Verification:
 Best next bounded slice:
 - `jsonl-corruption-tolerance-v1` — add a narrow posture for malformed/truncated trailing JSONL lines so readback fails more gracefully or tolerates clearly broken tail entries without pretending corruption did not happen
 
+## 2026-06-28 — SourceTrace v2 jsonl-corruption-tolerance-v1 checkpoint
+
+Closed the next bounded storage-facing reliability slice after the persistence audit.
+
+What changed:
+- updated `src/sourcetrace_v2/adapters/storage/jsonl.py`
+- `_read_jsonl(...)` now tolerates a malformed trailing non-empty line and preserves earlier valid rows
+- non-trailing corruption still raises instead of being silently hidden
+- added focused storage coverage in `tests/unit/v2/test_jsonl_storage.py`
+
+What this slice showed:
+- the most plausible append-tail corruption mode is now handled more gracefully
+- broader corruption is still surfaced loudly, which preserves honesty
+- this is a narrow resilience improvement, not a claim of general JSONL recovery or production-grade storage completeness
+
+Current posture:
+- JSONL is still a limited persistence substrate
+- but bounded operator/readback resilience is better than before
+- the next production-gap slice should move back up to operator-facing truth/quality posture rather than keep chewing on storage internals
+
+Verification:
+- focused tests passed (`12 passed`)
+- slice note recorded in `docs/jsonl-corruption-tolerance-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `operator-trust-contract-v1` — define a light operator-facing truth contract for result usability so runtime success is not confused with trustworthy research quality
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
