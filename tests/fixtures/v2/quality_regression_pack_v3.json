@@ -120,9 +120,11 @@
       "note": "This case pins the improved retrieval shape: the pair is now institutional/institutional, but it is still jurisdiction-mixed and therefore not a fully clean answer shape."
     },
     "trust": {
-      "status": "usable",
-      "reasons": [],
-      "note": "The current trust layer still treats this pair as usable because jurisdiction mismatch is intentionally not modeled yet."
+      "status": "needs_review",
+      "reasons": [
+        "jurisdiction_mixed_selected_institutional_pair"
+      ],
+      "note": "The trust layer now marks this pair for review because the selected institutional anchors point at different jurisdictions/authorities."
     }
   }
 ]

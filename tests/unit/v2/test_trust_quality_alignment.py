@@ -69,25 +69,54 @@ def test_trust_contract_marks_low_authority_selected_shape_as_needs_review() -> 
     assert "low_confidence_selected_shape" in payload["reasons"]
 
 
-def test_trust_contract_keeps_strong_institutional_shape_usable() -> None:
+def test_trust_contract_marks_jurisdiction_mixed_institutional_pair_as_needs_review() -> None:
+    artifact = ResearchResultArtifact(
+        job_id="job-trust-align-mixed",
+        run_id="run-trust-align-mixed",
+        result_text="summary",
+        evidence_candidates=(
+            _candidate(
+                title="Starting or ending a business 3 | Internal Revenue Service",
+                url="https://www.irs.gov/businesses/small-businesses-self-employed/starting-or-ending-a-business-3",
+                rank=1,
+                source_type="institutional",
+                snippet="IRS guidance for small businesses.",
+            ),
+            _candidate(
+                title="Small Businesses - Taxpayers | South African Revenue Service",
+                url="https://www.sars.gov.za/types-of-tax/small-businesses-and-employment-taxes/",
+                rank=2,
+                source_type="institutional",
+                snippet="SARS small business tax guidance.",
+            ),
+        ),
+    )
+
+    payload = project_operator_trust(view=_view(artifact=artifact))
+
+    assert payload["status"] == "needs_review"
+    assert payload["reasons"] == ["jurisdiction_mixed_selected_institutional_pair"]
+
+
+def test_trust_contract_keeps_same_jurisdiction_institutional_shape_usable() -> None:
     artifact = ResearchResultArtifact(
         job_id="job-trust-align-strong",
         run_id="run-trust-align-strong",
         result_text="summary",
         evidence_candidates=(
             _candidate(
-                title="Incident response plan - GOV.UK",
-                url="https://www.gov.uk/government/publications/incident-response-plan",
+                title="Manage emergency access admin accounts - Microsoft Entra ID",
+                url="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access",
                 rank=1,
                 source_type="institutional",
-                snippet="Official incident response plan guidance.",
+                snippet="Official Microsoft Learn guidance for emergency access admin accounts.",
             ),
             _candidate(
-                title="Cybersecurity Incident Response Plans | HHS.gov",
-                url="https://www.hhs.gov/cybersecurity/incident-response-plans",
+                title="Plan emergency access accounts - Microsoft Learn",
+                url="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/plan-emergency-access-accounts",
                 rank=2,
                 source_type="institutional",
-                snippet="Official HHS incident response plan guidance.",
+                snippet="Official Microsoft Learn planning guidance for emergency access accounts.",
             ),
         ),
     )

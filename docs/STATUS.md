@@ -1704,3 +1704,35 @@ Verification:
 
 Best next bounded slice:
 - `post-checkpoint-production-gap-review-v2` — re-rank the remaining readiness gaps again after the integration fix, retrieval evaluation, trust alignment, and regression-pack v3 closure, then choose the next highest-value bounded implementation step from the updated baseline
+
+## 2026-06-28 — SourceTrace v2 trust-jurisdiction-alignment-v1 checkpoint
+
+Closed a small honesty-followup slice after the trust-quality and regression-pack work.
+
+What changed:
+- updated `src/sourcetrace_v2/projections/api/trust.py`
+- extended `tests/unit/v2/test_trust_quality_alignment.py`
+- updated `tests/fixtures/v2/quality_regression_pack_v3.json`
+- added `docs/trust-jurisdiction-alignment-v1-2026-06-28.md`
+
+What this slice does:
+- adds `jurisdiction_mixed_selected_institutional_pair` when the selected pair is institutional/institutional but anchored to different lightweight institutional identities
+- keeps the detection bounded and generic, based on shallow host/title authority identity cues
+- changes only the operator trust projection; retrieval and selection behavior remain unchanged
+
+What this slice showed:
+- jurisdiction-mixed tax-guidance-like pairs no longer project as clean `usable`
+- same-authority institutional pairs still remain `usable`
+- the regression baseline now records this subtle trust failure mode explicitly instead of treating it as acceptable behavior
+
+Verification:
+- focused trust/regression tests passed (`6 passed`)
+- broader `tests/unit/v2` passed (`96 passed`)
+
+Current posture:
+- trust is now more honest for one important subtle failure shape without widening into deep semantic inference
+- this is still a lightweight structural signal, not a full jurisdiction-understanding model
+- the next good move is to reassess overall readiness/trust posture from the updated baseline rather than piling on more trust heuristics blindly
+
+Best next bounded slice:
+- `post-checkpoint-production-gap-review-v2` — re-rank the remaining readiness gaps again after the integration fix, retrieval evaluation, trust alignment, regression-pack v3, and jurisdiction-alignment closure, then choose the next highest-value bounded implementation step from the updated baseline
