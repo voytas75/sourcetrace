@@ -1,0 +1,234 @@
+[
+  {
+    "case_id": "legal_hold_vendor_vendor_fallback_is_weak_shape",
+    "query": "legal hold steps records retention official guidance",
+    "artifact": {
+      "job_id": "job-quality-pack-v2-legal-hold-fallback",
+      "run_id": "run-quality-pack-v2-legal-hold-fallback",
+      "result_text": "legal hold fallback summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:lhf:1",
+          "job_id": "job-quality-pack-v2-legal-hold-fallback",
+          "run_id": "run-quality-pack-v2-legal-hold-fallback",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance",
+          "title": "Legal Hold Best Practices: A Complete Guide for Organizations",
+          "url": "https://www.veniosystems.com/guide/legal-hold-best-practices-the-complete-guide-2026",
+          "snippet": "Vendor guide for legal hold programs.",
+          "rank": 1,
+          "source_type": "vendor"
+        },
+        {
+          "candidate_id": "cand:lhf:2",
+          "job_id": "job-quality-pack-v2-legal-hold-fallback",
+          "run_id": "run-quality-pack-v2-legal-hold-fallback",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance",
+          "title": "Legal Hold Best Practices: A Process Guide - DISCO",
+          "url": "https://csdisco.com/blog/legal-hold-best-practices-guide",
+          "snippet": "Practical guide to legal hold process.",
+          "rank": 2,
+          "source_type": "vendor"
+        },
+        {
+          "candidate_id": "cand:lhf:3",
+          "job_id": "job-quality-pack-v2-legal-hold-fallback",
+          "run_id": "run-quality-pack-v2-legal-hold-fallback",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance",
+          "title": "Best Practices for Developing and Documenting Preservation and Litigation Hold Policies - First Legal",
+          "url": "https://www.firstlegal.com/unraveling-nuances-of-litigation-holds/",
+          "snippet": "Commercial legal hold advisory material.",
+          "rank": 3,
+          "source_type": "commentary"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Legal Hold Best Practices: A Complete Guide for Organizations",
+        "Legal Hold Best Practices: A Process Guide - DISCO"
+      ],
+      "must_exclude": [
+        "Best Practices for Developing and Documenting Preservation and Litigation Hold Policies - First Legal"
+      ],
+      "note": "This case documents the current weak fallback shape so it remains visible in the regression baseline rather than being forgotten."
+    }
+  },
+  {
+    "case_id": "remote_work_poland_advisory_drift_is_visible",
+    "query": "remote work reporting obligations Poland employer official guidance",
+    "artifact": {
+      "job_id": "job-quality-pack-v2-remote-drift",
+      "run_id": "run-quality-pack-v2-remote-drift",
+      "result_text": "remote work drift summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:rwd:1",
+          "job_id": "job-quality-pack-v2-remote-drift",
+          "run_id": "run-quality-pack-v2-remote-drift",
+          "provider": "searxng",
+          "query": "remote work reporting obligations Poland employer official guidance",
+          "title": "New OECD guidelines on remote work from abroad - Deloitte",
+          "url": "https://www.deloitte.com/pl/pl/services/legal/perspectives/strefa-pracodawcy/new-OECD-guidelines-on-remote-work-from-abroad-implications-for-employees-and-employers-in-Poland.html",
+          "snippet": "Advisory analysis for employers in Poland.",
+          "rank": 1,
+          "source_type": "unknown"
+        },
+        {
+          "candidate_id": "cand:rwd:2",
+          "job_id": "job-quality-pack-v2-remote-drift",
+          "run_id": "run-quality-pack-v2-remote-drift",
+          "provider": "searxng",
+          "query": "remote work reporting obligations Poland employer official guidance",
+          "title": "Implementing Remote Work for Employees Based in Poland",
+          "url": "https://easyeor.pl/pl-hr-guide-remote-work/",
+          "snippet": "Practical guidance for employers with employees based in Poland.",
+          "rank": 2,
+          "source_type": "unknown"
+        },
+        {
+          "candidate_id": "cand:rwd:3",
+          "job_id": "job-quality-pack-v2-remote-drift",
+          "run_id": "run-quality-pack-v2-remote-drift",
+          "provider": "searxng",
+          "query": "remote work reporting obligations Poland employer official guidance",
+          "title": "Remote Work in Poland - Guide 2026 | Dudkowiak & Putyra",
+          "url": "https://www.dudkowiak.com/employment-law-in-poland/remote-work-regulation-in-poland/",
+          "snippet": "Law firm commentary on remote work regulation in Poland.",
+          "rank": 3,
+          "source_type": "commentary"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "New OECD guidelines on remote work from abroad - Deloitte",
+        "Implementing Remote Work for Employees Based in Poland"
+      ],
+      "must_exclude": [
+        "Remote Work in Poland - Guide 2026 | Dudkowiak & Putyra"
+      ],
+      "note": "This case records the current advisory/commercial drift as a tracked weak shape rather than a silent live anecdote."
+    }
+  },
+  {
+    "case_id": "cross_border_data_transfer_advisory_drift",
+    "query": "cross border data transfer official guidance",
+    "artifact": {
+      "job_id": "job-quality-pack-v2-data-transfer",
+      "run_id": "run-quality-pack-v2-data-transfer",
+      "result_text": "data transfer summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:dt:1",
+          "job_id": "job-quality-pack-v2-data-transfer",
+          "run_id": "run-quality-pack-v2-data-transfer",
+          "provider": "searxng",
+          "query": "cross border data transfer official guidance",
+          "title": "China Issues Further Clarifications on Cross-Border Data Transfer Rules | Advisories | Arnold & Porter",
+          "url": "https://www.arnoldporter.com/en/perspectives/advisories/2024/03/china-further-clarifications-on-cross-border-data-transfer-rules",
+          "snippet": "Law firm advisory on cross-border data transfer rules.",
+          "rank": 1,
+          "source_type": "unknown"
+        },
+        {
+          "candidate_id": "cand:dt:2",
+          "job_id": "job-quality-pack-v2-data-transfer",
+          "run_id": "run-quality-pack-v2-data-transfer",
+          "provider": "searxng",
+          "query": "cross border data transfer official guidance",
+          "title": "Cross-Border Data Transfer: Comprehensive Guide - Captain Compliance",
+          "url": "https://captaincompliance.com/education/cross-border-data-transfer/",
+          "snippet": "Commercial guide to cross-border data transfer.",
+          "rank": 2,
+          "source_type": "unknown"
+        },
+        {
+          "candidate_id": "cand:dt:3",
+          "job_id": "job-quality-pack-v2-data-transfer",
+          "run_id": "run-quality-pack-v2-data-transfer",
+          "provider": "searxng",
+          "query": "cross border data transfer official guidance",
+          "title": "Cross-border transfers | European Data Protection Board",
+          "url": "https://www.edpb.europa.eu/sme-data-protection-guide/faq-frequently-asked-questions/answer/cross-border-transfers_en",
+          "snippet": "Official EDPB material on cross-border transfers.",
+          "rank": 3,
+          "source_type": "institutional"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "China Issues Further Clarifications on Cross-Border Data Transfer Rules | Advisories | Arnold & Porter",
+        "Cross-Border Data Transfer: Comprehensive Guide - Captain Compliance"
+      ],
+      "must_exclude": [
+        "Cross-border transfers | European Data Protection Board"
+      ],
+      "note": "This pins the current advisory/commercial drift so future retrieval changes can be judged against it explicitly."
+    }
+  },
+  {
+    "case_id": "tax_deadline_jurisdiction_mixed_shape",
+    "query": "official tax filing deadline guidance for small business",
+    "artifact": {
+      "job_id": "job-quality-pack-v2-tax-mixed",
+      "run_id": "run-quality-pack-v2-tax-mixed",
+      "result_text": "tax deadline summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:tax:1",
+          "job_id": "job-quality-pack-v2-tax-mixed",
+          "run_id": "run-quality-pack-v2-tax-mixed",
+          "provider": "searxng",
+          "query": "official tax filing deadline guidance for small business",
+          "title": "Starting or ending a business 3 | Internal Revenue Service",
+          "url": "https://www.irs.gov/businesses/small-businesses-self-employed/starting-or-ending-a-business-3",
+          "snippet": "IRS guidance for small businesses.",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:tax:2",
+          "job_id": "job-quality-pack-v2-tax-mixed",
+          "run_id": "run-quality-pack-v2-tax-mixed",
+          "provider": "searxng",
+          "query": "official tax filing deadline guidance for small business",
+          "title": "Small Businesses - Taxpayers | South African Revenue Service",
+          "url": "https://www.sars.gov.za/types-of-tax/small-businesses-and-employment-taxes/",
+          "snippet": "SARS small business tax guidance.",
+          "rank": 2,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:tax:3",
+          "job_id": "job-quality-pack-v2-tax-mixed",
+          "run_id": "run-quality-pack-v2-tax-mixed",
+          "provider": "searxng",
+          "query": "official tax filing deadline guidance for small business",
+          "title": "Tax filing deadlines for entrepreneurs - commentary",
+          "url": "https://example.test/tax-commentary",
+          "snippet": "Generic commentary on business tax deadlines.",
+          "rank": 3,
+          "source_type": "commentary"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Starting or ending a business 3 | Internal Revenue Service",
+        "Small Businesses - Taxpayers | South African Revenue Service"
+      ],
+      "must_exclude": [
+        "Tax filing deadlines for entrepreneurs - commentary"
+      ],
+      "note": "This documents the current jurisdiction-mixed institutional shape as an ambiguity to resolve later, not as a silent regression risk."
+    }
+  }
+]

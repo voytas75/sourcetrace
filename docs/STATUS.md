@@ -1500,6 +1500,37 @@ Verification:
 Best next bounded slice:
 - `quality-regression-pack-v2` — expand the regression pack with the newly exposed unstable and ambiguous live cases (legal hold fallback, remote-work Poland instability, cross-border data transfer drift, and jurisdiction-mixed tax guidance)
 
+## 2026-06-28 — SourceTrace v2 quality-regression-pack-v2 checkpoint
+
+Expanded the shared quality baseline after the broader retrieval-quality evaluation pack.
+
+What changed:
+- added `tests/fixtures/v2/quality_regression_pack_v2.json`
+- added `tests/unit/v2/test_quality_regression_pack_v2.py`
+- added `docs/quality-regression-pack-v2-2026-06-28.md`
+
+What this slice adds:
+- new tracked weak/ambiguous cases for:
+  - legal-hold vendor/vendor fallback
+  - remote-work Poland advisory/commercial drift
+  - cross-border data transfer advisory/commercial drift
+  - jurisdiction-mixed tax guidance shape
+- regression coverage across both:
+  - selected-evidence API projection
+  - compiled artifact selected-evidence output
+
+What this slice showed:
+- the shared quality baseline is now stronger and more honest about current weak/unstable retrieval behavior
+- this reduces the risk of making the next retrieval refinement decision from anecdotes or memory
+- it keeps the line disciplined and away from ad hoc heuristic patching
+
+Verification:
+- focused tests passed (`3 passed`)
+- slice note recorded in `docs/quality-regression-pack-v2-2026-06-28.md`
+
+Best next bounded slice:
+- `retrieval-refinement-decision-v1` — use the stronger regression baseline plus the recent live evaluation evidence to decide what the next retrieval refinement should actually target before making another retrieval-side change
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
