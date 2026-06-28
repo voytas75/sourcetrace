@@ -1143,6 +1143,37 @@ Verification:
 Best next bounded slice:
 - no immediate source-typing v4; shift attention back to broader retrieval/evidence quality only when a fresh concrete failure justifies it
 
+## 2026-06-28 — SourceTrace v2 institutional-evidence-precision-v1 checkpoint
+
+Shifted back to the quality pack after pausing source-typing refinement.
+
+What changed:
+- added `docs/institutional-evidence-precision-v1-2026-06-28.md`
+- refined authority scoring in `src/sourcetrace_v2/core/policies/selected_evidence.py`
+- explicit `source_type` now contributes directly to authority judgment:
+  - `institutional` gets a stronger bounded authority boost
+  - `vendor` gets a smaller bounded boost
+  - `commentary` is treated more skeptically
+  - unknown community/forum-like surfaces get a bounded authority demotion
+- added focused coverage in `tests/unit/v2/test_institutional_evidence_precision.py`
+
+What this slice showed:
+- this is a real precision improvement inside the institutional evidence track, not a taxonomy or selector-contract change
+- institutional sources that are already present now stand out more honestly in the authority surface
+- live sanity check on the break-glass case showed the official Microsoft Learn source at `authority=high` while the non-institutional companion stayed at `authority=none`
+
+Current posture:
+- this does not solve every retrieval/source-mix issue
+- but it improves the judgment surface where official/institutional evidence is already in the candidate pool
+- the next sharp move is not another micro-tweak by default, but a small live pack to see whether this authority-surface improvement helps consistently across a few institutional-intent queries
+
+Verification:
+- focused tests passed (`6 passed`)
+- live sanity check recorded in `docs/institutional-evidence-precision-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `institutional-evidence-precision-live-pack-v1` — run a small multi-query live pack over institutional-intent cases and confirm whether the updated authority surface produces consistently better selected-evidence shapes before further tuning
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.

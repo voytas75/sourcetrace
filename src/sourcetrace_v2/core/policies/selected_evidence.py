@@ -162,6 +162,15 @@ def _score_authority(candidate: RetrievedEvidenceCandidate) -> EvidenceJudgmentD
     score = 0
     signals: list[str] = []
 
+    if candidate.source_type == "institutional":
+        score = max(score, 3)
+        signals.append("institutional_source_type")
+    elif candidate.source_type == "vendor":
+        score = max(score, 1)
+        signals.append("vendor_source_type")
+    elif candidate.source_type == "commentary":
+        signals.append("commentary_source_type")
+
     if host_tokens & {"gov", "gouv", "government", "ministry", "agency"}:
         score = max(score, 3)
         signals.append("institutional_host")
@@ -180,6 +189,12 @@ def _score_authority(candidate: RetrievedEvidenceCandidate) -> EvidenceJudgmentD
     if (host_tokens | title_tokens) & {"blog"}:
         score = max(0, score - 1)
         signals.append("blog_surface")
+
+    if candidate.source_type == "commentary":
+        score = max(0, score - 1)
+    elif candidate.source_type == "unknown" and host_tokens & {"reddit", "forum"}:
+        score = max(0, score - 1)
+        signals.append("community_surface")
 
     return EvidenceJudgmentDimension(score=score, band=_band_for(score), signals=tuple(dict.fromkeys(signals)))
 
