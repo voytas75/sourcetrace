@@ -1255,6 +1255,31 @@ Verification:
 Best next bounded slice:
 - `institutional-retrieval-window-evaluation-v1` — run a slightly broader live/eval pack to confirm the widened institutional-intent retrieval window helps consistently without obvious regressions
 
+## 2026-06-28 — SourceTrace v2 institutional-retrieval-window-evaluation-v1 checkpoint
+
+Ran the broader evaluation pass after the retrieval-window fix.
+
+What changed:
+- added `docs/institutional-retrieval-window-evaluation-v1-2026-06-28.md`
+- evaluated the widened institutional-intent retrieval window over a 6-query live pack
+
+What this slice showed:
+- the widened window is a real net-positive and should remain in place
+- clean institutional-intent cases stayed healthy (`break-glass`, `breach notification`, `records retention policy`, `incident response`)
+- `legal hold` improved materially compared with the earlier vendor/vendor trap
+- the main remaining unstable case is still Poland remote-work reporting; this run fell back to advisory/commercial material and did not preserve the earlier `gov.pl` win
+
+Current posture:
+- keep `institutional-retrieval-window-v1`
+- do not roll it back
+- the next sharp problem is no longer the general retrieval-window seam, but the still-unstable Poland/public-institutional retrieval case
+
+Verification:
+- findings recorded in `docs/institutional-retrieval-window-evaluation-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `poland-institutional-retrieval-diagnostics-v1` — inspect why the Poland remote-work case remains unstable even after the widened retrieval window, and determine whether the sharper issue is query phrasing, source typing, host heuristics, or provider ordering volatility
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
