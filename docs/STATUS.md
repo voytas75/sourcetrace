@@ -1064,6 +1064,34 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-source-typing-unknown-bucket-diagnostics-v1` — inspect which recurring weak-case sources still fall into `unknown` before deciding on the next bounded classifier refinement
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-source-typing-unknown-bucket-diagnostics-v1 checkpoint
+
+Ran the next bounded diagnostic pass after source-typing-v2.
+
+What changed:
+- added `docs/authority-relevance-source-typing-unknown-bucket-diagnostics-v1-2026-06-28.md`
+- inspected recurring live weak-case candidates that still fall into `source_type=unknown`
+- used persisted execution/readback surfaces rather than guessing from memory
+
+What this slice showed:
+- the residual `unknown` bucket is no longer random; it now looks like a few recurring source families
+- recurring weak-case unknowns include:
+  - professional/practitioner consultancy sites that are neither institutional nor generic blog/social
+  - association/community-hosted PDFs whose title/path strongly imply vendor/practical provenance
+  - practical commercial guidance sites with weakly distinctive host/title markers
+- this means the next bounded classifier improvement still does not need a larger taxonomy yet; a narrower marker refinement is likely enough
+
+Current posture:
+- keep the four existing source-type buckets for now
+- do not expand selector policy from this evidence
+- the sharper next move is a bounded marker refinement for recurring advisory/professional hosts and hosted vendor/practical PDFs
+
+Verification:
+- findings recorded in `docs/authority-relevance-source-typing-unknown-bucket-diagnostics-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-source-typing-v3` — keep the same four buckets, but reduce `unknown` for recurring professional/advisory hosts and hosted vendor/practical PDFs while leaving downstream selector policy unchanged
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
