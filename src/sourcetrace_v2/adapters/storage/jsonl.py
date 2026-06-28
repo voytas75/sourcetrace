@@ -132,6 +132,7 @@ class JsonlResultArtifactRepository:
                     url=candidate["url"],
                     snippet=candidate.get("snippet", ""),
                     rank=candidate.get("rank", 1),
+                    source_type=str(candidate.get("source_type", "unknown") or "unknown"),
                     pdf_context=_deserialize_pdf_context(candidate.get("pdf_context")),
                 )
                 for candidate in match.get("evidence_candidates", [])

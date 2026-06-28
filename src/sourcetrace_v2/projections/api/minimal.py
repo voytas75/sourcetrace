@@ -30,6 +30,7 @@ def project_minimal_result(*, job: ResearchJob, run: ResearchRun, artifact: Rese
                     "url": candidate.url,
                     "provider": candidate.provider,
                     "rank": candidate.rank,
+                    "source_type": candidate.source_type,
                 }
                 for candidate in artifact.evidence_candidates
             ],

@@ -957,6 +957,34 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-source-typing-v1` — add explicit source-type metadata early enough to support cleaner upstream shaping and diagnostics without changing selector policy in the same slice
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-source-typing-v1 checkpoint
+
+Closed the next bounded upstream slice after source-mix shaping.
+
+What changed:
+- added explicit `source_type` on `RetrievedEvidenceCandidate`
+- added a narrow early classification pass in retrieval with bounded classes: `institutional`, `vendor`, `commentary`, `unknown`
+- exposed `source_type` through minimal/readback/evidence projections
+- preserved `source_type` through JSONL result-artifact readback
+- added focused coverage in `tests/unit/v2/test_source_typing.py` and `tests/unit/v2/test_source_type_jsonl_roundtrip.py`
+
+What this slice showed:
+- the runtime now carries explicit source-type state instead of relying only on opaque host/title scoring
+- this is a cleaner upstream base for later diagnostics and shaping work
+- strongest institutional live case remained stable and now visibly reports institutional source typing in readback
+
+Current posture:
+- keep downstream selector policy unchanged
+- treat current source typing as intentionally shallow but useful early metadata, not final source authority truth
+- the next sharp move is validating this metadata through one persisted consumer boundary rather than immediately adding more shaping logic
+
+Verification:
+- focused tests passed (`5 passed`)
+- live sanity check recorded in `docs/authority-relevance-source-typing-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-source-typing-consumer-validation-v1` — validate one real persisted/readback consumer path for `source_type` before extending shaping further
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.

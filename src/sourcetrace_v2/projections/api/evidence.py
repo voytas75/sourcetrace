@@ -53,6 +53,7 @@ def project_selected_evidence(*, artifact: ResearchResultArtifact | None, limit:
                 "url": candidate.url,
                 "provider": candidate.provider,
                 "rank": candidate.rank,
+                "source_type": candidate.source_type,
                 "snippet": candidate.snippet,
                 "judgment": _project_judgment(build_candidate_judgment(candidate)),
             }

@@ -43,6 +43,7 @@ class RetrievalStage:
                 query=input_text,
                 limit=self.limit,
             )
+            candidates = self._annotate_source_types(candidates=candidates)
             candidates = self._shape_source_mix(
                 candidates=candidates,
                 query=input_text,
@@ -89,12 +90,23 @@ class RetrievalStage:
     ) -> tuple[RetrievedEvidenceCandidate, ...]:
         if len(candidates) < 2 or not _query_implies_institutional_preference(query):
             return candidates
+        typed = self._annotate_source_types(candidates=candidates)
         scored: list[tuple[int, int, RetrievedEvidenceCandidate]] = []
-        for index, candidate in enumerate(candidates):
+        for index, candidate in enumerate(typed):
             scored.append((_institutional_source_score(candidate), index, candidate))
         scored.sort(key=lambda item: (-item[0], item[1]))
         reordered = tuple(item[2] for item in scored)
         return tuple(replace(candidate, rank=index + 1) for index, candidate in enumerate(reordered))
+
+    def _annotate_source_types(
+        self,
+        *,
+        candidates: tuple[RetrievedEvidenceCandidate, ...],
+    ) -> tuple[RetrievedEvidenceCandidate, ...]:
+        return tuple(
+            replace(candidate, source_type=_classify_source_type(candidate))
+            for candidate in candidates
+        )
 
     def _enrich_pdf_candidates(
         self,
@@ -160,16 +172,32 @@ def _query_implies_institutional_preference(query: str) -> bool:
     return any(marker in lowered for marker in markers)
 
 
-def _institutional_source_score(candidate: RetrievedEvidenceCandidate) -> int:
+def _classify_source_type(candidate: RetrievedEvidenceCandidate) -> str:
     host = urlparse(candidate.url).netloc.lower()
     title = candidate.title.lower()
+    if host.endswith(".gov") or ".gov." in host or host.endswith(".gov.uk") or host.endswith("europa.eu") or host.endswith("archives.gov") or host.endswith("ftc.gov") or host.endswith("ico.org.uk"):
+        return "institutional"
+    if host.endswith("learn.microsoft.com") or host.endswith("microsoft.com"):
+        return "institutional"
+    if any(token in title for token in ("official", "authority", "commission", "ministry", "government", "national archives", "federal trade commission", "information commissioner's office")):
+        return "institutional"
+    if any(token in host for token in ("vendor", "opentext", "everlaw", "venio", "disco", "admindroid")):
+        return "vendor"
+    if any(token in host for token in ("blog.", "blogs.", "medium.com", "substack.com", "linkedin.com")):
+        return "commentary"
+    if any(token in title for token in ("blog", "best practices", "explainer")):
+        return "commentary"
+    return "unknown"
+
+
+def _institutional_source_score(candidate: RetrievedEvidenceCandidate) -> int:
     score = 0
-    if host.endswith(".gov") or ".gov." in host or host.endswith(".gov.uk") or host.endswith("europa.eu") or host.endswith("archives.gov"):
-        score += 3
-    if host.endswith("microsoft.com") or host.endswith("learn.microsoft.com") or host.endswith("ico.org.uk") or host.endswith("ftc.gov"):
-        score += 3
-    if any(token in title for token in ("official", "authority", "commission", "ministry", "government", "national archives", "microsoft learn", "federal trade commission")):
+    if candidate.source_type == "institutional":
+        score += 4
+    elif candidate.source_type == "vendor":
         score += 1
+    elif candidate.source_type == "commentary":
+        score -= 1
     if candidate.snippet.strip():
         score += 1
     return score

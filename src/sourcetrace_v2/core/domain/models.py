@@ -56,6 +56,7 @@ class RetrievedEvidenceCandidate:
     url: str
     snippet: str = ""
     rank: int = 1
+    source_type: str = "unknown"
     pdf_context: PdfEvidenceContext | None = None
 
 

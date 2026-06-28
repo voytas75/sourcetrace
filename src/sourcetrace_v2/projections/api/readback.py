@@ -35,6 +35,7 @@ def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[st
                     "url": candidate.url,
                     "provider": candidate.provider,
                     "rank": candidate.rank,
+                    "source_type": candidate.source_type,
                 }
                 for candidate in (artifact.evidence_candidates if artifact is not None else ())
             ],
