@@ -1202,6 +1202,59 @@ Verification:
 Best next bounded slice:
 - `institutional-retrieval-gap-diagnostics-v1` — inspect why strong public-institutional candidates are still missing or weak in the remaining hard cases before changing retrieval or selection behavior again
 
+## 2026-06-28 — SourceTrace v2 institutional-retrieval-gap-diagnostics-v1 checkpoint
+
+Started the next upstream quality-pack slice after the institutional authority live-pack verdict.
+
+What changed:
+- added `docs/institutional-retrieval-gap-diagnostics-v1-2026-06-28.md`
+- inspected the two hardest remaining institutional-intent cases through persisted execution/readback
+- compared the current v2 top-3 candidate pool with raw SearxNG top-10 output for the same queries
+
+What this slice showed:
+- the failure is not a pure provider miss in either hard case
+- for Poland remote-work reporting, a real public-institutional hit (`gov.pl` / Ministry of Family, Labour and Social Policy) exists in raw SearxNG results but falls below the current v2 top-3 window
+- for legal-hold / records-retention, real institutional/public-law hits (for example HHS policy and King County legal-hold guidance) also appear below the current v2 top-3 window
+- the sharper diagnosis is therefore **premature retrieval truncation / weak institutional survival before truncation**, not missing provider coverage and not downstream selector/judgment weakness
+
+Current posture:
+- do not return to selector or authority-surface tuning first
+- the sharper next seam is the bounded retrieval window itself
+- the next move should stay controlled: widen the retrieval window modestly for institutional-intent queries, then let shaping work over that slightly larger pool
+
+Verification:
+- findings recorded in `docs/institutional-retrieval-gap-diagnostics-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `institutional-retrieval-window-v1` — modestly widen the retrieval window for institutional-intent queries before shaping, to test whether lower-ranked but stronger institutional candidates can survive into the v2 candidate pool
+
+## 2026-06-28 — SourceTrace v2 institutional-retrieval-window-v1 checkpoint
+
+Closed the next bounded upstream retrieval slice after the truncation diagnostics.
+
+What changed:
+- updated `src/sourcetrace_v2/execution/stages/retrieval.py`
+- for institutional-intent queries, retrieval now asks the search gateway for a slightly larger temporary window (`limit + 3`)
+- source typing + shaping run over that larger pool, then the result is trimmed back to the normal bounded candidate limit
+- added focused coverage in `tests/unit/v2/test_institutional_retrieval_window.py`
+
+What this slice showed:
+- the earlier diagnosis was correct: a modest retrieval-window expansion materially improved the hard live cases
+- Poland remote-work reporting now surfaces a real `gov.pl` public-institutional source into the v2 candidate pool and first selected slot
+- legal-hold / records-retention no longer stays trapped in vendor/vendor; institutional/public-law sources now survive and dominate the selected shape
+
+Current posture:
+- this was a good upstream fix
+- it improved the candidate pool without widening downstream selector policy
+- the next responsible step is not another blind tweak, but a broader check for consistency and regressions across a slightly wider institutional-intent pack
+
+Verification:
+- focused tests passed (`9 passed`)
+- live verification recorded in `docs/institutional-retrieval-window-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `institutional-retrieval-window-evaluation-v1` — run a slightly broader live/eval pack to confirm the widened institutional-intent retrieval window helps consistently without obvious regressions
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.

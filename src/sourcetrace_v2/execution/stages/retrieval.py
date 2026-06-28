@@ -37,17 +37,19 @@ class RetrievalStage:
             )
         )
         try:
+            retrieval_limit = self._retrieval_window_limit(query=input_text)
             candidates = self.search.search(
                 job_id=context.job_id,
                 run_id=context.run_id,
                 query=input_text,
-                limit=self.limit,
+                limit=retrieval_limit,
             )
             candidates = self._annotate_source_types(candidates=candidates)
             candidates = self._shape_source_mix(
                 candidates=candidates,
                 query=input_text,
             )
+            candidates = self._trim_candidate_window(candidates=candidates)
             candidates = self._enrich_pdf_candidates(
                 candidates=candidates,
                 query=input_text,
@@ -81,6 +83,19 @@ class RetrievalStage:
             )
         )
         return RetrievalStageResult(retrieval_query=input_text, candidates=candidates)
+
+    def _retrieval_window_limit(self, *, query: str) -> int:
+        if _query_implies_institutional_preference(query):
+            return max(self.limit, self.limit + 3)
+        return self.limit
+
+    def _trim_candidate_window(
+        self,
+        *,
+        candidates: tuple[RetrievedEvidenceCandidate, ...],
+    ) -> tuple[RetrievedEvidenceCandidate, ...]:
+        trimmed = candidates[: self.limit]
+        return tuple(replace(candidate, rank=index + 1) for index, candidate in enumerate(trimmed))
 
     def _shape_source_mix(
         self,
