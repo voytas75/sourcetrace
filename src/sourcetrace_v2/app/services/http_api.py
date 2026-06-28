@@ -22,6 +22,7 @@ def handle_run_minimal_flow_request(*, job_id: str, run_id: str, seed_text: str,
         receipts=runtime.receipts,
         config=runtime.config,
         logger=runtime.logger,
+        pdf=runtime.pdf,
     )
     payload = project_persisted_execution_view(view=view)
     return json_response(payload, status_code=201)

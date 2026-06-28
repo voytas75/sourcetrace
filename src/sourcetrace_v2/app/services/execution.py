@@ -30,7 +30,7 @@ class ExecutionOutcome:
     collector: ReceiptCollector
 
 
-def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, llm, search, config: RuntimeConfig, logger: logging.Logger | None = None) -> ExecutionOutcome:
+def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, llm, search, config: RuntimeConfig, logger: logging.Logger | None = None, pdf=None) -> ExecutionOutcome:
     collector = ReceiptCollector()
     event_logger = EventLogger(logger or logging.getLogger("sourcetrace_v2.execution"))
     job = ResearchJob(job_id=job_id).mark_running()
@@ -63,7 +63,7 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
                 ),
             )
             if stage_id is StageId.RETRIEVAL:
-                result = RetrievalStage(search=search).run(
+                result = RetrievalStage(search=search, pdf=pdf).run(
                     context=ExecutionContext(
                         job_id=job_id,
                         run_id=run_id,

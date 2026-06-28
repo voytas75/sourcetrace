@@ -630,3 +630,24 @@ Verification:
 
 Best next bounded slice:
 - wire one real v2 consumer path to the new PDF seam, likely `pdf-document-read-consumer-integration-v1`, instead of broadening the seam contract or pretending full PDF policy is done
+
+## 2026-06-28 — SourceTrace v2 pdf-document-read-consumer-integration-v1 checkpoint
+
+Closed one real consumer path for the new v2 PDF/document seam using the native PDF-reading route rather than an image-model fallback.
+
+What changed:
+- wired the retrieval stage so PDF-like candidates can be post-processed through the optional v2 `pdf` gateway
+- kept the integration bounded: when a PDF candidate is positively read, its snippet is enriched with PDF-derived scope/entity/findings text instead of inventing a new wide artifact contract
+- threaded the optional `pdf` gateway through execution, run-use-case, and HTTP entrypoint paths
+- added focused coverage in `tests/unit/v2/test_pdf_consumer_integration.py`
+
+Current posture:
+- v2 now has one real consumer path for native PDF reading/analysis: retrieval -> PDF seam -> candidate snippet enrichment -> normal selected-evidence/compiled-artifact flow
+- this uses the proper PDF-reading mechanism through the runtime analyzer seam, not an image-model shortcut
+- the slice is still intentionally bounded: it improves one consumer path without claiming full PDF-aware deep-research policy or broad document-processing semantics
+
+Verification:
+- focused v2 tests passed after the slice (`10 passed`)
+
+Best next bounded slice:
+- either promote this from snippet enrichment into a more explicit typed evidence carry-forward path, or switch tracks to `operator-live-entrypoint-v1` if production readiness now hurts more on repeatable operator execution than on document semantics

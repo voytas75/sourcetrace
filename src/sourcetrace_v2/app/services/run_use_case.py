@@ -10,7 +10,7 @@ from sourcetrace_v2.app.services.readback import load_persisted_execution_view
 from sourcetrace_v2.runtime.config.models import RuntimeConfig
 
 
-def run_and_persist_minimal_flow(*, job_id: str, run_id: str, seed_text: str, llm, search, results: ResultArtifactRepository, receipts: ReceiptRepository, config: RuntimeConfig, logger: logging.Logger | None = None) -> PersistedExecutionView:
+def run_and_persist_minimal_flow(*, job_id: str, run_id: str, seed_text: str, llm, search, results: ResultArtifactRepository, receipts: ReceiptRepository, config: RuntimeConfig, logger: logging.Logger | None = None, pdf=None) -> PersistedExecutionView:
     outcome = execute_minimal_research_flow(
         job_id=job_id,
         run_id=run_id,
@@ -19,6 +19,7 @@ def run_and_persist_minimal_flow(*, job_id: str, run_id: str, seed_text: str, ll
         search=search,
         config=config,
         logger=logger,
+        pdf=pdf,
     )
     persist_execution_outcome(outcome=outcome, results=results, receipts=receipts)
     return load_persisted_execution_view(
