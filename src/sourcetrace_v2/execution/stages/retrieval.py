@@ -90,10 +90,10 @@ class RetrievalStage:
     ) -> tuple[RetrievedEvidenceCandidate, ...]:
         if len(candidates) < 2 or not _query_implies_institutional_preference(query):
             return candidates
-        typed = self._annotate_source_types(candidates=candidates)
+        typed = candidates if any(candidate.source_type != "unknown" for candidate in candidates) else self._annotate_source_types(candidates=candidates)
         scored: list[tuple[int, int, RetrievedEvidenceCandidate]] = []
         for index, candidate in enumerate(typed):
-            scored.append((_institutional_source_score(candidate), index, candidate))
+            scored.append((_source_mix_priority(candidate), index, candidate))
         scored.sort(key=lambda item: (-item[0], item[1]))
         reordered = tuple(item[2] for item in scored)
         return tuple(replace(candidate, rank=index + 1) for index, candidate in enumerate(reordered))
@@ -190,14 +190,14 @@ def _classify_source_type(candidate: RetrievedEvidenceCandidate) -> str:
     return "unknown"
 
 
-def _institutional_source_score(candidate: RetrievedEvidenceCandidate) -> int:
-    score = 0
-    if candidate.source_type == "institutional":
-        score += 4
-    elif candidate.source_type == "vendor":
-        score += 1
-    elif candidate.source_type == "commentary":
-        score -= 1
+def _source_mix_priority(candidate: RetrievedEvidenceCandidate) -> int:
+    priority_by_source_type = {
+        "institutional": 4,
+        "vendor": 1,
+        "unknown": 0,
+        "commentary": -1,
+    }
+    score = priority_by_source_type.get(candidate.source_type, 0)
     if candidate.snippet.strip():
         score += 1
     return score
