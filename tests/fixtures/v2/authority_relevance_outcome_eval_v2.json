@@ -1,0 +1,222 @@
+[
+  {
+    "case_id": "official-broad-vs-official-specific-vs-commentary",
+    "query": "incident reporting deadlines under cybersecurity regulation",
+    "artifact": {
+      "job_id": "ar-outcome-v2-job-1",
+      "run_id": "ar-outcome-v2-run-1",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:1",
+          "job_id": "ar-outcome-v2-job-1",
+          "run_id": "ar-outcome-v2-run-1",
+          "provider": "procedural_admin_unified_search",
+          "query": "incident reporting deadlines under cybersecurity regulation",
+          "title": "National cybersecurity authority portal",
+          "url": "https://gov.example.test/cyber/incidents",
+          "snippet": "Broad official portal for incident reporting obligations and national cybersecurity guidance.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:2",
+          "job_id": "ar-outcome-v2-job-1",
+          "run_id": "ar-outcome-v2-run-1",
+          "provider": "procedural_admin_unified_search",
+          "query": "incident reporting deadlines under cybersecurity regulation",
+          "title": "Official incident reporting deadline FAQ",
+          "url": "https://gov.example.test/cyber/incidents/deadline-faq",
+          "snippet": "Specific official FAQ covering incident reporting deadlines and notification timing.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:3",
+          "job_id": "ar-outcome-v2-job-1",
+          "run_id": "ar-outcome-v2-run-1",
+          "provider": "procedural_admin_unified_search",
+          "query": "incident reporting deadlines under cybersecurity regulation",
+          "title": "Law firm explainer on incident reporting timing",
+          "url": "https://lawfirm.example.test/cyber-incident-reporting-timing",
+          "snippet": "Direct practical explainer for operators about the exact deadline question.",
+          "rank": 3
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "National cybersecurity authority portal",
+        "Law firm explainer on incident reporting timing"
+      ],
+      "must_exclude": [
+        "Official incident reporting deadline FAQ"
+      ],
+      "note": "This is intentionally uncomfortable: current bounded policy still keeps one official source plus one direct commentary source, even though the official FAQ is narrower than the broad portal."
+    }
+  },
+  {
+    "case_id": "official-advisory-vs-vendor-operator-guide-vs-vendor-duplicate",
+    "query": "conditional access emergency break glass account guidance",
+    "artifact": {
+      "job_id": "ar-outcome-v2-job-2",
+      "run_id": "ar-outcome-v2-run-2",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:1",
+          "job_id": "ar-outcome-v2-job-2",
+          "run_id": "ar-outcome-v2-run-2",
+          "provider": "searxng",
+          "query": "conditional access emergency break glass account guidance",
+          "title": "Official identity authority advisory",
+          "url": "https://gov.example.test/identity/emergency-access-advisory",
+          "snippet": "Institutional advisory on emergency access and resilience posture.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:2",
+          "job_id": "ar-outcome-v2-job-2",
+          "run_id": "ar-outcome-v2-run-2",
+          "provider": "searxng",
+          "query": "conditional access emergency break glass account guidance",
+          "title": "Vendor operator guide for break-glass accounts",
+          "url": "https://vendor.example.test/entra/break-glass-accounts",
+          "snippet": "Detailed operator guide for configuring and protecting emergency access accounts.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:3",
+          "job_id": "ar-outcome-v2-job-2",
+          "run_id": "ar-outcome-v2-run-2",
+          "provider": "searxng",
+          "query": "conditional access emergency break glass account guidance",
+          "title": "Vendor FAQ for break-glass accounts",
+          "url": "https://vendor.example.test/entra/break-glass-faq",
+          "snippet": "Supplemental vendor FAQ on deployment caveats.",
+          "rank": 3
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Official identity authority advisory",
+        "Vendor operator guide for break-glass accounts"
+      ],
+      "must_exclude": [
+        "Vendor FAQ for break-glass accounts"
+      ],
+      "note": "The current bounded policy should preserve one institutional posture source plus one vendor operator guide, while dropping the duplicate-domain vendor FAQ."
+    }
+  },
+  {
+    "case_id": "thin-official-trap-vs-substantive-commentary-vs-specific-official",
+    "query": "data breach notification template steps",
+    "artifact": {
+      "job_id": "ar-outcome-v2-job-3",
+      "run_id": "ar-outcome-v2-run-3",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:1",
+          "job_id": "ar-outcome-v2-job-3",
+          "run_id": "ar-outcome-v2-run-3",
+          "provider": "procedural_admin_unified_search",
+          "query": "data breach notification template steps",
+          "title": "Official privacy authority landing page",
+          "url": "https://gov.example.test/privacy/breach-notification",
+          "snippet": "",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:2",
+          "job_id": "ar-outcome-v2-job-3",
+          "run_id": "ar-outcome-v2-run-3",
+          "provider": "procedural_admin_unified_search",
+          "query": "data breach notification template steps",
+          "title": "Official breach notification form and checklist",
+          "url": "https://gov.example.test/privacy/breach-notification/checklist",
+          "snippet": "Official checklist and form guidance for breach notification procedure.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:3",
+          "job_id": "ar-outcome-v2-job-3",
+          "run_id": "ar-outcome-v2-run-3",
+          "provider": "procedural_admin_unified_search",
+          "query": "data breach notification template steps",
+          "title": "Privacy law explainer on notification steps",
+          "url": "https://law.example.test/privacy/breach-notification-steps",
+          "snippet": "Direct step-by-step explainer with practical operator wording.",
+          "rank": 3
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Official breach notification form and checklist",
+        "Privacy law explainer on notification steps"
+      ],
+      "must_exclude": [
+        "Official privacy authority landing page"
+      ],
+      "note": "This case proves the current surface handles a high-rank thin official trap correctly when a better official document and a practical explainer are both present."
+    }
+  },
+  {
+    "case_id": "institutional-duplicate-crowding-vs-independent-practical-source",
+    "query": "windows endpoint hardening exception process",
+    "artifact": {
+      "job_id": "ar-outcome-v2-job-4",
+      "run_id": "ar-outcome-v2-run-4",
+      "result_text": "result",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:1",
+          "job_id": "ar-outcome-v2-job-4",
+          "run_id": "ar-outcome-v2-run-4",
+          "provider": "searxng",
+          "query": "windows endpoint hardening exception process",
+          "title": "Vendor security baseline for Windows endpoints",
+          "url": "https://learn.example.test/windows/security-baseline",
+          "snippet": "Vendor baseline guidance for endpoint hardening posture.",
+          "rank": 1
+        },
+        {
+          "candidate_id": "cand:2",
+          "job_id": "ar-outcome-v2-job-4",
+          "run_id": "ar-outcome-v2-run-4",
+          "provider": "searxng",
+          "query": "windows endpoint hardening exception process",
+          "title": "Vendor exception management FAQ",
+          "url": "https://learn.example.test/windows/security-baseline-faq",
+          "snippet": "Vendor FAQ about baseline exceptions and rollout caveats.",
+          "rank": 2
+        },
+        {
+          "candidate_id": "cand:3",
+          "job_id": "ar-outcome-v2-job-4",
+          "run_id": "ar-outcome-v2-run-4",
+          "provider": "searxng",
+          "query": "windows endpoint hardening exception process",
+          "title": "Independent practitioner guide to exception workflow",
+          "url": "https://ops.example.test/windows-hardening-exception-workflow",
+          "snippet": "Independent practical guide for documenting, approving, and expiring hardening exceptions.",
+          "rank": 3
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Vendor security baseline for Windows endpoints",
+        "Independent practitioner guide to exception workflow"
+      ],
+      "must_exclude": [
+        "Vendor exception management FAQ"
+      ],
+      "note": "This is a duplicate-domain crowding case: current bounded policy should still keep one authoritative vendor baseline plus one independent practical workflow source."
+    }
+  }
+]

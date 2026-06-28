@@ -774,3 +774,35 @@ Verification:
 
 Best next bounded slice:
 - either extend this into a small `authority-relevance-outcome-evaluation-v2` set with a few harder real-world collisions, or stay disciplined and wait for a concrete failure before touching the selection policy again
+
+## 2026-06-28 — SourceTrace v2 authority-relevance-outcome-evaluation-v2 checkpoint
+
+Extended the bounded authority/relevance outcome evaluation with a few harder, more realistic collision shapes.
+
+What changed:
+- added `tests/fixtures/v2/authority_relevance_outcome_eval_v2.json`
+- added `tests/unit/v2/test_authority_relevance_outcome_eval_v2.py`
+- exercised harder outcome cases such as:
+  - broad official vs specific official vs direct commentary
+  - official advisory vs vendor operator guide vs vendor duplicate-domain FAQ
+  - high-rank thin official trap vs specific official document vs practical commentary
+  - duplicate-domain institutional crowding vs one independent practical source
+
+What this slice shows:
+- the current bounded selection surface still produces coherent two-item outcome pairs for these harder collision shapes
+- the present posture continues to prefer a balanced pair of:
+  - one authoritative/institutional source
+  - one direct practical/operator-facing source
+- thin-content traps and duplicate-domain crowding are handled acceptably within the current bounded policy surface for the exercised fixtures
+- there is still at least one intentionally uncomfortable case where a broader official page wins over a narrower official FAQ because the second slot goes to a commentary source; this is acceptable under the current bounded design, but it is now explicitly documented rather than hidden
+
+Current posture:
+- this remains an evaluation-only slice; no policy changes were made
+- after v1 + v2 outcome evaluation, there is still no strong evidence that the current authority/relevance surface needs immediate heuristic expansion
+- the sharper next move is no longer another synthetic quality pass by default; it is either waiting for a concrete failure or doing bounded live verification on chosen real queries
+
+Verification:
+- focused evaluation tests passed (`3 passed`)
+
+Best next bounded slice:
+- pause policy work unless a concrete failure appears; if you want stronger confidence, prefer a small live verification slice on 3–5 chosen real queries over more synthetic fixture growth
