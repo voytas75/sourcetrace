@@ -651,3 +651,25 @@ Verification:
 
 Best next bounded slice:
 - either promote this from snippet enrichment into a more explicit typed evidence carry-forward path, or switch tracks to `operator-live-entrypoint-v1` if production readiness now hurts more on repeatable operator execution than on document semantics
+
+## 2026-06-28 — SourceTrace v2 operator-live-entrypoint-v1 checkpoint
+
+Closed the first real operator-facing live entrypoint for v2.
+
+What changed:
+- added a repo-owned v2 CLI entrypoint in `src/sourcetrace_v2/operator/run_minimal_flow.py`
+- added a package hook in `pyproject.toml` as `sourcetrace-v2-run`
+- the entrypoint builds the env-backed live Azure + SearxNG runtime, wires the native PDF-reading gateway, runs one bounded minimal flow, and emits the operator-facing JSON payload to stdout
+- added focused test coverage in `tests/unit/v2/test_operator_entrypoint.py`
+
+Current posture:
+- v2 no longer depends on ad hoc inline Python harness code for one real operator path
+- there is now a repeatable operator command for a bounded live run path that stays aligned with the current v2 runtime composition and projections
+- this is intentionally a narrow CLI path, not a broad new UI/runtime manager
+
+Verification:
+- focused entrypoint tests passed (`3 passed`)
+- a real live operator smoke through `python -m sourcetrace_v2.operator.run_minimal_flow ...` completed successfully and returned `status=found`, `candidate_count=3`, `selected_count=2`, `compiled_artifact.present=true`, `top_provider=searxng`
+
+Best next bounded slice:
+- pause and reassess the next practical production-readiness gap from this stronger baseline; the sharpest next move is likely either typed PDF evidence carry-forward or a thin operator readback/status CLI companion rather than more runtime plumbing

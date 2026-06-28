@@ -19,6 +19,7 @@ dev = [
 [project.scripts]
 sourcetrace-web = "sourcetrace.web.__main__:main"
 sourcetrace-local = "sourcetrace.local_launcher:main"
+sourcetrace-v2-run = "sourcetrace_v2.operator.run_minimal_flow:main"
 sourcetrace-smoke-flow = "sourcetrace.smoke_flow:main"
 sourcetrace-credibility-smoke = "sourcetrace.credibility_smoke:main"
 sourcetrace-www-start = "sourcetrace.www_control:start_main"
