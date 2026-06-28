@@ -1119,6 +1119,30 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-source-typing-v4-or-stop-check` — decide whether one more small advisory/commercial refinement is worth it, or whether tuning should pause until a concrete live failure appears
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-source-typing-v4-or-stop check checkpoint
+
+Ran the stop-check after `source-typing-v3` instead of blindly proceeding to another refinement.
+
+What changed:
+- added `docs/authority-relevance-source-typing-v4-or-stop-check-2026-06-28.md`
+- re-ran the representative live weak-case family and inspected current `source_type` distributions in readback candidates
+
+What this slice showed:
+- the residual `unknown` bucket is now small enough that another immediate classifier refinement is not justified by default
+- in the checked live set, three of four queries had `unknown_count = 0`
+- the remaining `unknown` residue was narrow (for example an `easyeor.pl` advisory/commercial remote-work page), not a broad recurring cluster
+
+Current posture:
+- stop source-typing refinement here for now
+- do not add `source-typing-v4` by default
+- resume classifier work only if a new concrete live failure or repeated new source family appears
+
+Verification:
+- stop-check findings recorded in `docs/authority-relevance-source-typing-v4-or-stop-check-2026-06-28.md`
+
+Best next bounded slice:
+- no immediate source-typing v4; shift attention back to broader retrieval/evidence quality only when a fresh concrete failure justifies it
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
