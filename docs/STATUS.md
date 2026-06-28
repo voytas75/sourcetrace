@@ -608,3 +608,25 @@ Verification:
 
 Best next bounded slice:
 - choose the next production-readiness blocker above this repaired runtime path: either `pdf-document-read-seam-v1` if end-to-end document ingestion is the sharpest real gap, or `operator-live-entrypoint-v1` if the sharper problem is repeatable operator execution without ad hoc harness code
+
+## 2026-06-28 — SourceTrace v2 pdf-document-read-seam-v1 checkpoint
+
+Closed the first bounded v2-native PDF/document seam slice without pretending the minimal flow is already fully PDF-aware.
+
+What changed:
+- added a v2 PDF contract in `src/sourcetrace_v2/adapters/pdf/interfaces.py`
+- added a thin runtime-backed adapter in `src/sourcetrace_v2/adapters/pdf/runtime_ingest.py`
+- exposed an optional `pdf` slot on `RuntimeAssembly` so v2 runtime composition can carry a typed PDF gateway explicitly
+- added focused adapter coverage in `tests/unit/v2/test_pdf_runtime_adapter.py`
+- refreshed one legacy PDF-ingest test expectation to match the current preview -> page-selection -> full-read path
+
+Current posture:
+- v2 now has an explicit PDF/document seam in its own adapter layer instead of an empty `adapters/pdf/` placeholder
+- this slice keeps v2 structurally honest: it reuses the runtime PDF analyzer through a bounded adapter, but does not wire v1 internals directly into v2 core contracts
+- minimal v2 research flow is still not claiming full PDF-aware evidence promotion yet; this slice only establishes the production seam needed for that next integration step
+
+Verification:
+- focused PDF/runtime tests passed after the slice (`22 passed`)
+
+Best next bounded slice:
+- wire one real v2 consumer path to the new PDF seam, likely `pdf-document-read-consumer-integration-v1`, instead of broadening the seam contract or pretending full PDF policy is done

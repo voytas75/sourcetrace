@@ -14,6 +14,7 @@ from sourcetrace_v2.adapters.search.unified_search import UnifiedSearchBootstrap
 from sourcetrace_v2.adapters.storage.memory import InMemoryReceiptRepository, InMemoryResultArtifactRepository
 from sourcetrace_v2.adapters.storage.jsonl import JsonlReceiptRepository, JsonlResultArtifactRepository
 from sourcetrace_v2.adapters.llm.interfaces import LlmTextGateway
+from sourcetrace_v2.adapters.pdf.interfaces import PdfReadGateway
 from sourcetrace_v2.core.contracts.persistence import ReceiptRepository, ResultArtifactRepository
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
 from sourcetrace_v2.runtime.config.models import RuntimeConfig
@@ -32,6 +33,7 @@ class RuntimeAssembly:
     results: ResultArtifactRepository
     receipts: ReceiptRepository
     logger: logging.Logger
+    pdf: PdfReadGateway | None = None
 
 
 def build_stubbed_memory_runtime() -> RuntimeAssembly:

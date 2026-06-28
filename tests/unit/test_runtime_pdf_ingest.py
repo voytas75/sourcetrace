@@ -139,7 +139,7 @@ def test_research_pdf_analyzer_runs_full_after_positive_preview() -> None:
         triage_verdict="relevant",
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert result.relevant is True
     assert result.document_scope == "NIK control document"
     assert result.entity_match_summary == "Szpital Południowy w Warszawie"
