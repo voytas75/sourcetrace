@@ -5,7 +5,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledEvidenceSnapshot, CompiledResearchArtifact
+from sourcetrace_v2.core.contracts.compiled_artifacts import (
+    CompiledEvidenceSnapshot,
+    CompiledResearchArtifact,
+    EvidenceJudgmentDimension,
+    EvidenceJudgmentSnapshot,
+)
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus, StageId, StageStatus
 from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker, StageExecutionReceipt
 
@@ -22,6 +27,34 @@ def _enum_value(enum_cls, value: str | None):
     if value is None:
         return None
     return enum_cls(value)
+
+
+def _deserialize_judgment_dimension(payload: dict[str, Any] | None) -> EvidenceJudgmentDimension | None:
+    if payload is None:
+        return None
+    return EvidenceJudgmentDimension(
+        score=int(payload.get("score", 0)),
+        band=str(payload.get("band", "none")),
+        signals=tuple(str(item) for item in payload.get("signals", [])),
+    )
+
+
+def _deserialize_judgment_snapshot(payload: dict[str, Any] | None) -> EvidenceJudgmentSnapshot | None:
+    if payload is None:
+        return None
+    authority = _deserialize_judgment_dimension(payload.get("authority"))
+    topic_match = _deserialize_judgment_dimension(payload.get("topic_match"))
+    specificity = _deserialize_judgment_dimension(payload.get("specificity"))
+    answer_fit = _deserialize_judgment_dimension(payload.get("answer_fit"))
+    if authority is None or topic_match is None or specificity is None or answer_fit is None:
+        return None
+    return EvidenceJudgmentSnapshot(
+        contract_version=str(payload.get("contract_version", "")),
+        authority=authority,
+        topic_match=topic_match,
+        specificity=specificity,
+        answer_fit=answer_fit,
+    )
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -89,8 +122,17 @@ class JsonlResultArtifactRepository:
             run_id=match["run_id"],
             summary=match.get("summary", ""),
             selected_evidence=tuple(
-                CompiledEvidenceSnapshot(**item) for item in match.get("selected_evidence", [])
+                CompiledEvidenceSnapshot(
+                    title=item["title"],
+                    url=item["url"],
+                    provider=item["provider"],
+                    rank=item["rank"],
+                    snippet=item.get("snippet", ""),
+                    judgment=_deserialize_judgment_snapshot(item.get("judgment")),
+                )
+                for item in match.get("selected_evidence", [])
             ),
+            selected_evidence_contract_version=match.get("selected_evidence_contract_version"),
             confidence_note=match.get("confidence_note", "bounded_v2_compiled_artifact"),
         )
 

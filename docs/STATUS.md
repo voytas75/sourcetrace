@@ -583,3 +583,28 @@ Verification:
 
 Best next bounded slice:
 - stop here unless another concrete downstream consumer proves missing judgment fields in practice; prefer a second consumer-only validation slice over contract drift
+
+## 2026-06-28 — SourceTrace v2 production-readiness live smoke evaluation v1 checkpoint
+
+Ran one real v2 live smoke on the current env-backed LiteLLM + SearxNG runtime path and used it to identify the actual next blocker.
+
+What happened:
+- confirmed Azure live LLM env was present and SearxNG at `http://127.0.0.1:18080` was reachable
+- ran a real v2 live smoke through `build_env_backed_live_litellm_with_searxng_jsonl_runtime(...)`
+- first live run completed the research flow but failed during persisted execution readback projection
+- the concrete blocker was `JsonlResultArtifactRepository.get_compiled_artifact(...)` restoring compiled selected-evidence `judgment` payloads as raw dicts instead of typed `EvidenceJudgmentSnapshot` values
+- repaired JSONL compiled-artifact judgment deserialization and preserved `selected_evidence_contract_version` on readback
+- added focused JSONL storage coverage for compiled-artifact judgment readback shape
+- reran the real live smoke successfully after the repair
+
+Current posture:
+- the v2 live runtime path now completes one real end-to-end smoke with live Azure LLM calls and real SearxNG retrieval
+- the blocker exposed by the first live smoke was not PDF/document read or operator entrypoint polish yet; it was a persistence/readback seam in compiled-artifact JSONL restoration
+- after the repair, live smoke returns `201/found` with `candidate_count=3`, `selected_count=2`, `llm_calls=4`, `degraded_calls=0`, `compiled_artifact.present=true`, and `selected_evidence_contract_version=authority-relevance-judgment-contract-v1`
+
+Verification:
+- focused tests passed after the repair (`11 passed`)
+- real live smoke passed end-to-end on Azure + SearxNG after the fix
+
+Best next bounded slice:
+- choose the next production-readiness blocker above this repaired runtime path: either `pdf-document-read-seam-v1` if end-to-end document ingestion is the sharpest real gap, or `operator-live-entrypoint-v1` if the sharper problem is repeatable operator execution without ad hoc harness code
