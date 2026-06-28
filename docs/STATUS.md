@@ -1409,6 +1409,41 @@ Verification:
 Best next bounded slice:
 - `jsonl-durability-posture-v1` — decide explicitly whether the current JSONL substrate is acceptable for the current deployment posture under stated limits, or whether one more bounded durability fix is required before calling the storage line good enough
 
+## 2026-06-28 — SourceTrace v2 jsonl-durability-posture-v1 checkpoint
+
+Closed the next storage-facing decision slice after the persistence audit, corruption-tolerance fix, and trust-contract work.
+
+What changed:
+- added `docs/jsonl-durability-posture-v1-2026-06-28.md`
+- re-ran focused persistence/readback verification after the recent storage-facing slices
+
+What this slice decided:
+- the current JSONL substrate is **good enough for the present bounded operator/development deployment posture** under explicit limits
+- it should still be treated as:
+  - operationally honest
+  - boundedly durable enough
+  - not production-grade in the stronger database sense
+- no immediate additional storage fix is justified right now
+
+What remains outside the current durability claim:
+- crash-safe atomic multi-file commit semantics
+- strong concurrent-writer guarantees
+- broad corruption recovery
+- retention/rotation lifecycle discipline
+- long-horizon growth guarantees
+
+Current posture:
+- stop chewing on storage for now
+- keep JSONL as the bounded persistence substrate for the current stage
+- return to storage only if real concurrency, corruption, growth, or deployment-guarantee pressure appears
+
+Verification:
+- focused tests passed (`16 passed`)
+- posture note recorded in `docs/jsonl-durability-posture-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `deployment-readiness-gap-review-v1` — re-rank the remaining non-storage production gaps after the recent retrieval, regression, trust-contract, and storage-posture work, then choose the next highest-value slice from the remaining live gaps
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
