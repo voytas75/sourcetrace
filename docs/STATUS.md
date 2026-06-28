@@ -872,6 +872,38 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-query-handoff-contract-v1` — introduce a bounded retrieval-query handoff so retrieval consumes an explicit search-intent string rather than freeform answer prose
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-live-verification-v2 checkpoint
+
+Re-ran the live authority/relevance verification after repairing the retrieval query handoff contract.
+
+What changed:
+- added `docs/authority-relevance-live-verification-v2-2026-06-28.md`
+- re-ran four real queries through the current v2 operator/runtime path after `authority-relevance-query-handoff-contract-v1`
+- evaluated persisted execution outcomes, selected evidence, and judgment bands again
+
+What this slice showed:
+- the handoff repair materially improved live behavior
+- `evidence_query` now matched the bounded seed query in all four rerun cases
+- live candidate sets were no longer drifting into assistant-style prose retrieval
+- the overall quality of selected evidence improved significantly versus the earlier live pass
+
+Observed posture after the repair:
+- `remote work reporting` improved sharply in topicality and specificity, but still leaned commentary/legal-adjacent rather than strongly official
+- `identity break-glass` improved to a broadly good pair: Microsoft Learn + practical commentary
+- `breach notification` improved the most, landing a strong institutional pair (FTC + ICO)
+- `legal hold steps` improved dramatically from off-topic failure to coherent practical/vendor guidance, but still lacked a stronger official/public-institutional source
+
+Current posture:
+- this is strong evidence that the query handoff defect was real and important
+- downstream authority/relevance selection policy still should not be the first target
+- the sharper remaining weakness is now narrower: source mix / authority profile of retrieved candidates on some topics, not freeform query drift
+
+Verification:
+- bounded live verification completed and recorded in `docs/authority-relevance-live-verification-v2-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-source-mix-diagnostics-v1` — inspect why some corrected live queries still land commentary/vendor-heavy candidate pools instead of stronger institutional sources before changing policy
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
