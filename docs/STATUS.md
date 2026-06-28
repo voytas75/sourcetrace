@@ -722,3 +722,24 @@ Verification:
 
 Best next bounded slice:
 - the sharpest next move is likely a consumer-validation slice for typed PDF context through one persisted downstream readback boundary, or a query/fixture-shaped live verification slice if you specifically want proof of positive live PDF-context carry-forward rather than just typed persistence support
+
+## 2026-06-28 — SourceTrace v2 typed-pdf-context-consumer-validation-v1 checkpoint
+
+Closed one real downstream consumer validation path for the new typed PDF context payload.
+
+What changed:
+- added focused compiled-readback coverage in `tests/unit/v2/test_compiled_readback.py`
+- validated that persisted compiled-artifact HTTP/readback projection preserves `selected_evidence[*].pdf_context`
+- validated bounded typed shape only: `document_scope`, `entity_match_summary`, `key_findings`
+- kept the slice strictly on consumer validation: no contract expansion, no policy changes, no extra runtime plumbing
+
+Current posture:
+- typed PDF context is now exercised not only at build/projection time but also through one persisted downstream consumer boundary
+- this is the right validation seam because it proves the new typed payload survives saved compiled-artifact state and readback projection, not only in-memory assembly
+- together with the previous carry-forward slice, this is enough to treat typed PDF context as a real persisted consumer-facing capability in bounded form
+
+Verification:
+- focused validation tests passed (`7 passed`)
+
+Best next bounded slice:
+- if you want stronger proof, do a positive live-PDF-hit verification slice with a query/fixture shaped to force a PDF winner; otherwise the sharper remaining work is probably not more PDF plumbing but broader evidence-quality or operator-summary priorities

@@ -6,7 +6,7 @@ from sourcetrace_v2.app.services.http_api import (
     handle_get_persisted_compiled_artifact_request,
     handle_run_minimal_flow_request,
 )
-from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledResearchArtifact
+from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledEvidenceSnapshot, CompiledResearchArtifact, PdfEvidenceContextSnapshot
 from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RunPersistenceMarker
 from sourcetrace_v2.projections.api.compiled_readback import project_persisted_compiled_artifact_view
 
@@ -125,3 +125,55 @@ def test_compiled_artifact_readback_preserves_judgment_contract_payload() -> Non
     assert first["authority"]["band"] in {"none", "low", "medium", "high"}
     assert isinstance(first["authority"]["signals"], list)
     assert first["answer_fit"]["score"] >= 0
+
+
+def test_compiled_artifact_readback_preserves_typed_pdf_context_payload() -> None:
+    runtime = build_stubbed_memory_runtime()
+    runtime.results.save_compiled_artifact(
+        CompiledResearchArtifact(
+            artifact_id="compiled:job-pdf-context:run-pdf-context",
+            job_id="job-pdf-context",
+            run_id="run-pdf-context",
+            summary="compiled with typed pdf context",
+            selected_evidence=(
+                CompiledEvidenceSnapshot(
+                    title="Raport NIK.pdf",
+                    url="https://example.test/raport.pdf",
+                    provider="stub-search",
+                    rank=1,
+                    snippet="pdf_scope=NIK official control document | Szpital Południowy w Warszawie | Ustalenie 1",
+                    pdf_context=PdfEvidenceContextSnapshot(
+                        document_scope="NIK official control document",
+                        entity_match_summary="Szpital Południowy w Warszawie",
+                        key_findings=("Ustalenie 1", "Ustalenie 2"),
+                    ),
+                ),
+            ),
+        )
+    )
+    runtime.results.save_result(
+        ResearchResultArtifact(
+            job_id="job-pdf-context",
+            run_id="run-pdf-context",
+            result_text="result",
+        )
+    )
+    runtime.results.save_run_marker(
+        RunPersistenceMarker(job_id="job-pdf-context", run_id="run-pdf-context")
+    )
+
+    response = handle_get_persisted_compiled_artifact_request(
+        job_id="job-pdf-context",
+        run_id="run-pdf-context",
+        runtime=runtime,
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    selected = payload["compiled_artifact"]["selected_evidence"]
+    assert len(selected) == 1
+    pdf_context = selected[0]["pdf_context"]
+    assert pdf_context is not None
+    assert pdf_context["document_scope"] == "NIK official control document"
+    assert pdf_context["entity_match_summary"] == "Szpital Południowy w Warszawie"
+    assert pdf_context["key_findings"] == ["Ustalenie 1", "Ustalenie 2"]
