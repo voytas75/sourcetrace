@@ -35,7 +35,7 @@ def test_load_persisted_execution_view_roundtrip() -> None:
     assert view.rollup.llm_calls == 4
     assert view.rollup.total_tokens == 384
     assert view.rollup.degraded_calls == 4
-    assert len(view.stage_receipts) == 8
+    assert len(view.stage_receipts) == 10
     assert len(view.llm_receipts) == 4
 
 

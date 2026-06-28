@@ -1315,6 +1315,39 @@ Verification:
 Best next bounded slice:
 - `persistence-failure-mode-audit-v1` — inspect partial-write, stale, and incomplete JSONL/readback states and decide what is already honest enough versus what still needs a bounded reliability fix
 
+## 2026-06-28 — SourceTrace v2 persistence-failure-mode-audit-v1 checkpoint
+
+Audited the current JSONL/readback persistence posture before attempting any storage hardening.
+
+What changed:
+- added `docs/persistence-failure-mode-audit-v1-2026-06-28.md`
+- reviewed JSONL repository + readback paths and re-ran focused persistence/readback tests
+- corrected one stale test expectation in `tests/unit/v2/test_readback.py` (stage receipt count is now 10 because retrieval is an explicit current v2 stage)
+
+What this slice showed:
+- current readback semantics are already honest for the most important partial states:
+  - artifact-only => `incomplete` / `partial`
+  - marker-only => `incomplete` / `partial`
+  - absent => `not_found` / `absent`
+  - found requires both artifact + marker
+- the storage seam is still not production-grade durable:
+  - JSONL append is simple append-only, not crash-hardened
+  - malformed/truncated JSONL lines are not handled gracefully
+  - compiled artifact presence is visible but not part of persistence-completeness semantics
+  - retention / cleanup posture remains implicit
+
+Current posture:
+- the persistence surface is honest enough for bounded operator use and continued production-readiness work
+- but JSONL should still be treated as a limited persistence substrate, not a fully hardened production store
+- the next bounded storage-facing move should target one real weakness instead of broad storage churn
+
+Verification:
+- focused tests passed (`14 passed`)
+- audit note recorded in `docs/persistence-failure-mode-audit-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `jsonl-corruption-tolerance-v1` — add a narrow posture for malformed/truncated trailing JSONL lines so readback fails more gracefully or tolerates clearly broken tail entries without pretending corruption did not happen
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
