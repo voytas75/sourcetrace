@@ -1612,3 +1612,95 @@ Current posture:
 
 Best next bounded slice:
 - `retrieval-target-quality-evaluation-v1` — run a broader post-refinement evaluation pack to confirm where the target-quality refinement helps consistently, where it does not, and whether the next move should stay in retrieval or shift toward trust-quality alignment
+
+## 2026-06-28 — SourceTrace v2 production-readiness-checkpoint-v1 checkpoint
+
+Ran an explicit production-readiness checkpoint after the recent retrieval, regression, trust-contract, and storage-posture work.
+
+What changed:
+- added `docs/production-readiness-checkpoint-v1-2026-06-28.md`
+- used a bounded Codex CLI review as a secondary repo-level check on current readiness posture
+
+Checkpoint verdict:
+- **conditionally ready for bounded/operator use**
+- **not ready yet for broad trust-sensitive production deployment**
+
+What is green:
+- retrieval line is materially stronger than before
+- persistence/readback honesty is good enough for the current bounded scope
+- operator run/readback/trust surface is much clearer
+
+What is yellow:
+- retrieval quality remains mixed rather than broadly stable
+- trust contract is helpful but still shallow relative to real evidence quality
+
+What is red:
+- the broader `tests/unit/v2` suite is not clean on current HEAD
+- bounded Codex review surfaced integration drift in `tests/unit/v2/test_logging_execution_integration.py` after `execute_minimal_research_flow(...)` gained a required `search` dependency and those tests were not updated
+- broad trust-sensitive deployment is still blocked by unstable retrieval cases plus shallow trust semantics
+
+Best next bounded slice:
+- `v2-integration-drift-fix-v1` — repair the current v2 test drift (starting with the logging integration tests), rerun the broader `tests/unit/v2` surface, then reassess the next highest-value readiness gap from a clean integration baseline
+
+## 2026-06-28 — SourceTrace v2 trust-quality-alignment-v1 checkpoint
+
+Closed the next bounded honesty-layer slice after the retrieval-target-quality evaluation.
+
+What changed:
+- updated `src/sourcetrace_v2/projections/api/trust.py`
+- added `tests/unit/v2/test_trust_quality_alignment.py`
+- added `docs/trust-quality-alignment-v1-2026-06-28.md`
+
+What this slice does:
+- moves trust evaluation a bit closer to selected-evidence quality instead of relying only on persistence/completion/count signals
+- adds `low_confidence_selected_shape` when:
+  - selected evidence has no strong authority bands, or
+  - the selected pair has no institutional source and consists only of `unknown` / `commentary` / `vendor` surfaces
+- keeps the existing bounded trust signals for incomplete persistence, stage failure, degraded LLM calls, and thin evidence surfaces
+
+What this slice showed:
+- focused tests passed (`10 passed`)
+- broader `tests/unit/v2` stayed green (`94 passed`)
+- trust is now less count-only and somewhat more aligned with obviously weak selected shapes
+- trust is still intentionally shallow: jurisdiction-mixed institutional cases (for example tax guidance) can still surface as `usable`
+
+Current posture:
+- this is a real honesty improvement, not a full confidence model
+- do not over-expand trust semantics yet
+- the next good move is to strengthen the shared regression baseline again around the newly improved-but-still-imperfect cases
+
+Best next bounded slice:
+- `quality-regression-pack-v3` — expand the regression baseline around cases that are now improved but still not fully satisfactory (for example break-glass companion quality and jurisdiction-mixed tax guidance)
+
+## 2026-06-28 — SourceTrace v2 quality-regression-pack-v3 checkpoint
+
+Closed the next bounded regression-baseline slice after the retrieval-target-quality and trust-quality-alignment work, using Codex CLI as a helper and local validation to finish the slice.
+
+What changed:
+- added `tests/fixtures/v2/quality_regression_pack_v3.json`
+- added `tests/unit/v2/test_quality_regression_pack_v3.py`
+- added `docs/quality-regression-pack-v3-2026-06-28.md`
+
+What this slice adds:
+- two new regression-pinned cases in the “improved but still imperfect” band:
+  - break-glass with a strong official source plus a still-weaker practical companion
+  - tax guidance with an institutional/institutional pair that remains jurisdiction-mixed
+- v3 regression coverage now checks:
+  - selected-evidence API projection
+  - compiled artifact selected-evidence output
+  - current operator-trust projection
+
+What this slice showed:
+- the shared baseline is now more honest across three layers:
+  - healthy anchor cases (v1)
+  - clearly weak/unstable cases (v2)
+  - improved-but-not-fully-clean cases (v3)
+- break-glass and tax guidance are now explicitly pinned as current bounded behavior rather than being treated as either fully solved or silently ignored
+- broader `tests/unit/v2` remains green after the trust and regression changes
+
+Verification:
+- focused v1/v2/v3 regression + trust tests passed (`7 passed`)
+- broader `tests/unit/v2` passed (`95 passed`)
+
+Best next bounded slice:
+- `post-checkpoint-production-gap-review-v2` — re-rank the remaining readiness gaps again after the integration fix, retrieval evaluation, trust alignment, and regression-pack v3 closure, then choose the next highest-value bounded implementation step from the updated baseline

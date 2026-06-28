@@ -1,0 +1,128 @@
+[
+  {
+    "case_id": "break_glass_official_with_practical_companion_stays_usable",
+    "query": "break glass account guidance conditional access official best practice",
+    "artifact": {
+      "job_id": "job-quality-pack-v3-break-glass",
+      "run_id": "run-quality-pack-v3-break-glass",
+      "result_text": "break glass summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:bgv3:1",
+          "job_id": "job-quality-pack-v3-break-glass",
+          "run_id": "run-quality-pack-v3-break-glass",
+          "provider": "searxng",
+          "query": "break glass account guidance conditional access official best practice",
+          "title": "Manage emergency access admin accounts - Microsoft Entra ID",
+          "url": "https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access",
+          "snippet": "Official Microsoft Learn guidance for emergency access admin accounts.",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:bgv3:2",
+          "job_id": "job-quality-pack-v3-break-glass",
+          "run_id": "run-quality-pack-v3-break-glass",
+          "provider": "searxng",
+          "query": "break glass account guidance conditional access official best practice",
+          "title": "Best Practices for Break Glass Accounts in Microsoft Entra",
+          "url": "https://admindroid.com/blog/best-practices-for-break-glass-accounts-in-microsoft-entra/",
+          "snippet": "Practical operator guidance for break glass accounts and conditional access.",
+          "rank": 2,
+          "source_type": "vendor"
+        },
+        {
+          "candidate_id": "cand:bgv3:3",
+          "job_id": "job-quality-pack-v3-break-glass",
+          "run_id": "run-quality-pack-v3-break-glass",
+          "provider": "searxng",
+          "query": "break glass account guidance conditional access official best practice",
+          "title": "r/sysadmin on Reddit: Stop Excluding Your Break Glass Accounts",
+          "url": "https://www.reddit.com/r/sysadmin/comments/example/break_glass/",
+          "snippet": "Community discussion thread.",
+          "rank": 3,
+          "source_type": "unknown"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Manage emergency access admin accounts - Microsoft Entra ID",
+        "Best Practices for Break Glass Accounts in Microsoft Entra"
+      ],
+      "must_exclude": [
+        "r/sysadmin on Reddit: Stop Excluding Your Break Glass Accounts"
+      ],
+      "note": "This case captures the current near-target shape: one strong official source plus one practical companion remains acceptable, but the companion quality is still weaker than a fully institutional pair."
+    },
+    "trust": {
+      "status": "usable",
+      "reasons": [],
+      "note": "The current trust layer does not downgrade this shape because the selected pair includes a strong institutional source."
+    }
+  },
+  {
+    "case_id": "tax_deadline_jurisdiction_mixed_institutional_pair_stays_usable",
+    "query": "official tax filing deadline guidance for small business",
+    "artifact": {
+      "job_id": "job-quality-pack-v3-tax-mixed",
+      "run_id": "run-quality-pack-v3-tax-mixed",
+      "result_text": "tax deadline summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:taxv3:1",
+          "job_id": "job-quality-pack-v3-tax-mixed",
+          "run_id": "run-quality-pack-v3-tax-mixed",
+          "provider": "searxng",
+          "query": "official tax filing deadline guidance for small business",
+          "title": "Starting or ending a business 3 | Internal Revenue Service",
+          "url": "https://www.irs.gov/businesses/small-businesses-self-employed/starting-or-ending-a-business-3",
+          "snippet": "IRS guidance for small businesses.",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:taxv3:2",
+          "job_id": "job-quality-pack-v3-tax-mixed",
+          "run_id": "run-quality-pack-v3-tax-mixed",
+          "provider": "searxng",
+          "query": "official tax filing deadline guidance for small business",
+          "title": "Small Businesses - Taxpayers | South African Revenue Service",
+          "url": "https://www.sars.gov.za/types-of-tax/small-businesses-and-employment-taxes/",
+          "snippet": "SARS small business tax guidance.",
+          "rank": 2,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:taxv3:3",
+          "job_id": "job-quality-pack-v3-tax-mixed",
+          "run_id": "run-quality-pack-v3-tax-mixed",
+          "provider": "searxng",
+          "query": "official tax filing deadline guidance for small business",
+          "title": "Tax filing deadlines for entrepreneurs - commentary",
+          "url": "https://example.test/tax-commentary",
+          "snippet": "Generic commentary on business tax deadlines.",
+          "rank": 3,
+          "source_type": "commentary"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Starting or ending a business 3 | Internal Revenue Service",
+        "Small Businesses - Taxpayers | South African Revenue Service"
+      ],
+      "must_exclude": [
+        "Tax filing deadlines for entrepreneurs - commentary"
+      ],
+      "note": "This case pins the improved retrieval shape: the pair is now institutional/institutional, but it is still jurisdiction-mixed and therefore not a fully clean answer shape."
+    },
+    "trust": {
+      "status": "usable",
+      "reasons": [],
+      "note": "The current trust layer still treats this pair as usable because jurisdiction mismatch is intentionally not modeled yet."
+    }
+  }
+]
