@@ -97,3 +97,31 @@ def test_compiled_artifact_http_returns_202_for_partial_paths() -> None:
     assert result_only_payload["status"] == "incomplete"
     assert result_only_payload["persistence"]["compiled_artifact_present"] is False
     assert result_only_payload["persistence"]["run_artifact_present"] is True
+
+
+def test_compiled_artifact_readback_preserves_judgment_contract_payload() -> None:
+    runtime = build_stubbed_memory_runtime()
+    handle_run_minimal_flow_request(
+        job_id="job-compiled-judgment",
+        run_id="run-compiled-judgment",
+        seed_text="official tax filing deadline guidance",
+        runtime=runtime,
+    )
+
+    response = handle_get_persisted_compiled_artifact_request(
+        job_id="job-compiled-judgment",
+        run_id="run-compiled-judgment",
+        runtime=runtime,
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["compiled_artifact"]["selected_evidence_contract_version"] == "authority-relevance-judgment-contract-v1"
+    selected = payload["compiled_artifact"]["selected_evidence"]
+    assert len(selected) == 2
+    first = selected[0]["judgment"]
+    assert first["contract_version"] == "authority-relevance-judgment-contract-v1"
+    assert set(first.keys()) == {"contract_version", "authority", "topic_match", "specificity", "answer_fit"}
+    assert first["authority"]["band"] in {"none", "low", "medium", "high"}
+    assert isinstance(first["authority"]["signals"], list)
+    assert first["answer_fit"]["score"] >= 0

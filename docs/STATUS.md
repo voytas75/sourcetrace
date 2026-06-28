@@ -562,3 +562,24 @@ Verification:
 
 Best next bounded slice:
 - validate whether this contract is sufficient for downstream authority/relevance consumers, or open a separate bounded slice for judgment-consumer integration rather than expanding the contract ad hoc
+
+## 2026-06-28 — SourceTrace v2 authority/relevance judgment consumer integration v1 checkpoint
+
+Closed one real downstream consumer validation path for the new authority/relevance judgment contract.
+
+What changed:
+- added a focused compiled-readback test in `tests/unit/v2/test_compiled_readback.py`
+- verified that persisted compiled-artifact HTTP readback preserves `selected_evidence_contract_version`
+- verified that compiled selected-evidence items preserve the bounded judgment payload shape: `authority`, `topic_match`, `specificity`, `answer_fit`
+- kept the slice strictly on consumer validation: no contract expansion and no new deterministic heuristics
+
+Current posture:
+- the judgment contract is now exercised not only at live projection time but also through one persisted downstream consumer path
+- compiled-artifact readback is a real consumer boundary because it depends on saved artifact state, not only in-memory projection helpers
+- this is enough to treat `authority-relevance-judgment-consumer-integration-v1` as closed in bounded form
+
+Verification:
+- focused v2 compiled-readback/compiled-artifact tests passed after the slice (`7 passed`)
+
+Best next bounded slice:
+- stop here unless another concrete downstream consumer proves missing judgment fields in practice; prefer a second consumer-only validation slice over contract drift
