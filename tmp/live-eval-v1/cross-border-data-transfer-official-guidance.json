@@ -1,0 +1,431 @@
+{
+  "status": "found",
+  "job_id": "job-088613abfc9c",
+  "run_id": "run-91f74400244b",
+  "persistence": {
+    "completeness": "complete",
+    "artifact_present": true,
+    "marker_present": true,
+    "marker_state": "committed"
+  },
+  "artifact": {
+    "present": true,
+    "summary": "minimal v2 flow | query=cross-border data transfer official guidance site:gov OR site:europa.eu OR site:ico.org.uk OR site:edpb.europa.eu | top_source=searxng:Clarifying the legal requirement for cross-border sharing of health data ...",
+    "text": "Absolutely — here’s a cleaner, structured version you can use directly.\n\n# Official cross-border data transfer sources by jurisdiction\n\n## EU / EEA\n\n### Primary official sources\n- **European Commission – International dimension of data protection**  \n  https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection_en\n- **European Commission – Standard Contractual Clauses (SCCs)**  \n  https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/standard-contractual-clauses-scc_en\n- **EDPB – Guidelines 05/2021 on Article 3 and Chapter V GDPR**  \n  https://edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-052021-interplay-between-article-3-and-chapter-v_en\n- **EDPB – Recommendations 01/2020 on supplementary measures**  \n  https://edpb.europa.eu/our-work-tools/our-documents/recommendations/recommendations-012020-measures-supplement-transfer_en\n- **GDPR Chapter V (EUR-Lex)**  \n  https://eur-lex.europa.eu/eli/reg/2016/679/oj\n- **EDPB SME guide – International data transfers**  \n  https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en\n\n### Main transfer mechanisms\n- Adequacy decisions\n- Standard Contractual Clauses\n- Binding Corporate Rules\n- Article 49 derogations\n\n---\n\n## UK\n\n### Primary official sources\n- **ICO – International transfers**  \n  https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/data-sharing/international-transfers/\n- **UK legislation**  \n  https://www.legislation.gov.uk/\n\n### Main transfer mechanisms\n- UK adequacy regulations\n- International Data Transfer Agreement (IDTA)\n- UK Addendum to EU SCCs\n- Limited derogations\n\n---\n\n## US\n\n### Primary official sources\n- **Data Privacy Framework**  \n  https://www.dataprivacyframework.gov/\n- **FTC – Privacy and security guidance**  \n  https://www.ftc.gov/business-guidance/privacy-security\n- **HHS OCR – HIPAA**  \n  https://www.hhs.gov/hipaa/index.html\n\n### Key note\n- The U.S. does **not** have a single general federal cross-border transfer regime equivalent to GDPR.\n- For **EU-to-U.S. transfers**, the main official materials are:\n  - European Commission adequacy / SCC materials\n  - EDPB guidance\n  - Data Privacy Framework materials\n\n---\n\n## China\n\n### Primary official sources\n- **CAC main site**  \n  https://www.cac.gov.cn/\n- **PIPL**  \n  Official PRC legal databases / State Council / NPC sources\n- **CAC rules on security assessment, standard contracts, and filings**  \n  Typically published by CAC and provincial CAC offices\n\n### Main transfer mechanisms\n- CAC security assessment\n- Certification\n- Standard contract filing\n- Separate consent\n- Transfer impact assessment requirements\n\n---\n\n## Singapore\n\n### Primary official sources\n- **PDPC**  \n  https://www.pdpc.gov.sg/\n- **PDPA text**  \n  https://sso.agc.gov.sg/\n\n### Main transfer mechanism\n- Transfer Limitation Obligation under the PDPA\n\n---\n\n## Note on source quality\n\nAmong the materials mentioned:\n- **Official regulator source:**  \n  - EDPB SME guide – International data transfers  \n    https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en\n- **Not official guidance:**  \n  - PMC articles and similar academic/secondary materials\n\n---\n\nIf you want, I can next convert this into either:\n\n1. **"
+  },
+  "compiled_artifact": {
+    "present": true,
+    "artifact_id": "compiled:job-088613abfc9c:run-91f74400244b",
+    "summary": "minimal v2 flow | query=cross-border data transfer official guidance site:gov OR site:europa.eu OR site:ico.org.uk OR site:edpb.europa.eu | top_source=searxng:Clarifying the legal requirement for cross-border sharing of health data ...",
+    "confidence_note": "bounded_v2_compiled_artifact",
+    "selected_evidence_contract_version": "authority-relevance-judgment-contract-v1",
+    "selected_evidence": [
+      {
+        "title": "Clarifying the legal requirement for cross-border sharing of health data ...",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12622382/",
+        "provider": "searxng",
+        "rank": 1,
+        "snippet": "The POPIA recognises four legal mechanisms for cross-border transfer: adequacy, consent, necessity and data subjects' interest (section 72). Unlike the POPIA, ...",
+        "pdf_context": null,
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "focused_title_overlap"
+            ]
+          },
+          "answer_fit": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      },
+      {
+        "title": "International data transfers | Data protection guide for small business",
+        "url": "https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en",
+        "provider": "searxng",
+        "rank": 2,
+        "snippet": "Under the GDPR, there are, in principle, two main ways to transfer personal data to a non-EEA country or international organisation. Transfers may take place on ...",
+        "pdf_context": null,
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "structured_guidance_surface"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "focused_title_overlap",
+              "focused_url_path"
+            ]
+          },
+          "answer_fit": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "evidence_input": {
+    "query": "cross-border data transfer official guidance site:gov OR site:europa.eu OR site:ico.org.uk OR site:edpb.europa.eu",
+    "candidate_count": 3,
+    "candidates": [
+      {
+        "title": "Clarifying the legal requirement for cross-border sharing of health data ...",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12622382/",
+        "provider": "searxng",
+        "rank": 1,
+        "source_type": "institutional"
+      },
+      {
+        "title": "International data transfers | Data protection guide for small business",
+        "url": "https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en",
+        "provider": "searxng",
+        "rank": 2,
+        "source_type": "institutional"
+      },
+      {
+        "title": "Standard contractual clauses for cross-border transfers of health data after ...",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8216070/",
+        "provider": "searxng",
+        "rank": 3,
+        "source_type": "institutional"
+      }
+    ]
+  },
+  "selected_evidence": {
+    "selected_count": 2,
+    "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+    "selection_notes": [
+      "selected top 2 retrieval candidates after minimal content guard and domain diversity pass",
+      "selection prefers candidates with non-empty title, url, and snippet before rank-only fallback",
+      "selection also prefers domain diversity when enough qualifying candidates exist"
+    ],
+    "judgment_contract": {
+      "version": "authority-relevance-judgment-contract-v1",
+      "dimensions": [
+        "authority",
+        "topic_match",
+        "specificity",
+        "answer_fit"
+      ],
+      "comparison": {
+        "authority": {
+          "top_score": 3,
+          "leaders": [
+            "Clarifying the legal requirement for cross-border sharing of health data ...",
+            "International data transfers | Data protection guide for small business"
+          ]
+        },
+        "topic_match": {
+          "top_score": 1,
+          "leaders": [
+            "Clarifying the legal requirement for cross-border sharing of health data ...",
+            "International data transfers | Data protection guide for small business"
+          ]
+        },
+        "specificity": {
+          "top_score": 2,
+          "leaders": [
+            "International data transfers | Data protection guide for small business"
+          ]
+        },
+        "answer_fit": {
+          "top_score": 2,
+          "leaders": [
+            "International data transfers | Data protection guide for small business"
+          ]
+        }
+      },
+      "notes": [
+        "judgment is provider-agnostic and derived from candidate query, title, url, and snippet"
+      ]
+    },
+    "dropped_count": 1,
+    "rejected_reasons": [
+      {
+        "reason": "rank_limit",
+        "count": 1
+      },
+      {
+        "reason": "missing_minimal_content",
+        "count": 0
+      },
+      {
+        "reason": "domain_diversity_preference",
+        "count": 1
+      }
+    ],
+    "items": [
+      {
+        "title": "Clarifying the legal requirement for cross-border sharing of health data ...",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12622382/",
+        "provider": "searxng",
+        "rank": 1,
+        "source_type": "institutional",
+        "snippet": "The POPIA recognises four legal mechanisms for cross-border transfer: adequacy, consent, necessity and data subjects' interest (section 72). Unlike the POPIA, ...",
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "focused_title_overlap"
+            ]
+          },
+          "answer_fit": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      },
+      {
+        "title": "International data transfers | Data protection guide for small business",
+        "url": "https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en",
+        "provider": "searxng",
+        "rank": 2,
+        "source_type": "institutional",
+        "snippet": "Under the GDPR, there are, in principle, two main ways to transfer personal data to a non-EEA country or international organisation. Transfers may take place on ...",
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "structured_guidance_surface"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "focused_title_overlap",
+              "focused_url_path"
+            ]
+          },
+          "answer_fit": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "trust": {
+    "status": "needs_review",
+    "reasons": [
+      "degraded_llm_calls",
+      "jurisdiction_mixed_selected_institutional_pair"
+    ],
+    "selected_evidence_count": 2,
+    "candidate_count": 3
+  },
+  "rollup": {
+    "llm_calls": 4,
+    "input_tokens": 1738,
+    "output_tokens": 2333,
+    "total_tokens": 4071,
+    "degraded_calls": 2,
+    "failed_stages": 0
+  },
+  "receipts": {
+    "stage_count": 10,
+    "llm_count": 4,
+    "stages": [
+      {
+        "receipt_id": "stage:planning:start",
+        "stage_id": "planning",
+        "status": "started",
+        "call_site": "minimal_flow.planning",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:planning:complete",
+        "stage_id": "planning",
+        "status": "degraded",
+        "call_site": "minimal_flow.planning",
+        "degradation_reason": "validation_fallback"
+      },
+      {
+        "receipt_id": "stage:query_refinement:start",
+        "stage_id": "query_refinement",
+        "status": "started",
+        "call_site": "minimal_flow.query_refinement",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:query_refinement:complete",
+        "stage_id": "query_refinement",
+        "status": "completed",
+        "call_site": "minimal_flow.query_refinement",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:retrieval:start",
+        "stage_id": "retrieval",
+        "status": "started",
+        "call_site": "minimal_flow.retrieval",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:retrieval:complete",
+        "stage_id": "retrieval",
+        "status": "completed",
+        "call_site": "minimal_flow.retrieval",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:evidence_judge:start",
+        "stage_id": "evidence_judge",
+        "status": "started",
+        "call_site": "minimal_flow.evidence_judge",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:evidence_judge:complete",
+        "stage_id": "evidence_judge",
+        "status": "completed",
+        "call_site": "minimal_flow.evidence_judge",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:synthesis:start",
+        "stage_id": "synthesis",
+        "status": "started",
+        "call_site": "minimal_flow.synthesis",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:synthesis:complete",
+        "stage_id": "synthesis",
+        "status": "degraded",
+        "call_site": "minimal_flow.synthesis",
+        "degradation_reason": "validation_fallback"
+      }
+    ],
+    "llm": [
+      {
+        "receipt_id": "llm:planning:planning_default",
+        "stage_id": "planning",
+        "profile": "planning_default",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 812,
+        "finish_reason": "length",
+        "degradation_reason": "validation_fallback"
+      },
+      {
+        "receipt_id": "llm:query_refinement:research_fast",
+        "stage_id": "query_refinement",
+        "profile": "research_fast",
+        "provider": "azure",
+        "model": "gpt-5.4-mini",
+        "coverage_status": "tracked",
+        "total_tokens": 111,
+        "finish_reason": "stop",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "llm:evidence_judge:judge_strict",
+        "stage_id": "evidence_judge",
+        "profile": "judge_strict",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 1646,
+        "finish_reason": "stop",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "llm:synthesis:synthesis_default",
+        "stage_id": "synthesis",
+        "profile": "synthesis_default",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 1502,
+        "finish_reason": "length",
+        "degradation_reason": "validation_fallback"
+      }
+    ]
+  }
+}

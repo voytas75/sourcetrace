@@ -1770,3 +1770,37 @@ Current posture:
 
 Best next bounded slice:
 - `retrieval-query-refinement-live-eval-v1` — run a small live pack against the updated handoff, check whether hard cases improve materially in candidate-pool quality, then decide whether the next move should be further query-refinement refinement, retrieval survival adjustment, or regression-pack expansion
+
+## 2026-06-28 — SourceTrace v2 retrieval-query-refinement-live-eval-v1 checkpoint
+
+Ran the next bounded live evaluation slice after the dynamic query-refinement handoff repair.
+
+What changed:
+- added `docs/retrieval-query-refinement-live-eval-v1-2026-06-28.md`
+- ran a small live pack through `python -m sourcetrace_v2.operator.run_minimal_flow ...`
+- saved run artifacts under `tmp/live-eval-v1/*.json`
+
+Live pack:
+- `legal hold steps records retention official guidance`
+- `remote work reporting obligations Poland employer official guidance`
+- `cross border data transfer official guidance`
+- `official tax filing deadline guidance for small business`
+
+What this slice showed:
+- dynamic query refinement is a real live improvement, not just a unit-test cleanup
+- `legal hold` improved materially from the earlier vendor/vendor trap into a public/institutional pair
+- `tax guidance` improved enough to stop landing the earlier jurisdiction-mixed institutional pair and now projects `usable`
+- `remote-work Poland` improved from advisory/commercial drift into a partially healthier shape with a real official/public source surviving, but still lacks a clean exact-subject official winner
+- `cross-border data transfer` remains mixed and still lands `needs_review`
+
+Current posture:
+- query shaping should continue to prefer the dynamic LLM refinement seam over more generic deterministic heuristics
+- dynamic query refinement alone does not fully close the remaining hard cases
+- the sharper remaining gap now looks like exact-subject survival inside already-more-official candidate pools, not raw query drift
+
+Verification:
+- bounded live operator evaluation completed on four hard cases
+- no new code changes were required for the eval slice
+
+Best next bounded slice:
+- `retrieval-survival-after-query-refinement-v1` — inspect whether a small bounded survival adjustment is still needed after the improved query-refinement path, but only within already official-intent candidate pools and only if justified by the live evidence

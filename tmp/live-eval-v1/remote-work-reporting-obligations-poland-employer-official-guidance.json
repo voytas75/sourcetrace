@@ -1,0 +1,436 @@
+{
+  "status": "found",
+  "job_id": "job-9be14feb3395",
+  "run_id": "run-74729bfc5364",
+  "persistence": {
+    "completeness": "complete",
+    "artifact_present": true,
+    "marker_present": true,
+    "marker_state": "committed"
+  },
+  "artifact": {
+    "present": true,
+    "summary": "minimal v2 flow | query=Poland remote work employer reporting obligations official guidance site:gov.pl OR site:pip.gov.pl OR site:zus.pl | top_source=searxng:[PDF] remote work and telework in Polish public administration - CEJSH",
+    "text": "Usually no — in Poland, an employer does **not** file a routine government report **just because employees work remotely**.\n\nWhat matters is having the proper **internal documentation and compliance setup**, such as:\n- remote work rules/policy or agreement,\n- health and safety arrangements,\n- data protection/security rules,\n- equipment and cost reimbursement rules,\n- employee acknowledgements and documentation.\n\nThese should be ready to show if inspected, for example by the **National Labour Inspectorate (PIP)**.\n\nIf you want, I can next provide:\n1. the **exact Labour Code provisions** on remote work,  \n2. a **plain-English summary of PIP / gov.pl guidance**, or  \n3. whether there are **extra duties for cross-border remote work**."
+  },
+  "compiled_artifact": {
+    "present": true,
+    "artifact_id": "compiled:job-9be14feb3395:run-74729bfc5364",
+    "summary": "minimal v2 flow | query=Poland remote work employer reporting obligations official guidance site:gov.pl OR site:pip.gov.pl OR site:zus.pl | top_source=searxng:[PDF] remote work and telework in Polish public administration - CEJSH",
+    "confidence_note": "bounded_v2_compiled_artifact",
+    "selected_evidence_contract_version": "authority-relevance-judgment-contract-v1",
+    "selected_evidence": [
+      {
+        "title": "[PDF] remote work and telework in Polish public administration - CEJSH",
+        "url": "https://iws.gov.pl/wp-content/uploads/2025/12/60_Prawo-w-Dzialaniu_PC_08.pdf",
+        "provider": "searxng",
+        "rank": 1,
+        "snippet": "pdf_scope=229–241 PRAWO W DZIAŁANIU SPRAWY CYWILNE 60/2024 DOI: 10.32041/pwd.6008 Jarosław Szczepański, Łukasz Zamęcki Working from home during the COVID-19 pandemic: remote work and telework in Polish public administration Praca | everyday life and at work. This paper looks at the issue of remote working in Poland during | SPRAWY CYWILNE: 60/2024 DOI: 10.32041/pwd.6008 Jarosław Szczepański, Łukasz Zamęcki Working from home during the COVID-19 pandemic: remote work and telework in Polish public administration Praca z domu w czasie pandemii COVID-19: praca zdalna i telepraca w polskiej administracji publicznej Abstract The COVID-19 pandemic forced a change in management and organisation processes both in everyday life and at work. This paper looks at the issue of remote working in Poland during the pandemic. Previou",
+        "pdf_context": {
+          "document_scope": "229–241 PRAWO W DZIAŁANIU SPRAWY CYWILNE 60/2024 DOI: 10.32041/pwd.6008 Jarosław Szczepański, Łukasz Zamęcki Working from home during the COVID-19 pandemic: remote work and telework in Polish public administration Praca",
+          "entity_match_summary": "everyday life and at work. This paper looks at the issue of remote working in Poland during",
+          "key_findings": [
+            "SPRAWY CYWILNE: 60/2024 DOI: 10.32041/pwd.6008 Jarosław Szczepański, Łukasz Zamęcki Working from home during the COVID-19 pandemic: remote work and telework in Polish public administration Praca z domu w czasie pandemii COVID-19: praca zdalna i telepraca w polskiej administracji publicznej Abstract The COVID-19 pandemic forced a change in management and organisation processes both in everyday life and at work. This paper looks at the issue of remote working in Poland during the pandemic. Previou"
+          ]
+        },
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "focused_title_overlap"
+            ]
+          },
+          "answer_fit": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      },
+      {
+        "title": "The rights and obligations of employers | Biznes.gov.pl",
+        "url": "https://www.biznes.gov.pl/en/portal/004070",
+        "provider": "searxng",
+        "rank": 2,
+        "snippet": "Employers' rights · oversee employees' work and assess the results of the work assigned to them · enforce from employees to fulfil the obligation ...",
+        "pdf_context": null,
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "focused_title_overlap"
+            ]
+          },
+          "answer_fit": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "evidence_input": {
+    "query": "Poland remote work employer reporting obligations official guidance site:gov.pl OR site:pip.gov.pl OR site:zus.pl",
+    "candidate_count": 3,
+    "candidates": [
+      {
+        "title": "[PDF] remote work and telework in Polish public administration - CEJSH",
+        "url": "https://iws.gov.pl/wp-content/uploads/2025/12/60_Prawo-w-Dzialaniu_PC_08.pdf",
+        "provider": "searxng",
+        "rank": 1,
+        "source_type": "institutional"
+      },
+      {
+        "title": "The rights and obligations of employers | Biznes.gov.pl",
+        "url": "https://www.biznes.gov.pl/en/portal/004070",
+        "provider": "searxng",
+        "rank": 2,
+        "source_type": "institutional"
+      },
+      {
+        "title": "[PDF] OVERVIEW OF ACTIVITIES OF THE STATE LABOUR INSPECTION",
+        "url": "https://www.pip.gov.pl/files/225/Reports/940/Overview-of-Activities-of-The-state-Labour-Inspection-2022-end.pdf",
+        "provider": "searxng",
+        "rank": 3,
+        "source_type": "institutional"
+      }
+    ]
+  },
+  "selected_evidence": {
+    "selected_count": 2,
+    "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+    "selection_notes": [
+      "selected top 2 retrieval candidates after minimal content guard and domain diversity pass",
+      "selection prefers candidates with non-empty title, url, and snippet before rank-only fallback",
+      "selection also prefers domain diversity when enough qualifying candidates exist"
+    ],
+    "judgment_contract": {
+      "version": "authority-relevance-judgment-contract-v1",
+      "dimensions": [
+        "authority",
+        "topic_match",
+        "specificity",
+        "answer_fit"
+      ],
+      "comparison": {
+        "authority": {
+          "top_score": 3,
+          "leaders": [
+            "[PDF] remote work and telework in Polish public administration - CEJSH",
+            "The rights and obligations of employers | Biznes.gov.pl"
+          ]
+        },
+        "topic_match": {
+          "top_score": 1,
+          "leaders": [
+            "[PDF] remote work and telework in Polish public administration - CEJSH",
+            "The rights and obligations of employers | Biznes.gov.pl"
+          ]
+        },
+        "specificity": {
+          "top_score": 1,
+          "leaders": [
+            "[PDF] remote work and telework in Polish public administration - CEJSH",
+            "The rights and obligations of employers | Biznes.gov.pl"
+          ]
+        },
+        "answer_fit": {
+          "top_score": 1,
+          "leaders": [
+            "[PDF] remote work and telework in Polish public administration - CEJSH",
+            "The rights and obligations of employers | Biznes.gov.pl"
+          ]
+        }
+      },
+      "notes": [
+        "judgment is provider-agnostic and derived from candidate query, title, url, and snippet"
+      ]
+    },
+    "dropped_count": 1,
+    "rejected_reasons": [
+      {
+        "reason": "rank_limit",
+        "count": 1
+      },
+      {
+        "reason": "missing_minimal_content",
+        "count": 0
+      },
+      {
+        "reason": "domain_diversity_preference",
+        "count": 0
+      }
+    ],
+    "items": [
+      {
+        "title": "[PDF] remote work and telework in Polish public administration - CEJSH",
+        "url": "https://iws.gov.pl/wp-content/uploads/2025/12/60_Prawo-w-Dzialaniu_PC_08.pdf",
+        "provider": "searxng",
+        "rank": 1,
+        "source_type": "institutional",
+        "snippet": "pdf_scope=229–241 PRAWO W DZIAŁANIU SPRAWY CYWILNE 60/2024 DOI: 10.32041/pwd.6008 Jarosław Szczepański, Łukasz Zamęcki Working from home during the COVID-19 pandemic: remote work and telework in Polish public administration Praca | everyday life and at work. This paper looks at the issue of remote working in Poland during | SPRAWY CYWILNE: 60/2024 DOI: 10.32041/pwd.6008 Jarosław Szczepański, Łukasz Zamęcki Working from home during the COVID-19 pandemic: remote work and telework in Polish public administration Praca z domu w czasie pandemii COVID-19: praca zdalna i telepraca w polskiej administracji publicznej Abstract The COVID-19 pandemic forced a change in management and organisation processes both in everyday life and at work. This paper looks at the issue of remote working in Poland during the pandemic. Previou",
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "focused_title_overlap"
+            ]
+          },
+          "answer_fit": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      },
+      {
+        "title": "The rights and obligations of employers | Biznes.gov.pl",
+        "url": "https://www.biznes.gov.pl/en/portal/004070",
+        "provider": "searxng",
+        "rank": 2,
+        "source_type": "institutional",
+        "snippet": "Employers' rights · oversee employees' work and assess the results of the work assigned to them · enforce from employees to fulfil the obligation ...",
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "focused_title_overlap"
+            ]
+          },
+          "answer_fit": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "trust": {
+    "status": "weak",
+    "reasons": [
+      "degraded_llm_calls"
+    ],
+    "selected_evidence_count": 2,
+    "candidate_count": 3
+  },
+  "rollup": {
+    "llm_calls": 4,
+    "input_tokens": 1172,
+    "output_tokens": 1098,
+    "total_tokens": 2270,
+    "degraded_calls": 1,
+    "failed_stages": 0
+  },
+  "receipts": {
+    "stage_count": 10,
+    "llm_count": 4,
+    "stages": [
+      {
+        "receipt_id": "stage:planning:start",
+        "stage_id": "planning",
+        "status": "started",
+        "call_site": "minimal_flow.planning",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:planning:complete",
+        "stage_id": "planning",
+        "status": "degraded",
+        "call_site": "minimal_flow.planning",
+        "degradation_reason": "validation_fallback"
+      },
+      {
+        "receipt_id": "stage:query_refinement:start",
+        "stage_id": "query_refinement",
+        "status": "started",
+        "call_site": "minimal_flow.query_refinement",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:query_refinement:complete",
+        "stage_id": "query_refinement",
+        "status": "completed",
+        "call_site": "minimal_flow.query_refinement",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:retrieval:start",
+        "stage_id": "retrieval",
+        "status": "started",
+        "call_site": "minimal_flow.retrieval",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:retrieval:complete",
+        "stage_id": "retrieval",
+        "status": "completed",
+        "call_site": "minimal_flow.retrieval",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:evidence_judge:start",
+        "stage_id": "evidence_judge",
+        "status": "started",
+        "call_site": "minimal_flow.evidence_judge",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:evidence_judge:complete",
+        "stage_id": "evidence_judge",
+        "status": "completed",
+        "call_site": "minimal_flow.evidence_judge",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:synthesis:start",
+        "stage_id": "synthesis",
+        "status": "started",
+        "call_site": "minimal_flow.synthesis",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:synthesis:complete",
+        "stage_id": "synthesis",
+        "status": "completed",
+        "call_site": "minimal_flow.synthesis",
+        "degradation_reason": null
+      }
+    ],
+    "llm": [
+      {
+        "receipt_id": "llm:planning:planning_default",
+        "stage_id": "planning",
+        "profile": "planning_default",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 814,
+        "finish_reason": "length",
+        "degradation_reason": "validation_fallback"
+      },
+      {
+        "receipt_id": "llm:query_refinement:research_fast",
+        "stage_id": "query_refinement",
+        "profile": "research_fast",
+        "provider": "azure",
+        "model": "gpt-5.4-mini",
+        "coverage_status": "tracked",
+        "total_tokens": 108,
+        "finish_reason": "stop",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "llm:evidence_judge:judge_strict",
+        "stage_id": "evidence_judge",
+        "profile": "judge_strict",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 1076,
+        "finish_reason": "stop",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "llm:synthesis:synthesis_default",
+        "stage_id": "synthesis",
+        "profile": "synthesis_default",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 272,
+        "finish_reason": "stop",
+        "degradation_reason": null
+      }
+    ]
+  }
+}

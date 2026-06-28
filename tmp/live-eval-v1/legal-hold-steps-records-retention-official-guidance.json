@@ -1,0 +1,437 @@
+{
+  "status": "found",
+  "job_id": "job-f41609e61aa1",
+  "run_id": "run-c7141b9d87ca",
+  "persistence": {
+    "completeness": "complete",
+    "artifact_present": true,
+    "marker_present": true,
+    "marker_state": "committed"
+  },
+  "artifact": {
+    "present": true,
+    "summary": "minimal v2 flow | query=legal hold steps records retention official guidance site:gov OR site:.edu OR site:archives.gov OR site:justice.gov | top_source=searxng:[PDF] Legal Hold Guidance - King County",
+    "text": "Thanks — these refinements are well taken.\n\nThey improve the summary in the right ways, especially by:\n- grounding it as **U.S.-focused general guidance**,\n- separating **preservation** from **collection**,\n- emphasizing **process ownership and defensibility**,\n- and clarifying that **retention obligations are fragmented**, not governed by one universal rule for private companies.\n\nYour tightened version is stronger and more precise.\n\nA few minor additions I’d make, if you want it even sharper:\n\n### Small optional enhancements\n- **Trigger standard:** For U.S. litigation holds, note that the duty generally arises when litigation is **reasonably anticipated**, not only when a lawsuit is filed.\n- **Scope of ESI:** You may want to explicitly mention common ESI sources: email, chats, cloud drives, phones, collaboration platforms, databases, and shared folders.\n- **Release of hold:** Once the matter ends, organizations should **formally release the hold** and resume normal retention/destruction, subject to any other holds or obligations.\n- **Cross-border caution:** If data involves employees or customers outside the U.S., preservation/collection may also implicate **privacy, labor, blocking, or data transfer laws**.\n- **Proportionality:** Especially under the FRCP, preservation efforts should be **reasonable and proportionate**, not limitless.\n\n### Slightly polished version\nIf you want, I’d present the core point like this:\n\n> A legal hold is a **Legal-led preservation process** used when litigation, investigation, audit, or similar action is pending or reasonably anticipated. Its purpose is to suspend ordinary deletion or destruction of potentially relevant information and documents. Preservation is distinct from collection: data may need to be preserved immediately even if collection for review or production happens later. A defensible legal hold process typically includes identifying custodians and data sources, issuing notices, conducting interviews as needed, coordinating with IT/Records/HR/Compliance, preserving relevant ESI and paper records, sending reminders, documenting decisions, and formally releasing the hold when appropriate.\n\nAnd for retention:\n\n> Records retention is a broader governance function that determines how long categories of records should be kept under applicable law, regulation, contract, tax, audit, operational, and business requirements. For private organizations in the U.S., there is usually no single master retention law; retention schedules are built from multiple overlapping sources.\n\n### Bottom line\nYes — your revised version is more accurate, more defensible, and better framed for practical use.\n\nIf you want, I can now turn it into any of these in polished form:\n1. **1-page checklist**\n2. **formal policy template**\n3. **sample legal hold notice**\n4. **records retention schedule starter table**"
+  },
+  "compiled_artifact": {
+    "present": true,
+    "artifact_id": "compiled:job-f41609e61aa1:run-c7141b9d87ca",
+    "summary": "minimal v2 flow | query=legal hold steps records retention official guidance site:gov OR site:.edu OR site:archives.gov OR site:justice.gov | top_source=searxng:[PDF] Legal Hold Guidance - King County",
+    "confidence_note": "bounded_v2_compiled_artifact",
+    "selected_evidence_contract_version": "authority-relevance-judgment-contract-v1",
+    "selected_evidence": [
+      {
+        "title": "[PDF] Legal Hold Guidance - King County",
+        "url": "https://cdn.kingcounty.gov/-/media/king-county/depts/executive-services/records-management/rm/rm-guidance-legal-holds.pdf?rev=5c4b8b405e52499392933f2b9e612fc8&hash=022F5848A00E296D62A8D02ECADA03D2",
+        "provider": "searxng",
+        "rank": 1,
+        "snippet": "This document provides guidance and best practice about how to manage records during the legal hold process, including how to comply with Executive Policy LGL- ...",
+        "pdf_context": null,
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "focused_title_overlap",
+              "focused_url_path"
+            ]
+          },
+          "answer_fit": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      },
+      {
+        "title": "Records Management Regulations and Guidance | National Archives",
+        "url": "https://www.archives.gov/records-mgmt/policy",
+        "provider": "searxng",
+        "rank": 2,
+        "snippet": "Records Management Regulations and Guidance The Office of the Chief Records Officer for the U.S. Government is responsible for developing Federal records management guidance related to records creation, management, and disposition with an emphasis on electronic records.",
+        "pdf_context": null,
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host",
+              "structured_guidance_surface"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "focused_title_overlap",
+              "focused_url_path"
+            ]
+          },
+          "answer_fit": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "evidence_input": {
+    "query": "legal hold steps records retention official guidance site:gov OR site:.edu OR site:archives.gov OR site:justice.gov",
+    "candidate_count": 3,
+    "candidates": [
+      {
+        "title": "[PDF] Legal Hold Guidance - King County",
+        "url": "https://cdn.kingcounty.gov/-/media/king-county/depts/executive-services/records-management/rm/rm-guidance-legal-holds.pdf?rev=5c4b8b405e52499392933f2b9e612fc8&hash=022F5848A00E296D62A8D02ECADA03D2",
+        "provider": "searxng",
+        "rank": 1,
+        "source_type": "institutional"
+      },
+      {
+        "title": "Records Management Regulations and Guidance | National Archives",
+        "url": "https://www.archives.gov/records-mgmt/policy",
+        "provider": "searxng",
+        "rank": 2,
+        "source_type": "institutional"
+      },
+      {
+        "title": "1743-2 - NIH Litigation Hold Policy",
+        "url": "https://policymanual.nih.gov/1743-2",
+        "provider": "searxng",
+        "rank": 3,
+        "source_type": "institutional"
+      }
+    ]
+  },
+  "selected_evidence": {
+    "selected_count": 2,
+    "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+    "selection_notes": [
+      "selected top 2 retrieval candidates after minimal content guard and domain diversity pass",
+      "selection prefers candidates with non-empty title, url, and snippet before rank-only fallback",
+      "selection also prefers domain diversity when enough qualifying candidates exist"
+    ],
+    "judgment_contract": {
+      "version": "authority-relevance-judgment-contract-v1",
+      "dimensions": [
+        "authority",
+        "topic_match",
+        "specificity",
+        "answer_fit"
+      ],
+      "comparison": {
+        "authority": {
+          "top_score": 3,
+          "leaders": [
+            "[PDF] Legal Hold Guidance - King County",
+            "Records Management Regulations and Guidance | National Archives"
+          ]
+        },
+        "topic_match": {
+          "top_score": 1,
+          "leaders": [
+            "[PDF] Legal Hold Guidance - King County",
+            "Records Management Regulations and Guidance | National Archives"
+          ]
+        },
+        "specificity": {
+          "top_score": 2,
+          "leaders": [
+            "[PDF] Legal Hold Guidance - King County",
+            "Records Management Regulations and Guidance | National Archives"
+          ]
+        },
+        "answer_fit": {
+          "top_score": 2,
+          "leaders": [
+            "[PDF] Legal Hold Guidance - King County",
+            "Records Management Regulations and Guidance | National Archives"
+          ]
+        }
+      },
+      "notes": [
+        "judgment is provider-agnostic and derived from candidate query, title, url, and snippet"
+      ]
+    },
+    "dropped_count": 1,
+    "rejected_reasons": [
+      {
+        "reason": "rank_limit",
+        "count": 1
+      },
+      {
+        "reason": "missing_minimal_content",
+        "count": 0
+      },
+      {
+        "reason": "domain_diversity_preference",
+        "count": 0
+      }
+    ],
+    "items": [
+      {
+        "title": "[PDF] Legal Hold Guidance - King County",
+        "url": "https://cdn.kingcounty.gov/-/media/king-county/depts/executive-services/records-management/rm/rm-guidance-legal-holds.pdf?rev=5c4b8b405e52499392933f2b9e612fc8&hash=022F5848A00E296D62A8D02ECADA03D2",
+        "provider": "searxng",
+        "rank": 1,
+        "source_type": "institutional",
+        "snippet": "This document provides guidance and best practice about how to manage records during the legal hold process, including how to comply with Executive Policy LGL- ...",
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "focused_title_overlap",
+              "focused_url_path"
+            ]
+          },
+          "answer_fit": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      },
+      {
+        "title": "Records Management Regulations and Guidance | National Archives",
+        "url": "https://www.archives.gov/records-mgmt/policy",
+        "provider": "searxng",
+        "rank": 2,
+        "source_type": "institutional",
+        "snippet": "Records Management Regulations and Guidance The Office of the Chief Records Officer for the U.S. Government is responsible for developing Federal records management guidance related to records creation, management, and disposition with an emphasis on electronic records.",
+        "judgment": {
+          "contract_version": "authority-relevance-judgment-contract-v1",
+          "authority": {
+            "score": 3,
+            "band": "high",
+            "signals": [
+              "institutional_source_type",
+              "institutional_host",
+              "structured_guidance_surface"
+            ]
+          },
+          "topic_match": {
+            "score": 1,
+            "band": "low",
+            "signals": [
+              "title_query_overlap",
+              "snippet_query_overlap"
+            ]
+          },
+          "specificity": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "focused_title_overlap",
+              "focused_url_path"
+            ]
+          },
+          "answer_fit": {
+            "score": 2,
+            "band": "medium",
+            "signals": [
+              "authority_contributes",
+              "topic_match_contributes",
+              "specificity_contributes"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "trust": {
+    "status": "needs_review",
+    "reasons": [
+      "degraded_llm_calls",
+      "jurisdiction_mixed_selected_institutional_pair"
+    ],
+    "selected_evidence_count": 2,
+    "candidate_count": 3
+  },
+  "rollup": {
+    "llm_calls": 4,
+    "input_tokens": 1693,
+    "output_tokens": 2001,
+    "total_tokens": 3694,
+    "degraded_calls": 1,
+    "failed_stages": 0
+  },
+  "receipts": {
+    "stage_count": 10,
+    "llm_count": 4,
+    "stages": [
+      {
+        "receipt_id": "stage:planning:start",
+        "stage_id": "planning",
+        "status": "started",
+        "call_site": "minimal_flow.planning",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:planning:complete",
+        "stage_id": "planning",
+        "status": "degraded",
+        "call_site": "minimal_flow.planning",
+        "degradation_reason": "validation_fallback"
+      },
+      {
+        "receipt_id": "stage:query_refinement:start",
+        "stage_id": "query_refinement",
+        "status": "started",
+        "call_site": "minimal_flow.query_refinement",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:query_refinement:complete",
+        "stage_id": "query_refinement",
+        "status": "completed",
+        "call_site": "minimal_flow.query_refinement",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:retrieval:start",
+        "stage_id": "retrieval",
+        "status": "started",
+        "call_site": "minimal_flow.retrieval",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:retrieval:complete",
+        "stage_id": "retrieval",
+        "status": "completed",
+        "call_site": "minimal_flow.retrieval",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:evidence_judge:start",
+        "stage_id": "evidence_judge",
+        "status": "started",
+        "call_site": "minimal_flow.evidence_judge",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:evidence_judge:complete",
+        "stage_id": "evidence_judge",
+        "status": "completed",
+        "call_site": "minimal_flow.evidence_judge",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:synthesis:start",
+        "stage_id": "synthesis",
+        "status": "started",
+        "call_site": "minimal_flow.synthesis",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "stage:synthesis:complete",
+        "stage_id": "synthesis",
+        "status": "completed",
+        "call_site": "minimal_flow.synthesis",
+        "degradation_reason": null
+      }
+    ],
+    "llm": [
+      {
+        "receipt_id": "llm:planning:planning_default",
+        "stage_id": "planning",
+        "profile": "planning_default",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 813,
+        "finish_reason": "length",
+        "degradation_reason": "validation_fallback"
+      },
+      {
+        "receipt_id": "llm:query_refinement:research_fast",
+        "stage_id": "query_refinement",
+        "profile": "research_fast",
+        "provider": "azure",
+        "model": "gpt-5.4-mini",
+        "coverage_status": "tracked",
+        "total_tokens": 107,
+        "finish_reason": "stop",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "llm:evidence_judge:judge_strict",
+        "stage_id": "evidence_judge",
+        "profile": "judge_strict",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 1599,
+        "finish_reason": "stop",
+        "degradation_reason": null
+      },
+      {
+        "receipt_id": "llm:synthesis:synthesis_default",
+        "stage_id": "synthesis",
+        "profile": "synthesis_default",
+        "provider": "azure",
+        "model": "gpt-5.4",
+        "coverage_status": "tracked",
+        "total_tokens": 1175,
+        "finish_reason": "stop",
+        "degradation_reason": null
+      }
+    ]
+  }
+}
