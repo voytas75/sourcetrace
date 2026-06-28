@@ -172,20 +172,74 @@ def _query_implies_institutional_preference(query: str) -> bool:
     return any(marker in lowered for marker in markers)
 
 
+_INSTITUTIONAL_HOST_MARKERS = (
+    ".gov",
+    ".gov.uk",
+    "europa.eu",
+    "archives.gov",
+    "ftc.gov",
+    "ico.org.uk",
+    "edpb.europa.eu",
+    "ec.europa.eu",
+    "learn.microsoft.com",
+    "microsoft.com",
+)
+
+_VENDOR_HOST_MARKERS = (
+    "vendor",
+    "opentext",
+    "everlaw",
+    "venio",
+    "disco",
+    "admindroid",
+    "dilitrust",
+    "mitratech",
+)
+
+_COMMENTARY_HOST_MARKERS = (
+    "blog.",
+    "blogs.",
+    "medium.com",
+    "substack.com",
+    "linkedin.com",
+    "bpcc.org.pl",
+    "dudkowiak.com",
+    "lawfirm.",
+    "law.",
+)
+
+_INSTITUTIONAL_TITLE_MARKERS = (
+    "official",
+    "authority",
+    "commission",
+    "ministry",
+    "government",
+    "national archives",
+    "federal trade commission",
+    "information commissioner's office",
+    "microsoft learn",
+)
+
+_COMMENTARY_TITLE_MARKERS = (
+    "blog",
+    "best practices",
+    "explainer",
+    "law firm",
+)
+
+
 def _classify_source_type(candidate: RetrievedEvidenceCandidate) -> str:
     host = urlparse(candidate.url).netloc.lower()
     title = candidate.title.lower()
-    if host.endswith(".gov") or ".gov." in host or host.endswith(".gov.uk") or host.endswith("europa.eu") or host.endswith("archives.gov") or host.endswith("ftc.gov") or host.endswith("ico.org.uk"):
+    if any(host.endswith(marker) or marker in host for marker in _INSTITUTIONAL_HOST_MARKERS):
         return "institutional"
-    if host.endswith("learn.microsoft.com") or host.endswith("microsoft.com"):
+    if any(token in title for token in _INSTITUTIONAL_TITLE_MARKERS):
         return "institutional"
-    if any(token in title for token in ("official", "authority", "commission", "ministry", "government", "national archives", "federal trade commission", "information commissioner's office")):
-        return "institutional"
-    if any(token in host for token in ("vendor", "opentext", "everlaw", "venio", "disco", "admindroid")):
+    if any(token in host for token in _VENDOR_HOST_MARKERS):
         return "vendor"
-    if any(token in host for token in ("blog.", "blogs.", "medium.com", "substack.com", "linkedin.com")):
+    if any(token in host for token in _COMMENTARY_HOST_MARKERS):
         return "commentary"
-    if any(token in title for token in ("blog", "best practices", "explainer")):
+    if any(token in title for token in _COMMENTARY_TITLE_MARKERS):
         return "commentary"
     return "unknown"
 

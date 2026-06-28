@@ -28,3 +28,16 @@ def test_source_typing_labels_institutional_vendor_commentary_and_unknown() -> N
     typed = stage._annotate_source_types(candidates=candidates)
 
     assert [candidate.source_type for candidate in typed] == ["institutional", "vendor", "commentary", "unknown"]
+
+
+def test_source_typing_v2_covers_real_weak_case_hosts() -> None:
+    stage = RetrievalStage(search=None)  # type: ignore[arg-type]
+    candidates = (
+        _candidate(title="Remote Work in Poland - Guide 2026", url="https://www.dudkowiak.com/employment-law-in-poland/remote-work-regulation-in-poland/", rank=1),
+        _candidate(title="Manage emergency access admin accounts - Microsoft Entra ID | Microsoft Learn", url="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access", rank=2),
+        _candidate(title="Litigation Holds (Legal Holds): A Comprehensive Guide - Everlaw", url="https://www.everlaw.com/blog/ediscovery-best-practices/guide-to-legal-holds/", rank=3),
+    )
+
+    typed = stage._annotate_source_types(candidates=candidates)
+
+    assert [candidate.source_type for candidate in typed] == ["commentary", "institutional", "vendor"]

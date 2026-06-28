@@ -1038,6 +1038,32 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-source-typing-v2` — improve the source classifier itself in a bounded way for observed weak classes while leaving downstream selector policy unchanged
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-source-typing-v2 checkpoint
+
+Closed the next bounded classifier-refinement slice after source-type-aware shaping.
+
+What changed:
+- extended the shallow `source_type` marker sets in `src/sourcetrace_v2/execution/stages/retrieval.py`
+- improved coverage for additional institutional, vendor, and commentary patterns observed in weak live cases
+- added focused test coverage for real weak-case host/title shapes in `tests/unit/v2/test_source_typing.py`
+
+What this slice showed:
+- the classifier is now slightly more honest/useful on real weak-case patterns, especially for commentary/vendor-style results that were previously too loosely typed
+- this remains a bounded refinement, not a final authority taxonomy
+- live sanity check on remote-work reporting showed partial improvement: one selected result now typed as `commentary`, but the pair still includes an `unknown`, which usefully exposes the next remaining classifier limit instead of hiding it
+
+Current posture:
+- keep downstream selector policy unchanged
+- source typing is improving, but the `unknown` bucket is still carrying too much real-world variety for some weak classes
+- the next sharp move is not more shaping first, but understanding the residual `unknown` bucket better
+
+Verification:
+- focused tests passed (`6 passed`)
+- live sanity check recorded in `docs/authority-relevance-source-typing-v2-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-source-typing-unknown-bucket-diagnostics-v1` — inspect which recurring weak-case sources still fall into `unknown` before deciding on the next bounded classifier refinement
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
