@@ -1,0 +1,236 @@
+[
+  {
+    "case_id": "break_glass_official_plus_practical",
+    "query": "break glass account guidance conditional access official best practice",
+    "artifact": {
+      "job_id": "job-quality-pack-break-glass",
+      "run_id": "run-quality-pack-break-glass",
+      "result_text": "break glass summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:bg:1",
+          "job_id": "job-quality-pack-break-glass",
+          "run_id": "run-quality-pack-break-glass",
+          "provider": "searxng",
+          "query": "break glass account guidance conditional access official best practice",
+          "title": "Manage emergency access admin accounts - Microsoft Entra ID",
+          "url": "https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access",
+          "snippet": "Official Microsoft Learn guidance for emergency access admin accounts.",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:bg:2",
+          "job_id": "job-quality-pack-break-glass",
+          "run_id": "run-quality-pack-break-glass",
+          "provider": "searxng",
+          "query": "break glass account guidance conditional access official best practice",
+          "title": "Best Practices for Break Glass Accounts in Microsoft Entra",
+          "url": "https://admindroid.com/blog/best-practices-for-break-glass-accounts-in-microsoft-entra/",
+          "snippet": "Practical operator guidance for break glass accounts and conditional access.",
+          "rank": 2,
+          "source_type": "vendor"
+        },
+        {
+          "candidate_id": "cand:bg:3",
+          "job_id": "job-quality-pack-break-glass",
+          "run_id": "run-quality-pack-break-glass",
+          "provider": "searxng",
+          "query": "break glass account guidance conditional access official best practice",
+          "title": "r/sysadmin on Reddit: Stop Excluding Your Break Glass Accounts",
+          "url": "https://www.reddit.com/r/sysadmin/comments/example/break_glass/",
+          "snippet": "Community discussion thread.",
+          "rank": 3,
+          "source_type": "unknown"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Manage emergency access admin accounts - Microsoft Entra ID",
+        "Best Practices for Break Glass Accounts in Microsoft Entra"
+      ],
+      "must_exclude": [
+        "r/sysadmin on Reddit: Stop Excluding Your Break Glass Accounts"
+      ],
+      "note": "Official guidance should survive with one practical companion; community thread should not displace either."
+    }
+  },
+  {
+    "case_id": "breach_notification_dual_institutional",
+    "query": "data breach notification checklist authority official guidance",
+    "artifact": {
+      "job_id": "job-quality-pack-breach",
+      "run_id": "run-quality-pack-breach",
+      "result_text": "breach summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:br:1",
+          "job_id": "job-quality-pack-breach",
+          "run_id": "run-quality-pack-breach",
+          "provider": "searxng",
+          "query": "data breach notification checklist authority official guidance",
+          "title": "Data Breach Response: A Guide for Business | Federal Trade Commission",
+          "url": "https://www.ftc.gov/business-guidance/resources/data-breach-response-guide-business",
+          "snippet": "Official FTC business data breach response guide.",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:br:2",
+          "job_id": "job-quality-pack-breach",
+          "run_id": "run-quality-pack-breach",
+          "provider": "searxng",
+          "query": "data breach notification checklist authority official guidance",
+          "title": "Personal data breaches: a guide | ICO - Information Commissioner's Office",
+          "url": "https://ico.org.uk/for-organisations/report-a-breach/personal-data-breach/personal-data-breaches-a-guide/",
+          "snippet": "Official ICO guidance on personal data breaches.",
+          "rank": 2,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:br:3",
+          "job_id": "job-quality-pack-breach",
+          "run_id": "run-quality-pack-breach",
+          "provider": "searxng",
+          "query": "data breach notification checklist authority official guidance",
+          "title": "Vendor checklist for breach response",
+          "url": "https://vendor.example.test/breach-checklist",
+          "snippet": "Commercial breach checklist.",
+          "rank": 3,
+          "source_type": "vendor"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Data Breach Response: A Guide for Business | Federal Trade Commission",
+        "Personal data breaches: a guide | ICO - Information Commissioner's Office"
+      ],
+      "must_exclude": [
+        "Vendor checklist for breach response"
+      ],
+      "note": "Clean institutional/institutional pair should survive over vendor filler."
+    }
+  },
+  {
+    "case_id": "legal_hold_institutional_survival",
+    "query": "legal hold steps records retention official guidance",
+    "artifact": {
+      "job_id": "job-quality-pack-legal-hold",
+      "run_id": "run-quality-pack-legal-hold",
+      "result_text": "legal hold summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:lh:1",
+          "job_id": "job-quality-pack-legal-hold",
+          "run_id": "run-quality-pack-legal-hold",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance",
+          "title": "PDF Records Management Guidance",
+          "url": "https://cdn.kingcounty.gov/example/legal-holds-guidance.pdf",
+          "snippet": "Public records management guidance including legal holds.",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:lh:2",
+          "job_id": "job-quality-pack-legal-hold",
+          "run_id": "run-quality-pack-legal-hold",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance",
+          "title": "Legal Hold Best Practices: A Process Guide - DISCO",
+          "url": "https://csdisco.com/blog/legal-hold-best-practices-guide",
+          "snippet": "Practical guide to legal hold process.",
+          "rank": 2,
+          "source_type": "vendor"
+        },
+        {
+          "candidate_id": "cand:lh:3",
+          "job_id": "job-quality-pack-legal-hold",
+          "run_id": "run-quality-pack-legal-hold",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance",
+          "title": "Legal Hold Best Practices: A Complete Guide for Organizations",
+          "url": "https://www.veniosystems.com/guide/legal-hold-best-practices-the-complete-guide-2026",
+          "snippet": "Vendor guide for legal hold programs.",
+          "rank": 3,
+          "source_type": "vendor"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "PDF Records Management Guidance"
+      ],
+      "must_exclude": [],
+      "must_include_one_of": [
+        "Legal Hold Best Practices: A Process Guide - DISCO",
+        "Legal Hold Best Practices: A Complete Guide for Organizations"
+      ],
+      "note": "At least one institutional/public-law source must survive; vendor/vendor lock-in should not return."
+    }
+  },
+  {
+    "case_id": "remote_work_poland_public_source_survival",
+    "query": "remote work reporting obligations Poland employer official guidance",
+    "artifact": {
+      "job_id": "job-quality-pack-remote-work",
+      "run_id": "run-quality-pack-remote-work",
+      "result_text": "remote work summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:rw:1",
+          "job_id": "job-quality-pack-remote-work",
+          "run_id": "run-quality-pack-remote-work",
+          "provider": "searxng",
+          "query": "remote work reporting obligations Poland employer official guidance",
+          "title": "Remote work - Ministry of Family, Labour and Social Policy - Gov.pl website",
+          "url": "https://www.gov.pl/web/family/remote-work",
+          "snippet": "Official gov.pl remote work page.",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:rw:2",
+          "job_id": "job-quality-pack-remote-work",
+          "run_id": "run-quality-pack-remote-work",
+          "provider": "searxng",
+          "query": "remote work reporting obligations Poland employer official guidance",
+          "title": "Implementing Remote Work for Employees Based in Poland",
+          "url": "https://easyeor.pl/pl-hr-guide-remote-work/",
+          "snippet": "Practical guidance for employers with employees based in Poland.",
+          "rank": 2,
+          "source_type": "unknown"
+        },
+        {
+          "candidate_id": "cand:rw:3",
+          "job_id": "job-quality-pack-remote-work",
+          "run_id": "run-quality-pack-remote-work",
+          "provider": "searxng",
+          "query": "remote work reporting obligations Poland employer official guidance",
+          "title": "New OECD guidelines on remote work from abroad - Deloitte",
+          "url": "https://www.deloitte.com/pl/pl/services/legal/perspectives/strefa-pracodawcy/new-OECD-guidelines-on-remote-work-from-abroad-implications-for-employees-and-employers-in-Poland.html",
+          "snippet": "Advisory analysis for employers in Poland.",
+          "rank": 3,
+          "source_type": "unknown"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Remote work - Ministry of Family, Labour and Social Policy - Gov.pl website"
+      ],
+      "must_exclude": [],
+      "must_include_one_of": [
+        "Implementing Remote Work for Employees Based in Poland",
+        "New OECD guidelines on remote work from abroad - Deloitte"
+      ],
+      "note": "The official Poland public source must survive; one practical/advisory companion is acceptable."
+    }
+  }
+]

@@ -1278,7 +1278,42 @@ Verification:
 - findings recorded in `docs/institutional-retrieval-window-evaluation-v1-2026-06-28.md`
 
 Best next bounded slice:
-- `poland-institutional-retrieval-diagnostics-v1` — inspect why the Poland remote-work case remains unstable even after the widened retrieval window, and determine whether the sharper issue is query phrasing, source typing, host heuristics, or provider ordering volatility
+- `quality-regression-pack-v1` — create a small canonical regression pack so future quality work is evaluated against a shared baseline instead of drifting into query-specific heuristics
+
+## 2026-06-28 — SourceTrace v2 quality-regression-pack-v1 checkpoint
+
+Corrected the next step after the retrieval-window evaluation to avoid sliding into deterministic case-specific heuristics.
+
+What changed:
+- added `tests/fixtures/v2/quality_regression_pack_v1.json`
+- added `tests/unit/v2/test_quality_regression_pack_v1.py`
+- added `docs/quality-regression-pack-v1-2026-06-28.md`
+
+What this slice contains:
+- a small canonical regression pack covering:
+  - break-glass official + practical companion
+  - breach notification dual institutional
+  - legal-hold institutional survival
+  - remote-work / Poland public-source survival
+- explicit per-case expectations:
+  - `must_include`
+  - `must_exclude`
+  - optional `must_include_one_of`
+  - brief note on the intended evidence shape
+- evaluation over both:
+  - selected-evidence API projection
+  - compiled artifact selected-evidence output
+
+What this slice showed:
+- quality work now has a bounded shared baseline instead of relying only on live memory and scattered notes
+- this improves regression discipline without introducing new selector heuristics or query-specific overrides
+
+Verification:
+- focused tests passed (`3 passed`)
+- slice note recorded in `docs/quality-regression-pack-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `persistence-failure-mode-audit-v1` — inspect partial-write, stale, and incomplete JSONL/readback states and decide what is already honest enough versus what still needs a bounded reliability fix
 
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
