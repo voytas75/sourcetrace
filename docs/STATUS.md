@@ -1467,6 +1467,39 @@ Current re-ranked priorities:
 Best next bounded slice:
 - `retrieval-quality-evaluation-pack-v1` — run and summarize a broader retrieval-quality evaluation pack across representative live queries, then use that evidence to decide whether the next move should be retrieval refinement, regression-pack expansion, or trust-quality alignment
 
+## 2026-06-28 — SourceTrace v2 retrieval-quality-evaluation-pack-v1 checkpoint
+
+Ran the broader live retrieval-quality evaluation pack after the recent retrieval, regression, trust, and storage work.
+
+What changed:
+- added `docs/retrieval-quality-evaluation-pack-v1-2026-06-28.md`
+- evaluated retrieval quality across an 8-query representative live pack
+
+What this slice showed:
+- retrieval quality is now genuinely mixed rather than uniformly weak
+- clearly healthy or mostly healthy cases include:
+  - breach notification
+  - records retention policy
+  - incident response
+  - break-glass (with a weaker companion source)
+- still unstable/weak cases include:
+  - legal hold (vendor/vendor fallback returned)
+  - remote-work Poland (advisory/commercial drift returned)
+  - cross-border data transfer (advisory/commercial drift)
+- tax deadline guidance surfaced an additional ambiguity: institutional hits were present, but jurisdiction targeting was still weak (`IRS` + `SARS`)
+- the current trust contract is useful but still shallow: some weak retrieval shapes still surfaced as `usable`, while other `weak` statuses mainly reflected degraded LLM calls rather than retrieval quality itself
+
+Current posture:
+- do not jump into another generic retrieval heuristic patch
+- do not go back to selector surgery
+- the next best move is to strengthen the quality baseline around the newly exposed unstable/ambiguous cases, then decide the next retrieval refinement from that stronger shared baseline
+
+Verification:
+- findings recorded in `docs/retrieval-quality-evaluation-pack-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `quality-regression-pack-v2` — expand the regression pack with the newly exposed unstable and ambiguous live cases (legal hold fallback, remote-work Poland instability, cross-border data transfer drift, and jurisdiction-mixed tax guidance)
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
