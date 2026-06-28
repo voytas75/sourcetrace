@@ -1444,6 +1444,29 @@ Verification:
 Best next bounded slice:
 - `deployment-readiness-gap-review-v1` — re-rank the remaining non-storage production gaps after the recent retrieval, regression, trust-contract, and storage-posture work, then choose the next highest-value slice from the remaining live gaps
 
+## 2026-06-28 — SourceTrace v2 deployment-readiness-gap-review-v1 checkpoint
+
+Ran the first explicit re-ranking pass after the recent retrieval, regression, trust-contract, and storage-posture closures.
+
+What changed:
+- added `docs/deployment-readiness-gap-review-v1-2026-06-28.md`
+- reviewed the recently closed slices and re-ranked the remaining non-storage production gaps
+
+What this slice concluded:
+- storage/persistence honesty is no longer the sharpest current production gap
+- operator trust surface is improved enough for the current stage
+- source typing / institutional survival basics are no longer the immediate bottleneck
+- the highest-value remaining production gap is still **retrieval quality**, but it should now be approached through broader evaluation/stabilization rather than another local heuristic repair
+
+Current re-ranked priorities:
+1. broader retrieval quality validation and stabilization
+2. regression-pack expansion / confidence hardening
+3. deeper trust-quality alignment
+4. PDF quality gate completion
+
+Best next bounded slice:
+- `retrieval-quality-evaluation-pack-v1` — run and summarize a broader retrieval-quality evaluation pack across representative live queries, then use that evidence to decide whether the next move should be retrieval refinement, regression-pack expansion, or trust-quality alignment
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
