@@ -1531,6 +1531,33 @@ Verification:
 Best next bounded slice:
 - `retrieval-refinement-decision-v1` — use the stronger regression baseline plus the recent live evaluation evidence to decide what the next retrieval refinement should actually target before making another retrieval-side change
 
+## 2026-06-28 — SourceTrace v2 retrieval-refinement-decision-v1 checkpoint
+
+Used the stronger regression baseline plus the recent live retrieval evaluation to choose the next retrieval refinement target.
+
+What changed:
+- added `docs/retrieval-refinement-decision-v1-2026-06-28.md`
+- compared several candidate next directions instead of jumping directly into another patch
+\nWhat this slice decided:
+- do **not** go next into case-specific Poland remote-work tuning
+- do **not** go next into case-specific legal-hold tuning
+- do **not** deepen trust semantics before the next retrieval refinement
+- the next highest-value slice should be a broader upstream retrieval refinement focused on candidate-target quality rather than one local case
+
+Chosen next bounded slice:
+- `retrieval-target-quality-refinement-v1`
+
+Why:
+- the remaining weak and ambiguous cases share a broader pattern:
+  - advisory/commercial drift in official-intent queries
+  - weak jurisdiction/topic targeting even when institutional hits exist
+- this is a better target than another local patch because it stays upstream, general, and evaluable against the now-stronger regression baseline
+
+Guardrails:
+- no deterministic query-family or country-specific heuristics
+- no selector-policy changes unless new evidence forces that conclusion
+- validate the next refinement against both healthy anchor cases and weak/ambiguous regression-pack cases
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
