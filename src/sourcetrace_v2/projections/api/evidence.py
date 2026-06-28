@@ -1,56 +1,37 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
+from sourcetrace_v2.core.policies.selected_evidence import (
+    AUTHORITY_RELEVANCE_JUDGMENT_CONTRACT_V1,
+    SELECTED_EVIDENCE_SELECTION_BASIS_V1,
+    build_candidate_judgment,
+    build_judgment_comparison,
+    decide_selected_evidence,
+)
 from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate
-
-
-def _candidate_has_minimal_quality(candidate: RetrievedEvidenceCandidate) -> bool:
-    return bool(candidate.title.strip() and candidate.url.strip() and candidate.snippet.strip())
-
-
-def _candidate_domain(candidate: RetrievedEvidenceCandidate) -> str:
-    return urlparse(candidate.url).netloc.strip().lower()
-
-
-def _select_with_diversity(candidates: tuple[RetrievedEvidenceCandidate, ...], limit: int) -> tuple[RetrievedEvidenceCandidate, ...]:
-    selected: list[RetrievedEvidenceCandidate] = []
-    used_domains: set[str] = set()
-
-    for candidate in candidates:
-        domain = _candidate_domain(candidate)
-        if domain and domain not in used_domains:
-            selected.append(candidate)
-            used_domains.add(domain)
-            if len(selected) >= limit:
-                return tuple(selected)
-
-    for candidate in candidates:
-        if candidate not in selected:
-            selected.append(candidate)
-            if len(selected) >= limit:
-                return tuple(selected)
-
-    return tuple(selected)
 
 
 def project_selected_evidence(*, artifact: ResearchResultArtifact | None, limit: int = 2) -> dict[str, object]:
     candidates = artifact.evidence_candidates if artifact is not None else ()
-    ordered = tuple(sorted(candidates, key=lambda candidate: candidate.rank))
-    quality_candidates = tuple(candidate for candidate in ordered if _candidate_has_minimal_quality(candidate))
-    fallback_candidates = tuple(candidate for candidate in ordered if not _candidate_has_minimal_quality(candidate))
-    selected = _select_with_diversity(tuple((*quality_candidates, *fallback_candidates)), limit)
-    dropped = tuple(candidate for candidate in ordered if candidate not in selected)
-    missing_snippet_dropped = sum(1 for candidate in dropped if not candidate.snippet.strip())
-    same_domain_dropped = sum(1 for candidate in dropped if _candidate_domain(candidate) in {_candidate_domain(item) for item in selected if _candidate_domain(item)})
+    decision = decide_selected_evidence(candidates, limit)
+    selected = decision.selected
+    dropped = decision.dropped
+    selected_judgments = tuple((candidate.title, build_candidate_judgment(candidate)) for candidate in selected)
     return {
         "selected_count": len(selected),
-        "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
+        "selection_basis": SELECTED_EVIDENCE_SELECTION_BASIS_V1,
         "selection_notes": [
             f"selected top {len(selected)} retrieval candidates after minimal content guard and domain diversity pass",
             "selection prefers candidates with non-empty title, url, and snippet before rank-only fallback",
             "selection also prefers domain diversity when enough qualifying candidates exist",
         ] if selected else ["no retrieval candidates available for promotion"],
+        "judgment_contract": {
+            "version": AUTHORITY_RELEVANCE_JUDGMENT_CONTRACT_V1,
+            "dimensions": ["authority", "topic_match", "specificity", "answer_fit"],
+            "comparison": build_judgment_comparison(selected_judgments),
+            "notes": [
+                "judgment is provider-agnostic and derived from candidate query, title, url, and snippet",
+            ],
+        },
         "dropped_count": len(dropped),
         "rejected_reasons": [
             {
@@ -59,11 +40,11 @@ def project_selected_evidence(*, artifact: ResearchResultArtifact | None, limit:
             },
             {
                 "reason": "missing_minimal_content",
-                "count": missing_snippet_dropped,
+                "count": decision.missing_minimal_content_dropped,
             },
             {
                 "reason": "domain_diversity_preference",
-                "count": same_domain_dropped,
+                "count": decision.domain_diversity_dropped,
             },
         ] if dropped else [],
         "items": [
@@ -73,7 +54,26 @@ def project_selected_evidence(*, artifact: ResearchResultArtifact | None, limit:
                 "provider": candidate.provider,
                 "rank": candidate.rank,
                 "snippet": candidate.snippet,
+                "judgment": _project_judgment(build_candidate_judgment(candidate)),
             }
             for candidate in selected
         ],
+    }
+
+
+def _project_judgment(judgment: object) -> dict[str, object]:
+    return {
+        "contract_version": judgment.contract_version,
+        "authority": _project_dimension(judgment.authority),
+        "topic_match": _project_dimension(judgment.topic_match),
+        "specificity": _project_dimension(judgment.specificity),
+        "answer_fit": _project_dimension(judgment.answer_fit),
+    }
+
+
+def _project_dimension(dimension: object) -> dict[str, object]:
+    return {
+        "score": dimension.score,
+        "band": dimension.band,
+        "signals": list(dimension.signals),
     }

@@ -540,3 +540,25 @@ Current posture:
 
 Best next bounded slice:
 - rerun and evaluate the live smoke path, then decide whether the next blocker is PDF/document read, operator entrypoint polish, or another provider/runtime compatibility edge
+
+## 2026-06-28 — SourceTrace v2 authority/relevance judgment contract v1 checkpoint
+
+Closed the first bounded authority/relevance judgment slice above the selected-evidence baseline.
+
+What changed:
+- added a shared `selected_evidence` policy helper in `src/sourcetrace_v2/core/policies/selected_evidence.py`
+- removed the compiled-artifact selector drift by reusing the same bounded selected-evidence decision path as the API projection
+- formalized `authority-relevance-judgment-contract-v1` as a provider-agnostic judgment contract over query/title/url/snippet
+- projected judgment details both in `selected_evidence` API output and in compiled-artifact selected evidence
+- exposed compiled-artifact `selected_evidence_contract_version` so downstream consumers can pin the bounded judgment shape explicitly
+
+Current posture:
+- selected-evidence promotion and compiled-artifact promotion now share one bounded decision path instead of silently diverging on raw rank slicing
+- the new authority/relevance layer is still compact and provider-agnostic; it is a judgment contract, not a topic-specific heuristic bundle
+- this closes the immediate design mismatch without reopening the earlier baseline-frozen evidence-policy track
+
+Verification:
+- focused v2 tests passed after the slice (`14 passed`)
+
+Best next bounded slice:
+- validate whether this contract is sufficient for downstream authority/relevance consumers, or open a separate bounded slice for judgment-consumer integration rather than expanding the contract ad hoc

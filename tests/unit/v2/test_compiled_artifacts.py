@@ -25,7 +25,9 @@ def test_build_compiled_artifact_from_run_artifact() -> None:
     assert compiled.artifact_id == "compiled:job-compiled:run-compiled"
     assert compiled.summary.startswith("minimal v2 flow")
     assert len(compiled.selected_evidence) == 2
+    assert compiled.selected_evidence_contract_version == "authority-relevance-judgment-contract-v1"
     assert compiled.selected_evidence[0].provider == "stub-search"
+    assert compiled.selected_evidence[0].judgment is not None
 
 
 def test_run_persists_compiled_artifact_into_readback() -> None:
@@ -47,7 +49,9 @@ def test_run_persists_compiled_artifact_into_readback() -> None:
 
     assert payload["present"] is True
     assert payload["artifact_id"] == "compiled:job-compiled-http:run-compiled-http"
+    assert payload["selected_evidence_contract_version"] == "authority-relevance-judgment-contract-v1"
     assert len(payload["selected_evidence"]) == 2
+    assert payload["selected_evidence"][0]["judgment"]["contract_version"] == "authority-relevance-judgment-contract-v1"
 
 
 def test_run_http_projection_exposes_compiled_artifact_block() -> None:
@@ -62,6 +66,7 @@ def test_run_http_projection_exposes_compiled_artifact_block() -> None:
     payload = json.loads(response.body)
     assert payload["compiled_artifact"]["present"] is True
     assert payload["compiled_artifact"]["artifact_id"] == "compiled:job-compiled-payload:run-compiled-payload"
+    assert payload["compiled_artifact"]["selected_evidence_contract_version"] == "authority-relevance-judgment-contract-v1"
     assert len(payload["compiled_artifact"]["selected_evidence"]) == 2
 
     compiled_response = handle_get_persisted_compiled_artifact_request(
