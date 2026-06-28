@@ -836,3 +836,38 @@ Verification:
 
 Best next bounded slice:
 - do **not** change authority/relevance selection policy yet; the sharper next move is `authority-relevance-live-retrieval-diagnostics-v1` to localize why real queries are producing weak/off-topic candidate pools before selection
+
+## 2026-06-28 — SourceTrace v2 authority-relevance-live-retrieval-diagnostics-v1 checkpoint
+
+Localized the live authority/relevance failure more sharply.
+
+What changed:
+- added `docs/authority-relevance-live-retrieval-diagnostics-v1-2026-06-28.md`
+- ran focused live diagnostics on the same query class that previously showed weak authority/relevance outcomes
+- inspected persisted execution readback to compare:
+  - original seed query
+  - retrieval-stage `evidence_query`
+  - stage degradation state
+  - top selected results
+
+What this slice showed:
+- the sharpest current live defect is upstream **retrieval query handoff**, not downstream selector behavior
+- retrieval is currently using large assistant-style prose blobs as `evidence_query` instead of a bounded search query derived directly from user intent
+- this strongly explains why live candidate pools can become broad, commentary-heavy, or off-topic before authority/relevance judgment even starts
+- in short: the live path is drifting because the retrieval contract is wrong or too loose, not because the selector necessarily needs more heuristics
+
+Key observation:
+- for all checked live queries, `evidence_query_equals_seed` was `false`
+- retrieved query prefixes looked like answer prose or follow-up assistance prose, e.g. `This is a solid summary...`, `If you want, I can help...`, `Here are the official guidance sources...`
+- one query (`identity-break-glass`) still happened to land a better top official result, but that success looked incidental rather than structurally trustworthy because the same loose handoff mechanism was still in play
+
+Current posture:
+- do not patch authority/relevance selection policy from this evidence
+- the sharper next repair target is the planning/query-refinement -> retrieval handoff contract
+- fixture-level quality work remains useful, but live behavior now points clearly at a bounded upstream contract issue
+
+Verification:
+- live diagnostics completed and recorded in `docs/authority-relevance-live-retrieval-diagnostics-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-query-handoff-contract-v1` — introduce a bounded retrieval-query handoff so retrieval consumes an explicit search-intent string rather than freeform answer prose
