@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from urllib.parse import urlparse
 
@@ -106,11 +107,16 @@ class RetrievalStage:
         if len(candidates) < 2 or not _query_implies_institutional_preference(query):
             return candidates
         typed = candidates if any(candidate.source_type != "unknown" for candidate in candidates) else self._annotate_source_types(candidates=candidates)
-        scored: list[tuple[int, int, RetrievedEvidenceCandidate]] = []
+        scored: list[tuple[int, int, int, RetrievedEvidenceCandidate]] = []
         for index, candidate in enumerate(typed):
-            scored.append((_source_mix_priority(candidate), index, candidate))
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        reordered = tuple(item[2] for item in scored)
+            scored.append((
+                _source_mix_priority(candidate),
+                _candidate_target_quality_priority(candidate=candidate, query=query),
+                index,
+                candidate,
+            ))
+        scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        reordered = tuple(item[3] for item in scored)
         return tuple(replace(candidate, rank=index + 1) for index, candidate in enumerate(reordered))
 
     def _annotate_source_types(
@@ -285,6 +291,100 @@ def _source_mix_priority(candidate: RetrievedEvidenceCandidate) -> int:
     if candidate.snippet.strip():
         score += 1
     return score
+
+
+_SCORING_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_QUERY_FOCUS_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "best",
+        "by",
+        "for",
+        "from",
+        "how",
+        "in",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "what",
+        "when",
+        "with",
+    }
+)
+_QUERY_INTENT_MARKERS = frozenset(
+    {
+        "authority",
+        "best",
+        "compliance",
+        "government",
+        "guide",
+        "guidance",
+        "ministry",
+        "official",
+        "policy",
+        "practice",
+        "practices",
+        "regulation",
+    }
+)
+
+
+def _candidate_target_quality_priority(*, candidate: RetrievedEvidenceCandidate, query: str) -> int:
+    focus_tokens = _query_focus_tokens(query)
+    if not focus_tokens:
+        return 0
+    title_tokens = set(_tokenize_scoring_text(candidate.title))
+    supporting_tokens = set(
+        _tokenize_scoring_text(" ".join(part for part in (candidate.snippet, candidate.url) if part))
+    )
+    focus_token_set = set(focus_tokens)
+    title_overlap = focus_token_set & title_tokens
+    supporting_overlap = focus_token_set & supporting_tokens
+    normalized_candidate_text = _normalize_scoring_text(" ".join((candidate.title, candidate.snippet, candidate.url)))
+    phrase_matches = sum(
+        1
+        for phrase in _query_focus_phrases(query)
+        if phrase in normalized_candidate_text
+    )
+    return (len(title_overlap) * 3) + len(supporting_overlap - title_overlap) + (phrase_matches * 3)
+
+
+def _query_focus_tokens(query: str) -> tuple[str, ...]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for token in _tokenize_scoring_text(query):
+        if token in _QUERY_FOCUS_STOPWORDS or token in _QUERY_INTENT_MARKERS:
+            continue
+        if len(token) < 2:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        ordered.append(token)
+    return tuple(ordered)
+
+
+def _query_focus_phrases(query: str) -> tuple[str, ...]:
+    focus_tokens = _query_focus_tokens(query)
+    if len(focus_tokens) < 2:
+        return ()
+    return tuple(
+        f"{focus_tokens[index]} {focus_tokens[index + 1]}"
+        for index in range(len(focus_tokens) - 1)
+    )
+
+
+def _tokenize_scoring_text(value: str) -> tuple[str, ...]:
+    return tuple(_SCORING_TOKEN_RE.findall(value.lower()))
+
+
+def _normalize_scoring_text(value: str) -> str:
+    return " ".join(_tokenize_scoring_text(value))
 
 
 def _looks_like_pdf_candidate(candidate: RetrievedEvidenceCandidate) -> bool:

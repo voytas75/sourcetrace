@@ -1579,3 +1579,36 @@ Current posture:
 Verification:
 - focused v2 handoff/retrieval tests were updated to pin the new behavior (`5 passed`)
 - live smoke on `legal hold steps records retention official guidance` confirmed `evidence_query` now exactly matches the bounded seed query and no longer drifts into assistant-style prose
+
+## 2026-06-28 — SourceTrace v2 retrieval-target-quality-refinement-v1 checkpoint
+
+Closed the bounded retrieval refinement after the decision slice, using a Codex-assisted implementation under the existing guardrails.
+
+What changed:
+- updated `src/sourcetrace_v2/execution/stages/retrieval.py`
+- added `tests/unit/v2/test_retrieval_target_quality.py`
+- extended `tests/unit/v2/test_source_mix_shaping.py`
+- added `docs/retrieval-target-quality-refinement-v1-2026-06-28.md`
+
+What this slice does:
+- keeps the existing source-type-first shaping
+- adds a secondary general target-quality score inside retrieval shaping based on:
+  - query focus-token overlap with candidate title/snippet/url
+  - simple focus-phrase overlap
+- excludes generic stopwords and intent-only markers so ordering is influenced more by topic/jurisdiction-bearing terms rather than generic prompt words
+
+What this slice showed:
+- focused regression/tests passed (`10 passed`)
+- live sanity checks improved some previously ambiguous cases without selector changes:
+  - cross-border data transfer now surfaced an institutional lead source (`PDPC`) with advisory material behind it
+  - tax guidance now produced a jurisdiction-consistent institutional pair (`IRS`, `IRS`) instead of a mixed institutional shape
+- remote-work Poland remained weak and advisory/commercial, so this refinement is real but not sufficient to close the retrieval line
+
+Current posture:
+- this was a good upstream refinement
+- keep it
+- do not jump immediately into another local fix based on the remaining Poland weakness
+- next step should be a broader post-refinement evaluation pass
+
+Best next bounded slice:
+- `retrieval-target-quality-evaluation-v1` — run a broader post-refinement evaluation pack to confirm where the target-quality refinement helps consistently, where it does not, and whether the next move should stay in retrieval or shift toward trust-quality alignment
