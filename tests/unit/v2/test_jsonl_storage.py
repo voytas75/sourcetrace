@@ -73,6 +73,41 @@ def test_jsonl_storage_can_back_http_get_readback(tmp_path: Path) -> None:
     assert '"candidate_count": 3' in response.body
 
 
+def test_jsonl_storage_preserves_execution_source_type_readback_shape(tmp_path: Path) -> None:
+    config = build_default_runtime_config()
+    llm = StubLlmGateway(config)
+    results = JsonlResultArtifactRepository(tmp_path)
+    receipts = JsonlReceiptRepository(tmp_path)
+    run_and_persist_minimal_flow(
+        job_id="job-jsonl-source-type",
+        run_id="run-jsonl-source-type",
+        seed_text="official guidance",
+        llm=llm,
+        search=StubSearchGateway(),
+        results=results,
+        receipts=receipts,
+        config=config,
+    )
+
+    runtime = RuntimeAssembly(
+        config=config,
+        llm=llm,
+        search=StubSearchGateway(),
+        results=results,
+        receipts=receipts,
+        logger=logging.getLogger("test-jsonl-source-type"),
+    )
+
+    response = handle_get_persisted_execution_request(
+        job_id="job-jsonl-source-type",
+        run_id="run-jsonl-source-type",
+        runtime=runtime,
+    )
+
+    assert response.status_code == 200
+    assert '"source_type": ' in response.body
+
+
 def test_jsonl_storage_preserves_compiled_judgment_readback_shape(tmp_path: Path) -> None:
     config = build_default_runtime_config()
     llm = StubLlmGateway(config)

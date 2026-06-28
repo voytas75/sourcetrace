@@ -985,6 +985,32 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-source-typing-consumer-validation-v1` — validate one real persisted/readback consumer path for `source_type` before extending shaping further
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-source-typing-consumer-validation-v1 checkpoint
+
+Closed one real downstream consumer validation path for the new `source_type` metadata.
+
+What changed:
+- added `docs/authority-relevance-source-typing-consumer-validation-v1-2026-06-28.md`
+- added focused persisted/readback coverage in `tests/unit/v2/test_jsonl_storage.py`
+- validated that JSONL-backed execution readback / HTTP projection carries `source_type` through to the consumer-facing evidence-input candidate surface
+
+What this slice showed:
+- `source_type` is no longer only runtime-local metadata; it now has a validated persisted consumer path
+- this is enough to rely on it for future diagnostics/shaping work in bounded form
+- current validation intentionally checks presence/transport rather than claiming the shallow classifier is already semantically perfect
+
+Current posture:
+- keep selector policy unchanged
+- keep source typing shallow but explicit
+- the next sharp move is not more validation but using explicit source-type state to make upstream shaping cleaner and less implicit
+
+Verification:
+- focused tests passed (`6 passed`)
+- details recorded in `docs/authority-relevance-source-typing-consumer-validation-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-source-type-aware-shaping-v1` — use explicit `source_type` state to clean up upstream shaping without changing downstream selector policy in the same slice
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
