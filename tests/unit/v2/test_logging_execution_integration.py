@@ -2,6 +2,7 @@ import io
 import logging
 
 from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
+from sourcetrace_v2.adapters.search.stub import StubSearchGateway
 from sourcetrace_v2.app.services.execution import execute_minimal_research_flow
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
 from sourcetrace_v2.runtime.logging.json_formatter import JsonFormatter
@@ -11,6 +12,7 @@ from sourcetrace_v2.runtime.logging.text_formatter import TextFormatter
 def test_execution_flow_emits_json_logs_with_correlation_fields() -> None:
     config = build_default_runtime_config()
     llm = StubLlmGateway(config)
+    search = StubSearchGateway()
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JsonFormatter())
@@ -25,6 +27,7 @@ def test_execution_flow_emits_json_logs_with_correlation_fields() -> None:
         run_id="run-log-json",
         seed_text="test query",
         llm=llm,
+        search=search,
         config=config,
         logger=logger,
     )
@@ -43,6 +46,7 @@ def test_execution_flow_emits_json_logs_with_correlation_fields() -> None:
 def test_execution_flow_emits_text_logs_with_stage_context() -> None:
     config = build_default_runtime_config()
     llm = StubLlmGateway(config)
+    search = StubSearchGateway()
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(TextFormatter())
@@ -57,6 +61,7 @@ def test_execution_flow_emits_text_logs_with_stage_context() -> None:
         run_id="run-log-text",
         seed_text="test query",
         llm=llm,
+        search=search,
         config=config,
         logger=logger,
     )

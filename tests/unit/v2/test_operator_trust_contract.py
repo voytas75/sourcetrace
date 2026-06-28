@@ -22,8 +22,8 @@ def test_operator_trust_contract_marks_complete_nonfailed_run_as_weak_when_degra
     )
     payload = project_persisted_execution_view(view=view)
 
-    assert payload["trust"]["status"] == "weak"
-    assert payload["trust"]["reasons"] == ["degraded_llm_calls"]
+    assert payload["trust"]["status"] == "needs_review"
+    assert payload["trust"]["reasons"] == ["degraded_llm_calls", "low_confidence_selected_shape"]
 
 
 def test_operator_trust_contract_marks_incomplete_persistence_as_degraded() -> None:
