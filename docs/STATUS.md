@@ -1804,3 +1804,65 @@ Verification:
 
 Best next bounded slice:
 - `retrieval-survival-after-query-refinement-v1` — inspect whether a small bounded survival adjustment is still needed after the improved query-refinement path, but only within already official-intent candidate pools and only if justified by the live evidence
+
+## 2026-06-28 — SourceTrace v2 quality-regression-pack-v4 checkpoint
+
+Closed one bounded regression-baseline follow-up after the post-query-refinement live eval.
+
+What changed:
+- added `tests/fixtures/v2/quality_regression_pack_v4.json`
+- added `tests/unit/v2/test_quality_regression_pack_v4.py`
+- added `docs/quality-regression-pack-v4-2026-06-28.md`
+
+What this slice adds:
+- a `legal hold` regression pin for the improved public/institutional selected pair that still truthfully projects `needs_review`
+- a `tax guidance` regression pin for the improved same-authority IRS pair that now projects `usable`
+
+What this slice deliberately does not add:
+- `remote-work Poland`, because the selected pair still is not a clean exact-subject official winner
+- `cross-border data transfer`, because the current selected shape still looks too mixed to treat as a stable shared baseline case
+
+Current posture:
+- the regression layer now reflects the two live-eval outcomes that actually shifted the bounded baseline
+- this keeps the update evidence-driven without sneaking in retrieval-survival logic or other runtime changes
+- the remaining hard cases are still better treated as cautionary live-eval evidence, not as newly pinned expected behavior
+
+Verification:
+- focused regression tests passed
+- broader `tests/unit/v2` passed
+
+Best next bounded slice:
+- `retrieval-survival-after-query-refinement-v1` remains the next decision candidate, but now against a slightly stronger regression baseline that reflects the live-eval improvements already earned
+
+## 2026-06-28 — SourceTrace v2 official-guidance-source-typing-v1 checkpoint
+
+Closed one bounded retrieval-shaping slice after the live eval narrowed the remaining official-intent weakness.
+
+What changed:
+- updated `src/sourcetrace_v2/execution/stages/retrieval.py`
+- extended `tests/unit/v2/test_source_mix_shaping.py`
+- extended `tests/unit/v2/test_retrieval_target_quality.py`
+- added `docs/official-guidance-source-typing-v1-2026-06-28.md`
+
+What this slice does:
+- keeps the public `source_type` contract coarse and unchanged
+- adds a small internal penalty for publication-like institutional surfaces during official-intent source-mix shaping
+- uses source-surface markers only, so the fix stays generic and does not add query-specific or country-specific heuristics
+
+What this slice showed:
+- `cross-border data transfer` reran with an EDPB guidance page at the top instead of the earlier PMC article
+- `remote-work Poland` reran without the CEJSH publication-like PDF leading the pool
+- `remote-work Poland` still is not a clean exact-subject official winner, so the case remains cautionary rather than closed
+
+Verification:
+- focused retrieval/source-typing/regression tests passed (`15 passed`)
+- broader `tests/unit/v2` passed (`100 passed`)
+- two weak live cases reran successfully after setting `SOURCETRACE_SEARXNG_BASE_URL=http://127.0.0.1:18080`
+
+Current posture:
+- official-guidance intent is now less vulnerable to academic/publication-like institutional surfaces inside already-official pools
+- the patch stayed bounded to source typing plus the existing source-mix shaping seam
+- trust and selector semantics remain unchanged, so any remaining weakness is easier to interpret honestly
+
+Best next bounded slice:
+- `retrieval-survival-after-query-refinement-v1` still looks like the next candidate, but now against a cleaner official-guidance pool where publication-like institutional surfaces are less likely to dominate

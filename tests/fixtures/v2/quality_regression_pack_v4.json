@@ -1,0 +1,130 @@
+[
+  {
+    "case_id": "legal_hold_public_institutional_pair_now_needs_review",
+    "query": "legal hold steps records retention official guidance site:gov OR site:.edu OR site:archives.gov OR site:justice.gov",
+    "artifact": {
+      "job_id": "job-quality-pack-v4-legal-hold",
+      "run_id": "run-quality-pack-v4-legal-hold",
+      "result_text": "legal hold summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:legalholdv4:1",
+          "job_id": "job-quality-pack-v4-legal-hold",
+          "run_id": "run-quality-pack-v4-legal-hold",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance site:gov OR site:.edu OR site:archives.gov OR site:justice.gov",
+          "title": "[PDF] Legal Hold Guidance - King County",
+          "url": "https://cdn.kingcounty.gov/-/media/king-county/depts/executive-services/records-management/rm/rm-guidance-legal-holds.pdf?rev=5c4b8b405e52499392933f2b9e612fc8&hash=022F5848A00E296D62A8D02ECADA03D2",
+          "snippet": "This document provides guidance and best practice about how to manage records during the legal hold process, including how to comply with Executive Policy LGL- ...",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:legalholdv4:2",
+          "job_id": "job-quality-pack-v4-legal-hold",
+          "run_id": "run-quality-pack-v4-legal-hold",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance site:gov OR site:.edu OR site:archives.gov OR site:justice.gov",
+          "title": "Records Management Regulations and Guidance | National Archives",
+          "url": "https://www.archives.gov/records-mgmt/policy",
+          "snippet": "Records Management Regulations and Guidance The Office of the Chief Records Officer for the U.S. Government is responsible for developing Federal records management guidance related to records creation, management, and disposition with an emphasis on electronic records.",
+          "rank": 2,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:legalholdv4:3",
+          "job_id": "job-quality-pack-v4-legal-hold",
+          "run_id": "run-quality-pack-v4-legal-hold",
+          "provider": "searxng",
+          "query": "legal hold steps records retention official guidance site:gov OR site:.edu OR site:archives.gov OR site:justice.gov",
+          "title": "1743-2 - NIH Litigation Hold Policy",
+          "url": "https://policymanual.nih.gov/1743-2",
+          "snippet": "NIH policy guidance for litigation holds and records preservation.",
+          "rank": 3,
+          "source_type": "institutional"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "[PDF] Legal Hold Guidance - King County",
+        "Records Management Regulations and Guidance | National Archives"
+      ],
+      "must_exclude": [
+        "1743-2 - NIH Litigation Hold Policy"
+      ],
+      "note": "This case pins the post-query-refinement improvement: the earlier weak vendor drift is gone, but the selected institutional pair still spans different authorities and should remain review-marked."
+    },
+    "trust": {
+      "status": "needs_review",
+      "reasons": [
+        "jurisdiction_mixed_selected_institutional_pair"
+      ],
+      "note": "The current trust layer should keep this shape honest because the selected institutional pair anchors to different public authorities."
+    }
+  },
+  {
+    "case_id": "tax_deadline_same_authority_pair_now_stays_usable",
+    "query": "official IRS tax filing deadline guidance small business site:irs.gov OR site:gov.uk OR site:canada.ca OR site:ato.gov.au",
+    "artifact": {
+      "job_id": "job-quality-pack-v4-tax",
+      "run_id": "run-quality-pack-v4-tax",
+      "result_text": "tax deadline summary",
+      "evidence_candidates": [
+        {
+          "candidate_id": "cand:taxv4:1",
+          "job_id": "job-quality-pack-v4-tax",
+          "run_id": "run-quality-pack-v4-tax",
+          "provider": "searxng",
+          "query": "official IRS tax filing deadline guidance small business site:irs.gov OR site:gov.uk OR site:canada.ca OR site:ato.gov.au",
+          "title": "Publication 334 (2025), Tax Guide for Small Business - IRS",
+          "url": "https://www.irs.gov/publications/p334",
+          "snippet": "This publication has information on business income, expenses, and tax credits that may help you, as a small business owner, file your income tax return.",
+          "rank": 1,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:taxv4:2",
+          "job_id": "job-quality-pack-v4-tax",
+          "run_id": "run-quality-pack-v4-tax",
+          "provider": "searxng",
+          "query": "official IRS tax filing deadline guidance small business site:irs.gov OR site:gov.uk OR site:canada.ca OR site:ato.gov.au",
+          "title": "Small Business Filing and Recordkeeping Requirements -",
+          "url": "https://www.taxpayeradvocate.irs.gov/news/tax-tips/tas-tax-tip-small-business-filing-and-recordkeeping-requirements/2026/05/",
+          "snippet": "Help you meet your filing requirements and file accurate returns.",
+          "rank": 2,
+          "source_type": "institutional"
+        },
+        {
+          "candidate_id": "cand:taxv4:3",
+          "job_id": "job-quality-pack-v4-tax",
+          "run_id": "run-quality-pack-v4-tax",
+          "provider": "searxng",
+          "query": "official IRS tax filing deadline guidance small business site:irs.gov OR site:gov.uk OR site:canada.ca OR site:ato.gov.au",
+          "title": "Filing and paying your business taxes | Internal Revenue Service",
+          "url": "https://www.irs.gov/businesses/small-businesses-self-employed/filing-and-paying-your-business-taxes",
+          "snippet": "IRS guidance on filing and paying business taxes.",
+          "rank": 3,
+          "source_type": "institutional"
+        }
+      ]
+    },
+    "evaluation": {
+      "acceptable": true,
+      "must_include": [
+        "Publication 334 (2025), Tax Guide for Small Business - IRS",
+        "Small Business Filing and Recordkeeping Requirements -"
+      ],
+      "must_exclude": [
+        "Filing and paying your business taxes | Internal Revenue Service"
+      ],
+      "note": "This case pins the live-eval improvement where the selected pair is now same-authority institutional material rather than the earlier jurisdiction-mixed institutional pair."
+    },
+    "trust": {
+      "status": "usable",
+      "reasons": [],
+      "note": "The current trust layer should leave this shape usable because both selected sources anchor to the same IRS authority family."
+    }
+  }
+]

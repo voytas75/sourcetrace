@@ -126,3 +126,38 @@ def test_source_mix_shaping_uses_query_focus_terms_for_jurisdiction_targeting() 
         "https://www.gov.uk/employment/remote-work-reporting",
         "https://vendor.example.test/remote-work-reporting",
     ]
+
+
+def test_source_mix_shaping_prefers_official_guidance_surface_over_institutional_publication_surface() -> None:
+    stage = RetrievalStage(search=None)  # type: ignore[arg-type]
+    candidates = (
+        _candidate(
+            title="Clarifying the legal requirement for cross-border sharing of health data ...",
+            url="https://pmc.ncbi.nlm.nih.gov/articles/PMC12622382/",
+            rank=1,
+            source_type="institutional",
+        ),
+        _candidate(
+            title="International data transfers | Data protection guide for small business",
+            url="https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en",
+            rank=2,
+            source_type="institutional",
+        ),
+        _candidate(
+            title="Cross-border transfer checklist",
+            url="https://vendor.example.test/cross-border-transfer-checklist",
+            rank=3,
+            source_type="vendor",
+        ),
+    )
+
+    shaped = stage._shape_source_mix(
+        candidates=candidates,
+        query="cross-border data transfer official guidance",
+    )
+
+    assert [candidate.url for candidate in shaped] == [
+        "https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC12622382/",
+        "https://vendor.example.test/cross-border-transfer-checklist",
+    ]

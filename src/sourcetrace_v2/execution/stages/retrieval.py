@@ -251,6 +251,28 @@ _COMMENTARY_TITLE_MARKERS = (
     "law firm",
 )
 
+_PUBLICATION_SURFACE_HOST_MARKERS = (
+    "pmc.ncbi.nlm.nih.gov",
+    "pubmed.ncbi.nlm.nih.gov",
+)
+
+_PUBLICATION_SURFACE_STRONG_MARKERS = (
+    "abstract",
+    "cejsh",
+    "doi",
+    "issn",
+    "journal",
+    "pmc",
+    "pubmed",
+)
+
+_PUBLICATION_SURFACE_SOFT_MARKERS = (
+    "article",
+    "paper",
+    "review",
+    "study",
+)
+
 
 def _classify_source_type(candidate: RetrievedEvidenceCandidate) -> str:
     parsed = urlparse(candidate.url)
@@ -288,9 +310,40 @@ def _source_mix_priority(candidate: RetrievedEvidenceCandidate) -> int:
         "commentary": -1,
     }
     score = priority_by_source_type.get(candidate.source_type, 0)
+    if candidate.source_type == "institutional":
+        score += _institutional_surface_priority(candidate)
     if candidate.snippet.strip():
         score += 1
     return score
+
+
+def _institutional_surface_priority(candidate: RetrievedEvidenceCandidate) -> int:
+    if _looks_like_publication_surface(candidate):
+        return -2
+    return 0
+
+
+def _looks_like_publication_surface(candidate: RetrievedEvidenceCandidate) -> bool:
+    parsed = urlparse(candidate.url)
+    host = parsed.netloc.lower()
+    text = _candidate_surface_text(candidate)
+    if any(marker == host or marker in host for marker in _PUBLICATION_SURFACE_HOST_MARKERS):
+        return True
+    if any(marker in text for marker in _PUBLICATION_SURFACE_STRONG_MARKERS):
+        return True
+    return sum(1 for marker in _PUBLICATION_SURFACE_SOFT_MARKERS if marker in text) >= 2
+
+
+def _candidate_surface_text(candidate: RetrievedEvidenceCandidate) -> str:
+    parsed = urlparse(candidate.url)
+    return " ".join(
+        (
+            parsed.netloc.lower(),
+            parsed.path.lower(),
+            candidate.title.lower(),
+            candidate.snippet.lower(),
+        )
+    )
 
 
 _SCORING_TOKEN_RE = re.compile(r"[a-z0-9]+")
