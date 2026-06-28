@@ -806,3 +806,33 @@ Verification:
 
 Best next bounded slice:
 - pause policy work unless a concrete failure appears; if you want stronger confidence, prefer a small live verification slice on 3–5 chosen real queries over more synthetic fixture growth
+
+## 2026-06-28 — SourceTrace v2 authority-relevance-live-verification-v1 checkpoint
+
+Ran a bounded live verification pass on a few real queries and used it to test whether the current authority/relevance posture still holds on the real provider mix.
+
+What changed:
+- added `docs/authority-relevance-live-verification-v1-2026-06-28.md`
+- ran four live queries through the current v2 operator/runtime path with Azure + SearxNG
+- evaluated compiled selected-evidence outcomes and bounded judgment bands for each live run
+
+What this slice showed:
+- this was a useful reality check because it broke the comfortable synthetic-fixture story
+- the live outcomes were weak enough that the main problem is **not** best explained by downstream authority/relevance selection alone
+- for multiple queries, selected evidence was commentary-heavy, broad, or plainly off-topic before any downstream refinement could save it
+- the most important conclusion is negative: this live pass does **not** justify immediate authority/relevance policy expansion
+
+Observed posture:
+- fixture/eval-corpus checks still show the bounded selector behaves coherently when given a reasonable candidate pool
+- live verification exposed that the sharper real weakness is upstream candidate quality:
+  - query shaping
+  - retrieval source mix
+  - candidate relevance before evidence judgment/selection
+- one case (`legal hold steps records retention official guidance`) failed hard enough to make this especially clear: the selected evidence was plainly off-topic, which means downstream selector tuning would be treating the symptom, not the cause
+
+Verification:
+- bounded live verification was completed on four real queries
+- findings were recorded in `docs/authority-relevance-live-verification-v1-2026-06-28.md`
+
+Best next bounded slice:
+- do **not** change authority/relevance selection policy yet; the sharper next move is `authority-relevance-live-retrieval-diagnostics-v1` to localize why real queries are producing weak/off-topic candidate pools before selection
