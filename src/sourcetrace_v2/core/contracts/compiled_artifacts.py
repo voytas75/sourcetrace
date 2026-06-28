@@ -20,6 +20,13 @@ class EvidenceJudgmentSnapshot:
 
 
 @dataclass(frozen=True)
+class PdfEvidenceContextSnapshot:
+    document_scope: str = ""
+    entity_match_summary: str = ""
+    key_findings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class CompiledEvidenceSnapshot:
     title: str
     url: str
@@ -27,6 +34,7 @@ class CompiledEvidenceSnapshot:
     rank: int
     snippet: str = ""
     judgment: EvidenceJudgmentSnapshot | None = None
+    pdf_context: PdfEvidenceContextSnapshot | None = None
 
 
 @dataclass(frozen=True)

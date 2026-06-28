@@ -10,9 +10,10 @@ from sourcetrace_v2.core.contracts.compiled_artifacts import (
     CompiledResearchArtifact,
     EvidenceJudgmentDimension,
     EvidenceJudgmentSnapshot,
+    PdfEvidenceContextSnapshot,
 )
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus, StageId, StageStatus
-from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, PdfEvidenceContext, ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker, StageExecutionReceipt
 
 
 def _serialize_dataclass(instance: Any) -> dict[str, Any]:
@@ -54,6 +55,26 @@ def _deserialize_judgment_snapshot(payload: dict[str, Any] | None) -> EvidenceJu
         topic_match=topic_match,
         specificity=specificity,
         answer_fit=answer_fit,
+    )
+
+
+def _deserialize_pdf_context(payload: dict[str, Any] | None) -> PdfEvidenceContext | None:
+    if payload is None:
+        return None
+    return PdfEvidenceContext(
+        document_scope=str(payload.get("document_scope", "") or ""),
+        entity_match_summary=str(payload.get("entity_match_summary", "") or ""),
+        key_findings=tuple(str(item) for item in payload.get("key_findings", [])),
+    )
+
+
+def _deserialize_pdf_context_snapshot(payload: dict[str, Any] | None) -> PdfEvidenceContextSnapshot | None:
+    if payload is None:
+        return None
+    return PdfEvidenceContextSnapshot(
+        document_scope=str(payload.get("document_scope", "") or ""),
+        entity_match_summary=str(payload.get("entity_match_summary", "") or ""),
+        key_findings=tuple(str(item) for item in payload.get("key_findings", [])),
     )
 
 
@@ -101,7 +122,19 @@ class JsonlResultArtifactRepository:
             summary=match.get("summary", ""),
             evidence_query=match.get("evidence_query", ""),
             evidence_candidates=tuple(
-                RetrievedEvidenceCandidate(**candidate) for candidate in match.get("evidence_candidates", [])
+                RetrievedEvidenceCandidate(
+                    candidate_id=candidate["candidate_id"],
+                    job_id=candidate["job_id"],
+                    run_id=candidate["run_id"],
+                    provider=candidate["provider"],
+                    query=candidate["query"],
+                    title=candidate["title"],
+                    url=candidate["url"],
+                    snippet=candidate.get("snippet", ""),
+                    rank=candidate.get("rank", 1),
+                    pdf_context=_deserialize_pdf_context(candidate.get("pdf_context")),
+                )
+                for candidate in match.get("evidence_candidates", [])
             ),
         )
 
@@ -129,6 +162,7 @@ class JsonlResultArtifactRepository:
                     rank=item["rank"],
                     snippet=item.get("snippet", ""),
                     judgment=_deserialize_judgment_snapshot(item.get("judgment")),
+                    pdf_context=_deserialize_pdf_context_snapshot(item.get("pdf_context")),
                 )
                 for item in match.get("selected_evidence", [])
             ),

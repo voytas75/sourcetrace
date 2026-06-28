@@ -66,3 +66,11 @@ def test_run_http_path_enriches_pdf_candidate_via_pdf_seam() -> None:
     assert payload["evidence_input"]["candidates"][0]["url"] == "https://example.test/raport.pdf"
     assert payload["selected_evidence"]["items"][0]["snippet"].startswith("pdf_scope=NIK official control document")
     assert "Szpital Południowy w Warszawie" in payload["selected_evidence"]["items"][0]["snippet"]
+
+    artifact = runtime.results.get_result(job_id="job-pdf-consumer", run_id="run-pdf-consumer")
+    assert artifact is not None
+    first = artifact.evidence_candidates[0]
+    assert first.pdf_context is not None
+    assert first.pdf_context.document_scope == "NIK official control document"
+    assert first.pdf_context.entity_match_summary == "Szpital Południowy w Warszawie"
+    assert first.pdf_context.key_findings == ("Ustalenie 1", "Ustalenie 2")

@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from sourcetrace_v2.adapters.pdf.interfaces import PdfReadGateway
 from sourcetrace_v2.adapters.search.interfaces import SearchGateway
 from sourcetrace_v2.core.domain.identifiers import StageStatus
-from sourcetrace_v2.core.domain.models import RetrievedEvidenceCandidate, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import PdfEvidenceContext, RetrievedEvidenceCandidate, StageExecutionReceipt
 from sourcetrace_v2.execution.context.models import ExecutionContext
 from sourcetrace_v2.execution.receipts.collector import ReceiptCollector
 
@@ -110,7 +110,17 @@ class RetrievalStage:
             if pdf_result.key_findings:
                 snippet_parts.extend(pdf_result.key_findings[:2])
             snippet = " | ".join(part.strip() for part in snippet_parts if part and part.strip()) or candidate.snippet
-            enriched.append(replace(candidate, snippet=snippet))
+            enriched.append(
+                replace(
+                    candidate,
+                    snippet=snippet,
+                    pdf_context=PdfEvidenceContext(
+                        document_scope=pdf_result.document_scope,
+                        entity_match_summary=pdf_result.entity_match_summary,
+                        key_findings=tuple(pdf_result.key_findings[:2]),
+                    ),
+                )
+            )
         return tuple(enriched)
 
 

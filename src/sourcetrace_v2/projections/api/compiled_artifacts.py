@@ -17,6 +17,11 @@ def project_compiled_artifact(*, artifact: CompiledResearchArtifact | None) -> d
                 "provider": item.provider,
                 "rank": item.rank,
                 "snippet": item.snippet,
+                "pdf_context": {
+                    "document_scope": item.pdf_context.document_scope,
+                    "entity_match_summary": item.pdf_context.entity_match_summary,
+                    "key_findings": list(item.pdf_context.key_findings),
+                } if item.pdf_context is not None else None,
                 "judgment": {
                     "contract_version": item.judgment.contract_version,
                     "authority": {

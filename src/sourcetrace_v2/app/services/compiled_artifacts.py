@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledEvidenceSnapshot, CompiledResearchArtifact
+from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledEvidenceSnapshot, CompiledResearchArtifact, PdfEvidenceContextSnapshot
 from sourcetrace_v2.core.domain.models import ResearchResultArtifact
 from sourcetrace_v2.core.policies.selected_evidence import build_candidate_judgment, decide_selected_evidence
 
@@ -16,6 +16,15 @@ def build_compiled_artifact(*, artifact: ResearchResultArtifact) -> CompiledRese
             rank=candidate.rank,
             snippet=candidate.snippet,
             judgment=build_candidate_judgment(candidate),
+            pdf_context=(
+                PdfEvidenceContextSnapshot(
+                    document_scope=candidate.pdf_context.document_scope,
+                    entity_match_summary=candidate.pdf_context.entity_match_summary,
+                    key_findings=candidate.pdf_context.key_findings,
+                )
+                if candidate.pdf_context is not None
+                else None
+            ),
         )
         for candidate in selected
     )

@@ -39,6 +39,13 @@ class ResearchRun:
 
 
 @dataclass(frozen=True)
+class PdfEvidenceContext:
+    document_scope: str = ""
+    entity_match_summary: str = ""
+    key_findings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class RetrievedEvidenceCandidate:
     candidate_id: str
     job_id: str
@@ -49,6 +56,7 @@ class RetrievedEvidenceCandidate:
     url: str
     snippet: str = ""
     rank: int = 1
+    pdf_context: PdfEvidenceContext | None = None
 
 
 @dataclass(frozen=True)

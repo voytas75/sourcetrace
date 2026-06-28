@@ -696,3 +696,29 @@ Verification:
 
 Best next bounded slice:
 - if the next real pain is evidence semantics, move to typed PDF evidence carry-forward; if the next real pain is operator ergonomics, the next narrow move would be lightweight filtering/summary polish on the readback CLI rather than new runtime plumbing
+
+## 2026-06-28 — SourceTrace v2 typed-pdf-evidence-carry-forward-v1 checkpoint
+
+Closed the first bounded typed carry-forward slice for PDF-derived evidence.
+
+What changed:
+- added typed `pdf_context` on retrieval-side evidence candidates in `src/sourcetrace_v2/core/domain/models.py`
+- added typed `pdf_context` snapshot support on compiled selected-evidence artifacts in `src/sourcetrace_v2/core/contracts/compiled_artifacts.py`
+- retrieval-stage PDF enrichment now stores structured PDF-derived fields alongside the snippet, not only inside the snippet text
+- compiled-artifact building now carries that typed PDF context into selected-evidence snapshots
+- compiled-artifact projection now exposes `selected_evidence[*].pdf_context`
+- JSONL result + compiled-artifact roundtrip now preserves PDF context through persistence/readback
+- added focused coverage in `tests/unit/v2/test_pdf_typed_carry_forward.py` and `tests/unit/v2/test_pdf_jsonl_roundtrip.py`
+
+Current posture:
+- PDF-derived evidence is no longer snippet-only; v2 now has a narrow typed carry-forward path from retrieval enrichment into compiled selected-evidence artifacts
+- this does not change selected-evidence policy, judgment contract, or broader evidence semantics
+- the slice stays intentionally bounded: one typed seam for PDF context, not a broad document contract expansion
+
+Verification:
+- focused tests passed (`9 passed`)
+- a real operator loop smoke confirmed the run/compiled readback path remained healthy after the change
+- note: the live smoke query/provider mix did not yield a selected evidence item with positive `pdf_context` in that specific run, so the live check verified non-regression of the operator path rather than a positive live PDF-context hit
+
+Best next bounded slice:
+- the sharpest next move is likely a consumer-validation slice for typed PDF context through one persisted downstream readback boundary, or a query/fixture-shaped live verification slice if you specifically want proof of positive live PDF-context carry-forward rather than just typed persistence support
