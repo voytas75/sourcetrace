@@ -1174,6 +1174,34 @@ Verification:
 Best next bounded slice:
 - `institutional-evidence-precision-live-pack-v1` — run a small multi-query live pack over institutional-intent cases and confirm whether the updated authority surface produces consistently better selected-evidence shapes before further tuning
 
+## 2026-06-28 — SourceTrace v2 institutional-evidence-precision-live-pack-v1 checkpoint
+
+Ran the small live pack after `institutional-evidence-precision-v1` to verify whether the new authority surface helps consistently.
+
+What changed:
+- added `docs/institutional-evidence-precision-live-pack-v1-2026-06-28.md`
+- executed a 4-query institutional-intent live pack and inspected selected-evidence shapes
+
+What this slice showed:
+- the new authority surface is a real improvement when institutional candidates are already present in the pool
+- strongest good cases remained:
+  - break-glass: official Microsoft Learn source clearly stands out at `authority=high`
+  - breach notification: FTC + ICO both remain strong institutional selections at `authority=high`
+- the remaining weak cases were not fixed by this slice because they are upstream problems:
+  - legal hold still stayed vendor/vendor because the pool lacked strong institutional candidates
+  - remote-work reporting still stayed advisory/commentary-heavy because retrieval did not surface strong Poland-specific institutional evidence
+
+Current posture:
+- do not keep tuning institutional authority scoring right now
+- that seam is now good enough for the moment
+- the sharp remaining weakness is upstream again: institutional retrieval coverage / candidate-pool composition in hard domains
+
+Verification:
+- live pack findings recorded in `docs/institutional-evidence-precision-live-pack-v1-2026-06-28.md`
+
+Best next bounded slice:
+- `institutional-retrieval-gap-diagnostics-v1` — inspect why strong public-institutional candidates are still missing or weak in the remaining hard cases before changing retrieval or selection behavior again
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.
