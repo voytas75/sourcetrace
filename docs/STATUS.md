@@ -1736,3 +1736,37 @@ Current posture:
 
 Best next bounded slice:
 - `post-checkpoint-production-gap-review-v2` — re-rank the remaining readiness gaps again after the integration fix, retrieval evaluation, trust alignment, regression-pack v3, and jurisdiction-alignment closure, then choose the next highest-value bounded implementation step from the updated baseline
+
+## 2026-06-28 — SourceTrace v2 retrieval-query-refinement-handoff-v2 checkpoint
+
+Closed the next bounded retrieval-side slice after the rerank, under the stricter rule that any extra shaping should come from dynamic LLM query building rather than new deterministic heuristics.
+
+What changed:
+- updated `src/sourcetrace_v2/app/services/execution.py`
+- extended `tests/unit/v2/test_query_handoff_contract.py`
+- refreshed `tests/unit/v2/test_retrieval_target_quality.py`
+- added `docs/retrieval-query-refinement-handoff-v2-2026-06-28.md`
+
+What this slice does:
+- makes `QUERY_REFINEMENT` the real producer of retrieval input again, but under a bounded contract
+- asks the LLM for exactly one retrieval-query line instead of freeform answer prose
+- validates that output before retrieval consumes it
+- falls back to normalized seed text when the LLM emits prose/placeholders/invalid output
+- records fallback as a degraded query-refinement receipt (`validation_fallback`)
+
+What this slice showed:
+- dynamic query shaping now lives in the correct seam instead of being pushed further into static retrieval heuristics by default
+- invalid/stubby query-refinement output no longer silently poisons retrieval
+- integration/logging/readback stayed coherent after the handoff change
+
+Verification:
+- focused tests passed (`5 passed`)
+- broader `tests/unit/v2` passed (`97 passed`)
+
+Current posture:
+- this is a cleaner retrieval-side foundation, not proof that live hard cases are solved
+- hard cases still need live evaluation from the updated handoff path
+- the next honest move is to measure whether the new dynamic query-refinement seam improves candidate-pool quality before adding any further retrieval pressure
+
+Best next bounded slice:
+- `retrieval-query-refinement-live-eval-v1` — run a small live pack against the updated handoff, check whether hard cases improve materially in candidate-pool quality, then decide whether the next move should be further query-refinement refinement, retrieval survival adjustment, or regression-pack expansion

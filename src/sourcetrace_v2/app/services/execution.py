@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from sourcetrace_v2.core.domain.identifiers import FeatureId, StageId
+from sourcetrace_v2.core.domain.identifiers import DegradationReason, FeatureId, StageId
 from sourcetrace_v2.core.domain.models import ResearchJob, ResearchResultArtifact, ResearchRun
 from sourcetrace_v2.core.policies.deep_research import resolve_deep_research_stage_profile
 from sourcetrace_v2.execution.context.models import ExecutionContext
@@ -30,6 +30,52 @@ def _build_result_summary(*, seed_text: str, evidence_query: str, evidence_candi
 def _build_retrieval_query_handoff(*, seed_text: str) -> str:
     normalized = _WHITESPACE_RE.sub(" ", seed_text).strip()
     return normalized
+
+
+def _build_query_refinement_prompt(*, seed_text: str) -> str:
+    normalized = _build_retrieval_query_handoff(seed_text=seed_text)
+    return (
+        "You are preparing a web retrieval query for an evidence-centric research system.\n"
+        "Return exactly one search query line and nothing else.\n"
+        "Keep the query bounded, faithful to user intent, and optimized for official/institutional evidence when relevant.\n"
+        "Do not answer the question. Do not add commentary, bullets, prefixes, or quotes.\n"
+        f"User seed: {normalized}"
+    )
+
+
+def dataclass_replace_llm_receipt(receipt, degradation_reason: DegradationReason):
+    return replace(receipt, degradation_reason=degradation_reason)
+
+
+def _extract_refined_retrieval_query(*, seed_text: str, stage_output: str) -> tuple[str, DegradationReason | None]:
+    fallback = _build_retrieval_query_handoff(seed_text=seed_text)
+    normalized = _WHITESPACE_RE.sub(" ", stage_output).strip()
+    if not normalized:
+        return fallback, DegradationReason.VALIDATION_FALLBACK
+
+    lines = [line.strip() for line in stage_output.splitlines() if line.strip()]
+    candidate = _WHITESPACE_RE.sub(" ", lines[0] if lines else normalized).strip()
+    lowered = candidate.lower()
+    invalid_markers = (
+        "this is",
+        "here are",
+        "if you want",
+        "i can help",
+        "summary",
+        "answer:",
+        "query:",
+        "search query:",
+        "stub:",
+        "- ",
+        "1.",
+    )
+    if any(marker in lowered for marker in invalid_markers):
+        return fallback, DegradationReason.VALIDATION_FALLBACK
+    if len(lines) > 1:
+        return fallback, DegradationReason.VALIDATION_FALLBACK
+    if len(candidate) < 8 or len(candidate) > 200:
+        return fallback, DegradationReason.VALIDATION_FALLBACK
+    return candidate, None
 
 
 @dataclass(frozen=True)
@@ -93,6 +139,11 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
             else:
                 profile_name = resolve_deep_research_stage_profile(policy=config.deep_research, stage_id=stage_id)
                 stage = SimpleLlmStage(profile_name=profile_name, llm=llm)
+                stage_input = (
+                    _build_query_refinement_prompt(seed_text=seed_text)
+                    if stage_id is StageId.QUERY_REFINEMENT
+                    else current_text
+                )
                 result = stage.run(
                     context=ExecutionContext(
                         job_id=job_id,
@@ -102,9 +153,18 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
                         call_site=call_site,
                     ),
                     collector=collector,
-                    input_text=current_text,
+                    input_text=stage_input,
                 )
-                current_text = result.output_text
+                if stage_id is StageId.QUERY_REFINEMENT:
+                    retrieval_query, degradation_reason = _extract_refined_retrieval_query(
+                        seed_text=seed_text,
+                        stage_output=result.output_text,
+                    )
+                    if degradation_reason is not None and collector.llm_receipts:
+                        collector.llm_receipts[-1] = dataclass_replace_llm_receipt(collector.llm_receipts[-1], degradation_reason)
+                    current_text = current_text + f"\n\nRetrieval query:\n{retrieval_query}"
+                else:
+                    current_text = result.output_text
             stage_receipt = collector.stage_receipts[-1]
             log_method = event_logger.warning if stage_receipt.status.value == "degraded" else event_logger.info
             log_method(

@@ -37,6 +37,7 @@ def test_run_flow_promotes_more_targeted_official_candidate_before_selection(tmp
     payload = json.loads(response.body)
 
     assert response.status_code == 201
+    assert payload["artifact"]["present"] is True
     assert payload["evidence_input"]["candidates"][0]["title"] == (
         "Official FAQ on remote work reporting obligations for employers in Poland"
     )
