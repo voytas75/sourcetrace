@@ -41,3 +41,16 @@ def test_source_typing_v2_covers_real_weak_case_hosts() -> None:
     typed = stage._annotate_source_types(candidates=candidates)
 
     assert [candidate.source_type for candidate in typed] == ["commentary", "institutional", "vendor"]
+
+
+def test_source_typing_v3_covers_advisory_hosts_and_hosted_vendor_pdfs() -> None:
+    stage = RetrievalStage(search=None)  # type: ignore[arg-type]
+    candidates = (
+        _candidate(title="Protecting your Break Glass accounts in Entra now that MFA gets enforced", url="https://www.vansurksum.com/2025/01/08/protecting-your-break-glass-accounts-in-entra-now-that-mfa-gets-enforced-on-more-and-more-admin-portals/", rank=1),
+        _candidate(title="Remote work from abroad: OECD 2025 guidance for Poland - getsix", url="https://getsix.eu/resources/remote-work-from-abroad-oecd-2025-guidance-for-poland/", rank=2),
+        _candidate(title="PDF OpenText | Practical guidance on managing legal holds - White paper", url="https://cloc.org/wp-content/uploads/2024/12/Practical-Guidance-on-Managing-Legal-Holds_Opentext_July2019.pdf", rank=3),
+    )
+
+    typed = stage._annotate_source_types(candidates=candidates)
+
+    assert [candidate.source_type for candidate in typed] == ["commentary", "commentary", "vendor"]

@@ -1092,6 +1092,33 @@ Verification:
 Best next bounded slice:
 - `authority-relevance-source-typing-v3` — keep the same four buckets, but reduce `unknown` for recurring professional/advisory hosts and hosted vendor/practical PDFs while leaving downstream selector policy unchanged
 
+## 2026-06-28 — SourceTrace v2 authority-relevance-source-typing-v3 checkpoint
+
+Closed the next bounded source-classifier refinement after the unknown-bucket diagnostics.
+
+What changed:
+- refined commentary-style markers for recurring professional/advisory hosts seen in weak live cases
+- added title/path-aware vendor hints for hosted practical PDFs whose host is not vendor-branded but whose document provenance is clearly vendor/practical
+- kept the same four source-type buckets; no taxonomy expansion
+- extended focused source-typing tests for these recurring weak-case patterns
+
+What this slice showed:
+- the residual unknown bucket got narrower and more specific
+- previously recurring unknowns such as `getsix`, `vansurksum`, and the CLOC-hosted OpenText PDF no longer define the bucket the way they did before
+- remaining unknowns now look more like a narrower advisory/professional-commercial cluster (`Leinonen`, `First Legal`, `Altiatech`) rather than a wide mixed bag
+
+Current posture:
+- keep downstream selector policy unchanged
+- this was the right bounded move because it shrank `unknown` without expanding taxonomy
+- the next decision is no longer automatically "refine again"; it is whether the remaining residual bucket is still broad enough to justify one more small classifier slice
+
+Verification:
+- focused tests passed (`7 passed`)
+- live sanity check recorded in `docs/authority-relevance-source-typing-v3-2026-06-28.md`
+
+Best next bounded slice:
+- `authority-relevance-source-typing-v4-or-stop-check` — decide whether one more small advisory/commercial refinement is worth it, or whether tuning should pause until a concrete live failure appears
+
 ## 2026-06-28 — SourceTrace v2 authority-relevance-query-handoff-contract-v1 checkpoint
 
 Closed the bounded upstream contract defect identified by the live retrieval diagnostics.

@@ -206,6 +206,9 @@ _COMMENTARY_HOST_MARKERS = (
     "dudkowiak.com",
     "lawfirm.",
     "law.",
+    "vansurksum.com",
+    "getsix.eu",
+    "getsix.com",
 )
 
 _INSTITUTIONAL_TITLE_MARKERS = (
@@ -229,7 +232,9 @@ _COMMENTARY_TITLE_MARKERS = (
 
 
 def _classify_source_type(candidate: RetrievedEvidenceCandidate) -> str:
-    host = urlparse(candidate.url).netloc.lower()
+    parsed = urlparse(candidate.url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
     title = candidate.title.lower()
     if any(host.endswith(marker) or marker in host for marker in _INSTITUTIONAL_HOST_MARKERS):
         return "institutional"
@@ -237,11 +242,21 @@ def _classify_source_type(candidate: RetrievedEvidenceCandidate) -> str:
         return "institutional"
     if any(token in host for token in _VENDOR_HOST_MARKERS):
         return "vendor"
+    if _looks_like_hosted_vendor_practical_pdf(host=host, path=path, title=title):
+        return "vendor"
     if any(token in host for token in _COMMENTARY_HOST_MARKERS):
         return "commentary"
     if any(token in title for token in _COMMENTARY_TITLE_MARKERS):
         return "commentary"
     return "unknown"
+
+
+def _looks_like_hosted_vendor_practical_pdf(*, host: str, path: str, title: str) -> bool:
+    if not path.endswith('.pdf'):
+        return False
+    vendorish = ('opentext', 'everlaw', 'venio', 'disco', 'legal hold', 'practical guidance')
+    communityish = ('cloc.org', 'wp-content')
+    return any(token in title for token in vendorish) and any(token in host or token in path for token in communityish)
 
 
 def _source_mix_priority(candidate: RetrievedEvidenceCandidate) -> int:
