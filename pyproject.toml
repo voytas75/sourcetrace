@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Evidence-centric local-first verification and OSINT workflow system."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pdfplumber>=0.11,<0.12",
+]
 
 [project.optional-dependencies]
 dev = [
