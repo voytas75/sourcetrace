@@ -277,6 +277,26 @@ def _parse_and_run_wait(argv: list[str] | None = None) -> int:
     return _wait_from_args(args)
 
 
+def _argv_for_subcommand(args: argparse.Namespace, command: str) -> list[str]:
+    argv: list[str] = []
+    if command in {"start", "stop", "status"}:
+        argv.extend(["--mode", args.mode])
+        argv.extend(["--pid-file", args.pid_file])
+        argv.extend(["--log-file", args.log_file])
+        argv.extend(["--host", args.host])
+        argv.extend(["--port", str(args.port)])
+        argv.extend(["--width", str(args.width)])
+        argv.extend(["--height", str(args.height)])
+        return argv
+    if command == "wait":
+        argv.extend(["--host", args.host])
+        argv.extend(["--port", str(args.port)])
+        argv.extend(["--timeout-seconds", str(args.timeout_seconds)])
+        argv.extend(["--interval-seconds", str(args.interval_seconds)])
+        return argv
+    return argv
+
+
 def _write_user_unit_from_args(args: argparse.Namespace) -> int:
     unit_path = Path(args.unit_file).expanduser()
     _ensure_parent_dirs(unit_path)
@@ -298,22 +318,22 @@ def main(argv: list[str] | None = None) -> int:
     start_parser = subparsers.add_parser("start", help="Start the background runtime and write PID/log files.", description=_build_start_parser().description)
     for action in _build_start_parser()._actions[1:]:
         start_parser._add_action(action)
-    start_parser.set_defaults(handler=_start_from_args)
+    start_parser.set_defaults(handler=lambda args: start_main(argv=_argv_for_subcommand(args, "start")))
 
     stop_parser = subparsers.add_parser("stop", help="Stop the managed runtime using the PID file.", description=_build_stop_parser().description)
     for action in _build_stop_parser()._actions[1:]:
         stop_parser._add_action(action)
-    stop_parser.set_defaults(handler=_stop_from_args)
+    stop_parser.set_defaults(handler=lambda args: stop_main(argv=_argv_for_subcommand(args, "stop")))
 
     status_parser = subparsers.add_parser("status", help="Show process presence and basic endpoint readiness state.", description=_build_status_parser().description)
     for action in _build_status_parser()._actions[1:]:
         status_parser._add_action(action)
-    status_parser.set_defaults(handler=_status_from_args)
+    status_parser.set_defaults(handler=lambda args: status_main(argv=_argv_for_subcommand(args, "status")))
 
     wait_parser = subparsers.add_parser("wait", help="Block until the runtime HTTP endpoint responds or timeout is reached.", description=_build_wait_parser().description)
     for action in _build_wait_parser()._actions[1:]:
         wait_parser._add_action(action)
-    wait_parser.set_defaults(handler=_wait_from_args)
+    wait_parser.set_defaults(handler=lambda args: wait_main(argv=_argv_for_subcommand(args, "wait")))
 
     unit_parser = subparsers.add_parser("write-user-unit", help="Generate a systemd --user unit file for the runtime.", description=_build_write_user_unit_parser().description)
     for action in _build_write_user_unit_parser()._actions[1:]:
@@ -328,8 +348,28 @@ def main(argv: list[str] | None = None) -> int:
     return handler(args)
 
 
+def start_main(argv: list[str] | None = None) -> int:
+    return _parse_and_run_start(argv)
+
+
+def stop_main(argv: list[str] | None = None) -> int:
+    return _parse_and_run_stop(argv)
+
+
+def status_main(argv: list[str] | None = None) -> int:
+    return _parse_and_run_status(argv)
+
+
+def wait_main(argv: list[str] | None = None) -> int:
+    return _parse_and_run_wait(argv)
+
+
 __all__ = [
     "main",
+    "start_main",
+    "status_main",
+    "stop_main",
+    "wait_main",
     "render_systemd_user_unit",
     "_parse_and_run_start",
     "_parse_and_run_status",

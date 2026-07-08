@@ -99,8 +99,8 @@ def test_wsgi_research_job_flow() -> None:
     assert result_payload["result"]["reflection"]["reflection_version"] == "reflection_v1"
     assert result_html_status == "200 OK"
     assert ("Content-Type", "text/html; charset=utf-8") in result_html_headers
-    assert "Structured research report optimized for external reading" in result_html_body
-    assert "Evaluation and confidence" in result_html_body
+    assert "A cleaned research brief built from the sources selected by the runtime" in result_html_body
+    assert "Evidence quality" in result_html_body
     assert "Sources reviewed" in result_html_body
     assert list_status == "200 OK"
     assert len(json.loads(list_body)["jobs"]) == 1
