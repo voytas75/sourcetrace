@@ -161,3 +161,35 @@ def test_source_mix_shaping_prefers_official_guidance_surface_over_institutional
         "https://pmc.ncbi.nlm.nih.gov/articles/PMC12622382/",
         "https://vendor.example.test/cross-border-transfer-checklist",
     ]
+
+
+def test_source_mix_shaping_biases_community_quality_of_life_queries_toward_direct_outcome_facets() -> None:
+    stage = RetrievalStage(search=None)  # type: ignore[arg-type]
+    candidates = (
+        _candidate(
+            title="Brain drain among diaspora communities in Germany",
+            url="https://example.test/brain-drain",
+            rank=1,
+        ),
+        _candidate(
+            title="Transnational care networks in migrant communities",
+            url="https://example.test/transnational-care",
+            rank=2,
+        ),
+        _candidate(
+            title="Housing, employment and life satisfaction among the Polish diaspora in Germany",
+            url="https://example.test/outcomes",
+            rank=3,
+        ),
+    )
+
+    shaped = stage._shape_source_mix(
+        candidates=candidates,
+        query="quality of life of the Polish diaspora in Germany",
+    )
+
+    assert [candidate.url for candidate in shaped] == [
+        "https://example.test/outcomes",
+        "https://example.test/brain-drain",
+        "https://example.test/transnational-care",
+    ]

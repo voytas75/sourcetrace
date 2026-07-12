@@ -46,12 +46,12 @@
       "acceptable": true,
       "must_include": [
         "National cybersecurity authority portal",
-        "Law firm explainer on incident reporting timing"
-      ],
-      "must_exclude": [
         "Official incident reporting deadline FAQ"
       ],
-      "note": "This is intentionally uncomfortable: current bounded policy still keeps one official source plus one direct commentary source, even though the official FAQ is narrower than the broad portal."
+      "must_exclude": [
+        "Law firm explainer on incident reporting timing"
+      ],
+      "note": "Updated after official-pair hygiene: when a stronger same-domain official FAQ is present, bounded selection should keep the official pair instead of preferring commentary just for diversity."
     }
   },
   {
@@ -211,12 +211,12 @@
       "acceptable": true,
       "must_include": [
         "Vendor security baseline for Windows endpoints",
-        "Independent practitioner guide to exception workflow"
-      ],
-      "must_exclude": [
         "Vendor exception management FAQ"
       ],
-      "note": "This is a duplicate-domain crowding case: current bounded policy should still keep one authoritative vendor baseline plus one independent practical workflow source."
+      "must_exclude": [
+        "Independent practitioner guide to exception workflow"
+      ],
+      "note": "Updated after same-domain quality-preserving selection: when the second vendor FAQ remains materially stronger on bounded judgment quality than the independent guide, selection keeps the stronger same-domain pair instead of forcing diversity."
     }
   }
 ]

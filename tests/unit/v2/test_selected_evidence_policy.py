@@ -103,3 +103,54 @@ def test_selected_evidence_prefers_domain_diversity_when_quality_is_tied() -> No
     assert payload["items"][1]["title"] == "B1"
     assert payload["rejected_reasons"][2]["reason"] == "domain_diversity_preference"
     assert payload["rejected_reasons"][2]["count"] == 1
+
+
+def test_selected_evidence_keeps_stronger_second_official_candidate_over_weaker_diverse_candidate() -> None:
+    artifact = ResearchResultArtifact(
+        job_id="job-policy-official-pair",
+        run_id="run-policy-official-pair",
+        result_text="result",
+        evidence_candidates=(
+            RetrievedEvidenceCandidate(
+                candidate_id="cand:1",
+                job_id="job-policy-official-pair",
+                run_id="run-policy-official-pair",
+                provider="provider-a",
+                query="Poland employer remote work obligations labour ministry official faq",
+                title="Remote working regulations enter into force. We answer the most frequently asked questions",
+                url="https://www.gov.pl/web/family/remote-working-regulations-enter-into-force-faq",
+                snippet="Official ministry FAQ on employers' rights and remote work rules.",
+                rank=1,
+                source_type="institutional",
+            ),
+            RetrievedEvidenceCandidate(
+                candidate_id="cand:2",
+                job_id="job-policy-official-pair",
+                run_id="run-policy-official-pair",
+                provider="provider-b",
+                query="Poland employer remote work obligations labour ministry official faq",
+                title="Remote work - Ministry of Family, Labour and Social Policy - Gov.pl website",
+                url="https://www.gov.pl/web/family/remote-work",
+                snippet="Official ministry guidance on remote work under the Labour Code.",
+                rank=2,
+                source_type="institutional",
+            ),
+            RetrievedEvidenceCandidate(
+                candidate_id="cand:3",
+                job_id="job-policy-official-pair",
+                run_id="run-policy-official-pair",
+                provider="provider-c",
+                query="Poland employer remote work obligations labour ministry official faq",
+                title="Cross-Border Remote Work FAQs Poland - L&E Global",
+                url="https://leglobal.law/countries/poland/poland-remote-work-faq/",
+                snippet="General remote work FAQ for Poland.",
+                rank=3,
+                source_type="unknown",
+            ),
+        ),
+    )
+
+    payload = project_selected_evidence(artifact=artifact)
+
+    assert payload["items"][0]["title"].startswith("Remote working regulations enter into force")
+    assert payload["items"][1]["title"] == "Remote work - Ministry of Family, Labour and Social Policy - Gov.pl website"

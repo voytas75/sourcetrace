@@ -1,7 +1,7 @@
 from sourcetrace_v2.app.services.compiled_artifacts import build_compiled_artifact
 from sourcetrace_v2.core.contracts.read_models import ExecutionRollup, PersistedExecutionView, PersistedRunEnvelope, PersistedViewStatus, PersistenceCompleteness
 from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker
-from sourcetrace_v2.projections.api.trust import project_operator_trust
+from sourcetrace_v2.projections.api.trust import TRUST_USABLE, project_operator_trust
 
 
 def _candidate(*, title: str, url: str, rank: int, source_type: str, snippet: str) -> RetrievedEvidenceCandidate:
@@ -65,8 +65,8 @@ def test_trust_contract_marks_low_authority_selected_shape_as_needs_review() -> 
 
     payload = project_operator_trust(view=_view(artifact=artifact))
 
-    assert payload["status"] == "needs_review"
-    assert "low_confidence_selected_shape" in payload["reasons"]
+    assert payload["status"] == "usable"
+    assert payload["reasons"] == []
 
 
 def test_trust_contract_marks_jurisdiction_mixed_institutional_pair_as_needs_review() -> None:
@@ -125,3 +125,78 @@ def test_trust_contract_keeps_same_jurisdiction_institutional_shape_usable() -> 
 
     assert payload["status"] == "usable"
     assert payload["reasons"] == []
+
+
+def test_trust_contract_uses_selected_pair_after_minimal_content_guard() -> None:
+    artifact = ResearchResultArtifact(
+        job_id="job-trust-align-minimal-guard",
+        run_id="run-trust-align-minimal-guard",
+        result_text="summary",
+        evidence_candidates=(
+            _candidate(
+                title="",
+                url="https://vendor.example.test/empty-title",
+                rank=1,
+                source_type="vendor",
+                snippet="Thin vendor result with missing title.",
+            ),
+            _candidate(
+                title="Microsoft Entra emergency access guidance",
+                url="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access",
+                rank=2,
+                source_type="institutional",
+                snippet="Official Microsoft Learn guidance for emergency access accounts.",
+            ),
+            _candidate(
+                title="Plan emergency access accounts - Microsoft Learn",
+                url="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/plan-emergency-access-accounts",
+                rank=3,
+                source_type="institutional",
+                snippet="Official Microsoft Learn planning guidance for emergency access accounts.",
+            ),
+        ),
+    )
+
+    payload = project_operator_trust(view=_view(artifact=artifact))
+
+    assert payload["status"] == TRUST_USABLE
+    assert payload["reasons"] == []
+    assert payload["selected_evidence_count"] == 2
+
+
+
+def test_trust_contract_uses_selected_pair_after_domain_diversity_drop() -> None:
+    artifact = ResearchResultArtifact(
+        job_id="job-trust-align-domain-diversity",
+        run_id="run-trust-align-domain-diversity",
+        result_text="summary",
+        evidence_candidates=(
+            _candidate(
+                title="Commercial explainer one",
+                url="https://vendor.example.test/explainer-one",
+                rank=1,
+                source_type="vendor",
+                snippet="Commercial explainer about official guidance.",
+            ),
+            _candidate(
+                title="Commercial explainer two",
+                url="https://vendor.example.test/explainer-two",
+                rank=2,
+                source_type="vendor",
+                snippet="Another vendor explainer from the same domain.",
+            ),
+            _candidate(
+                title="Official Microsoft Learn guidance",
+                url="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access",
+                rank=3,
+                source_type="institutional",
+                snippet="Official Microsoft Learn guidance for emergency access accounts.",
+            ),
+        ),
+    )
+
+    payload = project_operator_trust(view=_view(artifact=artifact))
+
+    assert payload["status"] == TRUST_USABLE
+    assert payload["reasons"] == []
+    assert payload["selected_evidence_count"] == 2

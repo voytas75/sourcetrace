@@ -2,6 +2,8 @@ import json
 
 from sourcetrace_v2.app.composition.runtime import build_preferred_search_backed_stubbed_jsonl_runtime
 from sourcetrace_v2.app.services.http_api import handle_run_minimal_flow_request
+from sourcetrace_v2.core.domain.models import RetrievedEvidenceCandidate
+from sourcetrace_v2.execution.stages.retrieval import RetrievalStage
 
 
 def test_run_flow_promotes_more_targeted_official_candidate_before_selection(tmp_path) -> None:
@@ -93,3 +95,112 @@ def test_run_flow_prefers_official_guidance_surface_over_publication_like_instit
         "International data transfers | Data protection guide for small business"
     )
     assert "top_source=procedural_admin_unified_search:International data transfers | Data protection guide for small business" in payload["artifact"]["summary"]
+
+
+def test_run_flow_expands_and_reorders_community_quality_of_life_queries_toward_direct_outcomes(tmp_path) -> None:
+    runtime = build_preferred_search_backed_stubbed_jsonl_runtime(
+        base_dir=tmp_path,
+        base_url="http://127.0.0.1:8080",
+        unified_search_web=lambda query, count=10: [
+            {
+                "url": "https://example.test/brain-drain",
+                "title": "Brain drain among diaspora communities in Germany",
+                "snippet": "Study of migration outflows and return intentions.",
+            },
+            {
+                "url": "https://example.test/transnational-care",
+                "title": "Transnational care networks in migrant communities",
+                "snippet": "Report on family care across borders.",
+            },
+            {
+                "url": "https://example.test/cultural-identity",
+                "title": "Cultural identity maintenance in diaspora communities",
+                "snippet": "Analysis of identity, language, and belonging.",
+            },
+            {
+                "url": "https://example.test/outcomes-report",
+                "title": "Housing, employment and life satisfaction among the Polish diaspora in Germany",
+                "snippet": "Direct outcome evidence on living conditions, labour market outcomes, and life satisfaction.",
+            },
+            {
+                "url": "https://example.test/discrimination-report",
+                "title": "Discrimination, education and health outcomes for migrant communities in Germany",
+                "snippet": "Direct quality-of-life evidence about discrimination, education, and health.",
+            },
+            {
+                "url": "https://example.test/general-diaspora-overview",
+                "title": "Overview of diaspora communities in Germany",
+                "snippet": "General background overview.",
+            },
+        ],
+    )
+
+    response = handle_run_minimal_flow_request(
+        job_id="job-community-outcomes",
+        run_id="run-community-outcomes",
+        seed_text="What are the main findings in PDF reports about the quality of life of the Polish diaspora in Germany?",
+        runtime=runtime,
+    )
+
+    payload = json.loads(response.body)
+
+    assert response.status_code == 201
+    assert payload["artifact"]["present"] is True
+    assert payload["evidence_input"]["candidates"][0]["title"] == (
+        "Housing, employment and life satisfaction among the Polish diaspora in Germany"
+    )
+    assert payload["evidence_input"]["candidates"][1]["title"] == (
+        "Discrimination, education and health outcomes for migrant communities in Germany"
+    )
+    assert payload["evidence_input"]["candidates"][2]["title"] == "Brain drain among diaspora communities in Germany"
+    assert "top_source=procedural_admin_unified_search:Housing, employment and life satisfaction among the Polish diaspora in Germany" in payload["artifact"]["summary"]
+
+
+def test_retrieval_stage_prefers_exact_subject_institutional_candidate_over_broad_adjacent_institutional_page() -> None:
+    stage = RetrievalStage(search=None)  # type: ignore[arg-type]
+    candidates = (
+        RetrievedEvidenceCandidate(
+            candidate_id="cand:1",
+            job_id="job",
+            run_id="run",
+            provider="searxng",
+            query="praca zdalna obowiązki pracodawcy zgłoszenie oficjalne gov.pl pip",
+            title="Prawo do bycia offline - PARP - Centrum Rozwoju MŚP",
+            url="https://www.parp.gov.pl/component/content/article/81845:prawo-do-bycia-offline",
+            snippet="Bierność pracodawcy może wiązać się z wypaleniem zawodowym i problemami organizacyjnymi.",
+            rank=1,
+            source_type="institutional",
+        ),
+        RetrievedEvidenceCandidate(
+            candidate_id="cand:2",
+            job_id="job",
+            run_id="run",
+            provider="searxng",
+            query="praca zdalna obowiązki pracodawcy zgłoszenie oficjalne gov.pl pip",
+            title="Praca zdalna - Państwowa Inspekcja Pracy",
+            url="https://www.pip.gov.pl/files/126/Dla-pracownikow/1139/Praca-zdalna.pdf",
+            snippet="Oficjalny materiał PIP o pracy zdalnej i obowiązkach pracodawcy.",
+            rank=2,
+            source_type="institutional",
+        ),
+        RetrievedEvidenceCandidate(
+            candidate_id="cand:3",
+            job_id="job",
+            run_id="run",
+            provider="searxng",
+            query="praca zdalna obowiązki pracodawcy zgłoszenie oficjalne gov.pl pip",
+            title="Zgłoszenie oferty pracy - Urząd Pracy m.st. Warszawy - Wortal PSZ",
+            url="https://warszawa.praca.gov.pl/zgloszenie-oferty-pracy",
+            snippet="Informacje o zgłoszeniu oferty pracy do urzędu pracy.",
+            rank=3,
+            source_type="institutional",
+        ),
+    )
+
+    shaped = stage._shape_source_mix(
+        candidates=candidates,
+        query="praca zdalna obowiązki pracodawcy zgłoszenie oficjalne gov.pl pip",
+    )
+
+    assert shaped[0].title == "Praca zdalna - Państwowa Inspekcja Pracy"
+    assert shaped[0].rank == 1

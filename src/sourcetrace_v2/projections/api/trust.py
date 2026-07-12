@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledEvidenceSnapshot
 from sourcetrace_v2.core.contracts.read_models import PersistedExecutionView, PersistedViewStatus
 
 _LOW_BANDS = {"none", "low"}
@@ -51,10 +52,10 @@ def project_operator_trust(*, view: PersistedExecutionView) -> dict[str, object]
     if candidate_count < 2:
         reasons.append("thin_candidate_pool")
 
-    selected_candidates = artifact.evidence_candidates[:2] if artifact is not None else ()
-    if compiled is not None and compiled.selected_evidence:
-        authority_bands = [item.judgment.authority.band for item in compiled.selected_evidence if item.judgment is not None]
-        selected_source_types = {candidate.source_type for candidate in selected_candidates}
+    selected_candidates = tuple(compiled.selected_evidence) if compiled is not None and compiled.selected_evidence else ()
+    if selected_candidates:
+        authority_bands = [item.judgment.authority.band for item in selected_candidates if item.judgment is not None]
+        selected_source_types = {_source_type_from_compiled_candidate(item) for item in selected_candidates}
         if authority_bands and not any(band in _STRONG_BANDS for band in authority_bands):
             reasons.append("low_confidence_selected_shape")
         elif "institutional" not in selected_source_types and selected_source_types <= {"unknown", "commentary", "vendor"}:
@@ -77,10 +78,10 @@ def project_operator_trust(*, view: PersistedExecutionView) -> dict[str, object]
     }
 
 
-def _selected_institutional_pair_has_jurisdiction_mismatch(selected_candidates: tuple[object, ...]) -> bool:
+def _selected_institutional_pair_has_jurisdiction_mismatch(selected_candidates: tuple[CompiledEvidenceSnapshot, ...]) -> bool:
     if len(selected_candidates) < 2:
         return False
-    if any(getattr(candidate, "source_type", None) != "institutional" for candidate in selected_candidates):
+    if any(_source_type_from_compiled_candidate(candidate) != "institutional" for candidate in selected_candidates):
         return False
 
     anchors = [_institutional_anchor(candidate) for candidate in selected_candidates]
@@ -89,9 +90,9 @@ def _selected_institutional_pair_has_jurisdiction_mismatch(selected_candidates: 
     return len(set(anchors)) > 1
 
 
-def _institutional_anchor(candidate: object) -> str | None:
-    url = getattr(candidate, "url", "")
-    title = getattr(candidate, "title", "")
+def _institutional_anchor(candidate: CompiledEvidenceSnapshot) -> str | None:
+    url = candidate.url
+    title = candidate.title
     host = urlparse(url).netloc.lower()
     labels = [label for label in host.split(".") if label and label != "www"]
     if not labels:
@@ -122,4 +123,15 @@ def _institutional_anchor(candidate: object) -> str | None:
             return mapped
 
     return anchor
+
+
+
+def _source_type_from_compiled_candidate(candidate: CompiledEvidenceSnapshot) -> str:
+    if candidate.judgment is None:
+        return "unknown"
+    if candidate.judgment.authority.band in _STRONG_BANDS:
+        return "institutional"
+    if candidate.judgment.authority.band in _LOW_BANDS:
+        return "unknown"
+    return "vendor"
 

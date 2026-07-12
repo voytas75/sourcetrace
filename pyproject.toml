@@ -16,20 +16,21 @@ dependencies = [
 dev = [
     "pytest>=9.0.3,<10",
     "litellm>=1.72,<2",
+    "pdfplumber>=0.11.10",
 ]
 
 [project.scripts]
-sourcetrace-web = "sourcetrace.web.__main__:main"
-sourcetrace-local = "sourcetrace.local_launcher:main"
+sourcetrace-web = "sourcetrace_v2.operator.www:main"
+sourcetrace-local = "sourcetrace_v2.operator.www:main"
 sourcetrace-v2-run = "sourcetrace_v2.operator.run_minimal_flow:main"
 sourcetrace-v2-readback = "sourcetrace_v2.operator.readback:main"
 sourcetrace-smoke-flow = "sourcetrace.smoke_flow:main"
 sourcetrace-credibility-smoke = "sourcetrace.credibility_smoke:main"
-sourcetrace-www-start = "sourcetrace.www_control:start_main"
-sourcetrace-www-status = "sourcetrace.www_control:status_main"
-sourcetrace-www-stop = "sourcetrace.www_control:stop_main"
-sourcetrace-www-wait = "sourcetrace.www_control:wait_main"
-sourcetrace-www-write-user-unit = "sourcetrace.www_control:write_systemd_unit_main"
+sourcetrace-www-start = "sourcetrace_v2.operator.www:start_main"
+sourcetrace-www-status = "sourcetrace_v2.operator.www:status_main"
+sourcetrace-www-stop = "sourcetrace_v2.operator.www:stop_main"
+sourcetrace-www-wait = "sourcetrace_v2.operator.www:wait_main"
+sourcetrace-www-write-user-unit = "sourcetrace_v2.operator.www:write_systemd_unit_main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

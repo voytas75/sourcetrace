@@ -1,6 +1,6 @@
 # SourceTrace developer notes
 
-> Current posture: `sourcetrace_v2` is the active implementation line. The existing Deep Research / `src/sourcetrace/**` runtime remains useful as legacy reference and migration context, but should not be treated as the default forward path.
+> Current posture: `sourcetrace_v2` is the active implementation line and the default local runtime surface.
 >
 > Start with:
 > - `docs/STATUS.md`
@@ -12,7 +12,7 @@
 This file holds developer- and operator-facing details that would overload `README.md`.
 
 Use `README.md` as the public-facing repo entry point.
-Use this file for local setup, runtime variants, deeper command references, and development constraints.
+Use this file for local setup, runtime commands, deeper command references, and development constraints.
 
 ## Purpose
 - keep `README.md` focused on what SourceTrace is, who it is for, and the smallest honest bootstrap path
@@ -25,115 +25,94 @@ uv sync --dev --extra dev
 uv run pytest -q
 ```
 
-## Runtime modes
-The legacy runtime notes below are still useful for operating the current pre-v2 stack, but they are not the primary implementation direction anymore.
-
-SourceTrace currently has two practical local run modes.
+## Runtime commands
+SourceTrace v2 now owns the default local operator/runtime surface.
 
 ### Command help surfaces
-The repo now exposes a meaningful app-level help surface for the runtime control command:
-- `PYTHONPATH=src python -m sourcetrace.www_control --help`
-- `PYTHONPATH=src python -m sourcetrace.www_control start --help`
-- `PYTHONPATH=src python -m sourcetrace.www_control status --help`
-- `PYTHONPATH=src python -m sourcetrace.www_control wait --help`
-- `PYTHONPATH=src python -m sourcetrace.www_control write-user-unit --help`
+The repo now exposes an app-level help surface for the v2 runtime control command:
+- `PYTHONPATH=src python -m sourcetrace_v2.operator.www --help`
+- `PYTHONPATH=src python -m sourcetrace_v2.operator.www start --help`
+- `PYTHONPATH=src python -m sourcetrace_v2.operator.www status --help`
+- `PYTHONPATH=src python -m sourcetrace_v2.operator.www wait --help`
+- `PYTHONPATH=src python -m sourcetrace_v2.operator.www write-user-unit --help`
 
-The semantic SSOT draft for agent-/operator-usable help lives in:
+The semantic SSOT draft for agent-/operator-usable help still lives in:
 - `docs/agent-operable-help-contract-v1.md`
 
-### A. Thin web mode
-Use this when you want the lightweight local front door without repo-owned LLM runtime wiring.
+### Default v2 WWW mode
+Use this when you want the repo-owned v2 runtime config plus:
+- v2 live LLM wiring,
+- v2 search adapter wiring,
+- v2 JSONL persistence/readback,
+- v2 operator-facing HTTP surface.
 
-```bash
-uv run python -m sourcetrace.web
-```
-
-Equivalent console script declared in `pyproject.toml`:
-```bash
-uv run sourcetrace-web
-```
-
-### B. Local launcher mode
-Use this when you want the repo-owned runtime config plus:
-- LLM-backed credibility wiring,
-- Deep Research search adapter wiring,
-- Deep Research LLM synthesis wiring,
-- persisted research runtime state.
-
-Required environment variables for this mode:
-- `SOURCETRACE_LLM_API_KEY`
-- `SOURCETRACE_LLM_BASE_URL`
-- `SOURCETRACE_LLM_API_VERSION`
-
-The launcher also mirrors legacy Azure variables when the SourceTrace names are missing:
+Required environment variables for live mode:
 - `AZURE_OPENAI_API_KEY`
-- `AZURE_OPENAI_BASE_URL`
+- `AZURE_OPENAI_ENDPOINT`
 - `AZURE_OPENAI_API_VERSION`
+- `SOURCETRACE_SEARXNG_BASE_URL`
 
 Optional runtime variables:
-- `SOURCETRACE_CONTINUITY_PACK_ROOT_DIR`
-- `SOURCETRACE_SEARXNG_BASE_URL`
 - `SOURCETRACE_RESEARCH_DATA_DIR`
 
 Notes:
-- when `SOURCETRACE_SEARXNG_BASE_URL` is set, local launcher mode can run live Deep Research search against the configured SearxNG instance
-- research runtime state is persisted under the repo-root `data/research` by default, or under `SOURCETRACE_RESEARCH_DATA_DIR` when set
-- Deep Research now persists run results, compiled artifacts, and compiled-artifact lint outputs in separate filesystem namespaces under the research data root
-- the current Deep Research synthesis task uses repo task routing from `src/sourcetrace/runtime_config.py`
-- local launcher runtime verification hardens underspecified synthetic research synthesis into a markdown-shaped fallback so spot-checks stay representative
+- persisted runtime state is stored under repo-root `data/research` by default, or under `SOURCETRACE_RESEARCH_DATA_DIR` when set
+- the v2 HTTP surface is intentionally minimal and operator-facing rather than legacy Deep Research UI compatible
 
 Installed console scripts declared in `pyproject.toml`:
 ```bash
-uv run sourcetrace-local
-uv run sourcetrace-www-start --mode local-launcher
+uv run sourcetrace-web serve
+uv run sourcetrace-www-start
 uv run sourcetrace-www-wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
-uv run sourcetrace-www-status --mode local-launcher
-uv run sourcetrace-www-stop --mode local-launcher
+uv run sourcetrace-www-status
+uv run sourcetrace-www-stop
+uv run sourcetrace-www-write-user-unit
 ```
 
 Module-entrypoint equivalents:
 ```bash
-PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control start --mode local-launcher
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace_v2.operator.www start
 # default wrapper behavior also exports SOURCETRACE_RESEARCH_DATA_DIR=<repo>/data/research unless you override it
-PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
-PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control status --mode local-launcher
-PYTHONPATH=src ./.venv/bin/python -m sourcetrace.www_control stop --mode local-launcher
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace_v2.operator.www wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace_v2.operator.www status
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace_v2.operator.www stop
 ```
 
-Direct fallback launcher:
+Direct foreground server:
 ```bash
-PYTHONPATH=src ./.venv/bin/python -m sourcetrace.local_launcher
+PYTHONPATH=src ./.venv/bin/python -m sourcetrace_v2.operator.www serve --host 127.0.0.1 --port 8000
 ```
 
-## Deep Research operator flow
-When local launcher mode is configured for research, the operator flow is:
-1. open `/research`
-2. start a job with `owner_id` and `query`
-3. run the job
-4. inspect status and progress stream
-5. inspect the final result artifact
-6. inspect compiled artifact and artifact lint output when needed
+### Direct v2 operator CLIs
+```bash
+uv run sourcetrace-v2-run "deep research architecture" --json-pretty
+uv run sourcetrace-v2-readback execution JOB_ID RUN_ID --artifacts-dir "$PWD/data/research" --json-pretty
+uv run sourcetrace-v2-readback compiled JOB_ID RUN_ID --artifacts-dir "$PWD/data/research" --json-pretty
+```
 
-Current Deep Research endpoints:
-- `GET /research`
-- `POST /api/research/start`
-- `GET /api/research/jobs?owner_id=...`
-- `GET /api/research/status/{job_id}`
-- `GET /api/research/stream/{job_id}`
-- `GET /api/research/result/{job_id}`
-- `POST /api/research/run/{job_id}`
-- `POST /api/research/cancel/{job_id}`
-- `GET /api/research/compiled/{artifact_id}`
-- `GET /api/research/compiled/{artifact_id}/lint`
+## v2 operator flow
+For the default v2 operator surface, the flow is:
+1. `POST /api/v2/run` with `query`
+2. inspect persisted execution view at `GET /api/v2/execution/{job_id}/{run_id}`
+3. inspect persisted compiled view at `GET /api/v2/compiled/{job_id}/{run_id}`
+
+Current v2 endpoints:
+- `GET /`
+- `GET /api/health`
+- `GET /api/ready`
+- `GET /api/runtime`
+- `POST /api/v2/run`
+- `GET /api/v2/execution/{job_id}/{run_id}`
+- `GET /api/v2/compiled/{job_id}/{run_id}`
 
 ### Current quality posture
-- `procedural_admin` now uses a query-class-specific Unified Search-backed upstream path with fallback to the default search path when official-doc-like signal is missing
-- downstream authority-first filtering, evidence packing, evaluator, compiled artifact, and lint layers remain shared across query classes
-- the current Deep Research restart point is `docs/deep-research-status-checkpoint-2026-06-22.md`
+- v2 is the active implementation/runtime surface
+- operator truth still depends on retrieval quality, selected evidence quality, and trust alignment quality
+- current restart/checkpoint chain remains in `docs/STATUS.md` and the 2026-06-28 readiness docs
 
 ## Local verification
 ### Minimal smoke checklist
-1. Start one of the local runtimes.
+1. Start the v2 runtime.
 2. Open the landing page:
 ```bash
 curl http://127.0.0.1:8000/
@@ -142,24 +121,25 @@ curl http://127.0.0.1:8000/
 ```bash
 curl http://127.0.0.1:8000/api/health
 ```
-4. If you started local-launcher mode, also check readiness/runtime:
+4. Check readiness/runtime:
 ```bash
 curl http://127.0.0.1:8000/api/ready
 curl http://127.0.0.1:8000/api/runtime
 ```
-5. For Deep Research-enabled launcher mode, also verify the research surface:
+5. Verify the v2 run surface:
 ```bash
-curl http://127.0.0.1:8000/research
-curl -X POST http://127.0.0.1:8000/api/research/start \
+curl -X POST http://127.0.0.1:8000/api/v2/run \
   -H 'Content-Type: application/json' \
-  -d '{"owner_id":"demo","query":"deep research architecture"}'
+  -d '{"query":"deep research architecture"}'
 ```
-6. Run the reusable smoke command against an already running server:
+6. Run the reusable v2 CLI smoke against the live env:
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m sourcetrace.smoke_flow --pretty
+uv run sourcetrace-v2-run "deep research architecture" --json-pretty
 ```
 
 ### Useful repo-owned smoke helpers
+- `uv run sourcetrace-v2-run`
+- `uv run sourcetrace-v2-readback`
 - `python -m sourcetrace.smoke_flow`
 - `python -m sourcetrace.credibility_smoke`
 
@@ -178,6 +158,6 @@ Start from:
 - `docs/sourcetrace-v2-docs-posture-2026-06-27.md` for active-vs-legacy docs posture
 - relevant `docs/sourcetrace-v2-*.md` contract/brief/checkpoint notes for the slice you are touching
 
-Use v1 / deep-research docs as legacy reference and migration evidence unless the task is explicitly about the legacy runtime.
+Use old deep-research docs only as migration/reference material, not as the default runtime/operator path.
 Use tracked docs for durable product truth.
 Keep transient working notes and local process artifacts outside public-facing repo surfaces.

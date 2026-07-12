@@ -55,6 +55,11 @@ def project_selected_evidence(*, artifact: ResearchResultArtifact | None, limit:
                 "rank": candidate.rank,
                 "source_type": candidate.source_type,
                 "snippet": candidate.snippet,
+                "pdf_context": {
+                    "document_scope": candidate.pdf_context.document_scope,
+                    "entity_match_summary": candidate.pdf_context.entity_match_summary,
+                    "key_findings": list(candidate.pdf_context.key_findings),
+                } if candidate.pdf_context is not None else None,
                 "judgment": _project_judgment(build_candidate_judgment(candidate)),
             }
             for candidate in selected

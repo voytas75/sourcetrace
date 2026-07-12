@@ -77,19 +77,31 @@ def decide_selected_evidence(
     ordered = tuple(sorted(candidates, key=lambda candidate: candidate.rank))
     quality_candidates = tuple(candidate for candidate in ordered if candidate_has_minimal_quality(candidate))
     fallback_candidates = tuple(candidate for candidate in ordered if not candidate_has_minimal_quality(candidate))
+    all_candidates = (*quality_candidates, *fallback_candidates)
     selected: list[RetrievedEvidenceCandidate] = []
     used_domains: set[str] = set()
 
-    for candidate in (*quality_candidates, *fallback_candidates):
+    for index, candidate in enumerate(all_candidates):
         domain = candidate_domain(candidate)
-        if domain and domain not in used_domains:
+        if not domain or domain not in used_domains:
             selected.append(candidate)
-            used_domains.add(domain)
+            if domain:
+                used_domains.add(domain)
+            if len(selected) >= limit:
+                break
+            continue
+        if _should_keep_stronger_same_domain_candidate(
+            candidate=candidate,
+            selected=tuple(selected),
+            remaining=tuple(item for item in all_candidates[index + 1 :] if item not in selected),
+            limit=limit,
+        ):
+            selected.append(candidate)
             if len(selected) >= limit:
                 break
 
     if len(selected) < limit:
-        for candidate in (*quality_candidates, *fallback_candidates):
+        for candidate in all_candidates:
             if candidate not in selected:
                 selected.append(candidate)
                 if len(selected) >= limit:
@@ -114,6 +126,33 @@ def select_evidence_candidates(
 ) -> tuple[tuple[RetrievedEvidenceCandidate, ...], tuple[RetrievedEvidenceCandidate, ...]]:
     decision = decide_selected_evidence(candidates, limit)
     return decision.selected, decision.dropped
+
+
+def _should_keep_stronger_same_domain_candidate(
+    *,
+    candidate: RetrievedEvidenceCandidate,
+    selected: tuple[RetrievedEvidenceCandidate, ...],
+    remaining: tuple[RetrievedEvidenceCandidate, ...],
+    limit: int,
+) -> bool:
+    if len(selected) + 1 > limit:
+        return False
+    alternative = next(
+        (
+            item
+            for item in remaining
+            if candidate_domain(item) not in {candidate_domain(chosen) for chosen in selected if candidate_domain(chosen)}
+        ),
+        None,
+    )
+    if alternative is None:
+        return True
+    candidate_judgment = build_candidate_judgment(candidate)
+    alternative_judgment = build_candidate_judgment(alternative)
+    candidate_quality = (candidate_judgment.authority.score, candidate_judgment.answer_fit.score)
+    alternative_quality = (alternative_judgment.authority.score, alternative_judgment.answer_fit.score)
+    return candidate_quality > alternative_quality
+
 
 
 def build_candidate_judgment(candidate: RetrievedEvidenceCandidate) -> EvidenceJudgmentSnapshot:

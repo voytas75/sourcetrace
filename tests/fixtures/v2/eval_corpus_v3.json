@@ -84,9 +84,9 @@
       "selected_evidence_count": 2,
       "selection_basis": "rank_with_minimal_content_guard_and_domain_diversity",
       "first_selected_title": "Official ministry guidance",
-      "second_selected_title": "Independent study summary",
+      "second_selected_title": "Official ministry FAQ",
       "missing_minimal_content_dropped": 0,
-      "domain_diversity_dropped": 1
+      "domain_diversity_dropped": 0
     }
   },
   {

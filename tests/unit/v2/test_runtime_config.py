@@ -10,6 +10,13 @@ def test_default_runtime_profiles_are_resolvable() -> None:
     assert profile.provider == "azure"
     assert profile.model == "gpt-5.4"
     assert profile.mode == "structured"
+    assert profile.max_output_tokens == 1200
+
+    judge = resolve_profile(config, "judge_strict")
+    assert judge.max_output_tokens == 1400
+
+    synthesis = resolve_profile(config, "synthesis_default")
+    assert synthesis.max_output_tokens == 2200
 
 
 def test_missing_profile_raises_explicit_error() -> None:
