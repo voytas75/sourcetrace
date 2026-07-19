@@ -238,6 +238,12 @@ def _wait_from_args(args: argparse.Namespace) -> int:
     return 1
 
 
+def _parse_and_run_wait(argv: list[str] | None = None) -> int:
+    parser = _build_wait_parser()
+    args = parser.parse_args(argv)
+    return _wait_from_args(args)
+
+
 def render_systemd_user_unit(mode: str = "local-launcher") -> str:
     repo_root = _repo_root()
     if mode == "local-launcher":

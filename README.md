@@ -88,12 +88,13 @@ Developer/operator details were moved to:
 That file covers runtime variants, environment variables, command help surfaces, smoke flows, deeper API/operator paths, and development constraints.
 
 ## Documentation map
-- `docs/architecture-ssot.md`
-- `docs/execution-blueprint.md`
-- `docs/deep-research-implementation-slice-v1.md`
-- `docs/deep-research-status-checkpoint-2026-06-22.md`
+- [Current active-v2 restart checkpoint (2026-07-19)](docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md) — canonical entrypoint for the current local runtime, verification posture, limitations, and next action.
+- [Architecture SSOT](docs/architecture-ssot.md) — legacy product/architecture baseline; not the current runtime restart guide.
+- [Execution blueprint](docs/execution-blueprint.md) — historical implementation-planning context.
+- [v2 closure / packaging checkpoint](docs/sourcetrace-v2-closure-packaging-checkpoint-2026-06-27.md) — bounded v2 closure context.
+- [Deep Research status checkpoint (2026-06-22)](docs/deep-research-status-checkpoint-2026-06-22.md) — legacy historical/reference material, not the default forward path.
 
-For the current Deep Research restart point, prefer `docs/deep-research-status-checkpoint-2026-06-22.md` over older slice-by-slice notes.
+For active v2 work, begin with the 2026-07-19 restart checkpoint rather than the legacy Deep Research checkpoint or older slice notes.
 
 Everything else that is not needed for first project understanding belongs in `notes/` as local working material rather than public-facing docs.
 

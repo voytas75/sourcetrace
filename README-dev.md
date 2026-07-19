@@ -3,11 +3,11 @@
 > Current posture: `sourcetrace_v2` is the active implementation line and the default local runtime surface.
 >
 > Start with:
-> - `docs/STATUS.md`
+> - [`docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md`](docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md) — canonical active-v2 entrypoint and restart guide
 > - `docs/sourcetrace-v2-full-closure-map-2026-06-27.md`
 > - relevant `docs/sourcetrace-v2-*.md` notes
 >
-> See also: `docs/sourcetrace-v2-docs-posture-2026-06-27.md`
+> `docs/STATUS.md` remains historical context. See also: `docs/sourcetrace-v2-docs-posture-2026-06-27.md`.
 
 This file holds developer- and operator-facing details that would overload `README.md`.
 
@@ -108,7 +108,7 @@ Current v2 endpoints:
 ### Current quality posture
 - v2 is the active implementation/runtime surface
 - operator truth still depends on retrieval quality, selected evidence quality, and trust alignment quality
-- current restart/checkpoint chain remains in `docs/STATUS.md` and the 2026-06-28 readiness docs
+- the [2026-07-19 active-v2 restart checkpoint](docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md) is the canonical restart guide; `docs/STATUS.md` and 2026-06-28 readiness docs are supporting history
 
 ## Local verification
 ### Minimal smoke checklist
@@ -153,11 +153,11 @@ uv run sourcetrace-v2-run "deep research architecture" --json-pretty
 ## Documentation usage
 Start from:
 - `README.md` for public repo framing
-- `docs/STATUS.md` for the active v2 checkpoint chain
+- [`docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md`](docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md) for the active v2 entrypoint, verification posture, and next action
 - `docs/sourcetrace-v2-full-closure-map-2026-06-27.md` for closure sequencing
 - `docs/sourcetrace-v2-docs-posture-2026-06-27.md` for active-vs-legacy docs posture
 - relevant `docs/sourcetrace-v2-*.md` contract/brief/checkpoint notes for the slice you are touching
 
-Use old deep-research docs only as migration/reference material, not as the default runtime/operator path.
+`docs/deep-research-status-checkpoint-2026-06-22.md` and other old Deep Research docs are legacy migration/reference material, not the default runtime/operator path.
 Use tracked docs for durable product truth.
 Keep transient working notes and local process artifacts outside public-facing repo surfaces.

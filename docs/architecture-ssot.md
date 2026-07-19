@@ -1,7 +1,9 @@
 # SourceTrace Architecture SSOT
 
-Status: draft v0
-Scope: canonical product and architecture baseline for the SourceTrace repository
+Status: draft v0 — legacy product/architecture baseline
+Scope: canonical product and architecture baseline for the SourceTrace repository; not the active runtime or restart guide
+
+> **Active v2 pointer (2026-07-19):** use [the active-v2 restart checkpoint](sourcetrace-v2-restart-checkpoint-2026-07-19.md) for the current local entrypoint, verified posture, limitations, and next action. This document remains the baseline for product intent and architecture principles.
 
 ## Purpose
 SourceTrace is an application project for building an evidence-centric OSINT + LLM system. This document is the current SSOT for product intent, quality rules, core domain objects, and MVP boundaries.
@@ -143,7 +145,8 @@ A synthesized investigation output assembled from reviewed or classified claims.
 10. Review UI should minimize cognitive overload by default and reveal deeper detail on demand.
 
 ## Repository document roles
-- `docs/architecture-ssot.md`: canonical product and architecture baseline.
+- `docs/architecture-ssot.md`: legacy product and architecture baseline; not the active runtime/restart guide.
+- `docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md`: canonical active-v2 runtime and restart entrypoint.
 - `docs/research/research-ledger.md`: rolling evidence from reviewed external sources.
 - `docs/execution-blueprint.md`: provisional implementation-facing plan, still pre-build.
 
