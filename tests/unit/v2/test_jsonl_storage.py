@@ -1,4 +1,5 @@
 import logging
+import json
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from sourcetrace_v2.app.services.run_use_case import run_and_persist_minimal_flo
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
 from sourcetrace_v2.core.contracts.trust_metadata import SourceTraceTrustMetadata
 from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate
+from sourcetrace_v2.execution.stages.retrieval import _build_retrieval_semantic_fit_diagnostics
 
 
 def test_jsonl_storage_roundtrip_supports_run_use_case(tmp_path: Path) -> None:
@@ -216,3 +218,120 @@ def test_jsonl_storage_roundtrips_explicit_trust_metadata(tmp_path: Path) -> Non
     assert loaded_compiled is not None
     assert loaded_artifact.evidence_candidates[0].trust_metadata == metadata
     assert loaded_compiled.selected_evidence[0].trust_metadata == metadata
+
+
+def test_jsonl_storage_roundtrips_semantic_fit_diagnostics(tmp_path: Path) -> None:
+    results = JsonlResultArtifactRepository(tmp_path)
+    query = "incident response guidance"
+    candidates = (
+        RetrievedEvidenceCandidate(
+            candidate_id="candidate-fit-1",
+            job_id="job-jsonl-fit",
+            run_id="run-jsonl-fit",
+            provider="fixture",
+            query=query,
+            title="Agency incident response guidance",
+            url="https://agency.example.test/guidance/incident-response",
+            snippet="Official incident response guidance for operators.",
+            rank=1,
+            source_type="institutional",
+        ),
+        RetrievedEvidenceCandidate(
+            candidate_id="candidate-fit-2",
+            job_id="job-jsonl-fit",
+            run_id="run-jsonl-fit",
+            provider="fixture",
+            query=query,
+            title="Agency incident response checklist",
+            url="https://agency.example.test/checklists/incident-response",
+            snippet="Official checklist for incident response and recovery.",
+            rank=2,
+            source_type="institutional",
+        ),
+        RetrievedEvidenceCandidate(
+            candidate_id="candidate-fit-3",
+            job_id="job-jsonl-fit",
+            run_id="run-jsonl-fit",
+            provider="fixture",
+            query=query,
+            title="Agency security overview",
+            url="https://agency.example.test/security/overview",
+            snippet="Broad security overview.",
+            rank=3,
+            source_type="institutional",
+        ),
+    )
+    trimmed_candidates = candidates[:2]
+    diagnostics = _build_retrieval_semantic_fit_diagnostics(
+        query=query,
+        pretrim_candidates=candidates,
+        trimmed_candidates=trimmed_candidates,
+        pretrim_explicit=True,
+    )
+    artifact = ResearchResultArtifact(
+        job_id="job-jsonl-fit",
+        run_id="run-jsonl-fit",
+        result_text="summary",
+        evidence_query=query,
+        evidence_candidates=trimmed_candidates,
+        pretrim_evidence_candidates=candidates,
+        retrieval_diagnostics=diagnostics,
+        retrieval_candidate_pool_count=len(candidates),
+        retrieval_semantic_fit_status=diagnostics.pretrim.status,
+        retrieval_best_focus_coverage=1.0,
+    )
+
+    results.save_result(artifact)
+    loaded = results.get_result(job_id=artifact.job_id, run_id=artifact.run_id)
+
+    assert loaded is not None
+    assert [candidate.title for candidate in loaded.evidence_candidates] == [
+        "Agency incident response guidance",
+        "Agency incident response checklist",
+    ]
+    assert [candidate.title for candidate in loaded.pretrim_evidence_candidates] == [
+        "Agency incident response guidance",
+        "Agency incident response checklist",
+        "Agency security overview",
+    ]
+    assert loaded.retrieval_candidate_pool_count == 3
+    assert loaded.retrieval_semantic_fit_status == "sufficient"
+    assert loaded.retrieval_best_focus_coverage == 1.0
+    assert loaded.retrieval_diagnostics is not None
+    assert loaded.retrieval_diagnostics.pretrim.best_candidate_rank == 1
+
+
+def test_jsonl_storage_reads_old_result_rows_without_semantic_fit_fields(tmp_path: Path) -> None:
+    results = JsonlResultArtifactRepository(tmp_path)
+    legacy_row = {
+        "job_id": "job-jsonl-legacy",
+        "run_id": "run-jsonl-legacy",
+        "result_text": "summary",
+        "summary": "",
+        "evidence_query": "incident response guidance",
+        "evidence_candidates": [
+            {
+                "candidate_id": "legacy-1",
+                "job_id": "job-jsonl-legacy",
+                "run_id": "run-jsonl-legacy",
+                "provider": "fixture",
+                "query": "incident response guidance",
+                "title": "Legacy incident response guidance",
+                "url": "https://agency.example.test/guidance/incident-response",
+                "snippet": "Official guidance.",
+                "rank": 1,
+                "source_type": "institutional",
+            }
+        ],
+    }
+    results.path.write_text(json.dumps(legacy_row) + "\n", encoding="utf-8")
+
+    loaded = results.get_result(job_id="job-jsonl-legacy", run_id="run-jsonl-legacy")
+
+    assert loaded is not None
+    assert [candidate.title for candidate in loaded.evidence_candidates] == ["Legacy incident response guidance"]
+    assert [candidate.title for candidate in loaded.pretrim_evidence_candidates] == ["Legacy incident response guidance"]
+    assert loaded.retrieval_candidate_pool_count == 1
+    assert loaded.retrieval_semantic_fit_status == "unknown"
+    assert loaded.retrieval_best_focus_coverage is None
+    assert loaded.retrieval_diagnostics is None

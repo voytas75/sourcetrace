@@ -7,7 +7,13 @@ from urllib.parse import urlparse
 from sourcetrace_v2.adapters.pdf.interfaces import PdfReadGateway
 from sourcetrace_v2.adapters.search.interfaces import SearchGateway
 from sourcetrace_v2.core.domain.identifiers import StageStatus
-from sourcetrace_v2.core.domain.models import PdfEvidenceContext, RetrievedEvidenceCandidate, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import (
+    PdfEvidenceContext,
+    RetrievalPoolSemanticFitSnapshot,
+    RetrievalSemanticFitDiagnostics,
+    RetrievedEvidenceCandidate,
+    StageExecutionReceipt,
+)
 from sourcetrace_v2.execution.context.models import ExecutionContext
 from sourcetrace_v2.execution.receipts.collector import ReceiptCollector
 
@@ -114,6 +120,11 @@ _PDF_SNIPPET_FAILURE_MARKERS = (
 class RetrievalStageResult:
     retrieval_query: str
     candidates: tuple[RetrievedEvidenceCandidate, ...]
+    pretrim_candidates: tuple[RetrievedEvidenceCandidate, ...]
+    retrieval_diagnostics: RetrievalSemanticFitDiagnostics
+    candidate_pool_count: int
+    semantic_fit_status: str
+    best_focus_coverage: float | None
 
 
 class RetrievalStage:
@@ -148,7 +159,17 @@ class RetrievalStage:
                 candidates=candidates,
                 query=input_text,
             )
-            candidates = self._trim_candidate_window(candidates=candidates)
+            pretrim_candidates = candidates
+            candidate_pool_count = len(pretrim_candidates)
+            candidates = self._trim_candidate_window(candidates=pretrim_candidates)
+            retrieval_diagnostics = _build_retrieval_semantic_fit_diagnostics(
+                query=input_text,
+                pretrim_candidates=pretrim_candidates,
+                trimmed_candidates=candidates,
+                pretrim_explicit=True,
+            )
+            semantic_fit_status = retrieval_diagnostics.pretrim.status
+            best_focus_coverage = _snapshot_focus_coverage(retrieval_diagnostics.pretrim)
             candidates = self._enrich_pdf_candidates(
                 candidates=candidates,
                 query=input_text,
@@ -181,7 +202,15 @@ class RetrievalStage:
                 detail=f"candidate_count={len(candidates)}",
             )
         )
-        return RetrievalStageResult(retrieval_query=input_text, candidates=candidates)
+        return RetrievalStageResult(
+            retrieval_query=input_text,
+            candidates=candidates,
+            pretrim_candidates=pretrim_candidates,
+            retrieval_diagnostics=retrieval_diagnostics,
+            candidate_pool_count=candidate_pool_count,
+            semantic_fit_status=semantic_fit_status,
+            best_focus_coverage=best_focus_coverage,
+        )
 
     def _retrieval_window_limit(self, *, query: str) -> int:
         if _query_implies_institutional_preference(query) or _query_implies_community_outcome_focus(query):
@@ -689,6 +718,108 @@ def _normalize_scoring_text(value: str) -> str:
 
 def _normalize_semantic_scoring_text(value: str) -> str:
     return " ".join(_tokenize_semantic_scoring_text(value))
+
+
+def _build_retrieval_semantic_fit_diagnostics(
+    *,
+    query: str,
+    pretrim_candidates: tuple[RetrievedEvidenceCandidate, ...],
+    trimmed_candidates: tuple[RetrievedEvidenceCandidate, ...],
+    pretrim_explicit: bool,
+) -> RetrievalSemanticFitDiagnostics:
+    focus_terms = _query_focus_tokens(query)
+    pretrim = _build_pool_semantic_fit_snapshot(candidates=pretrim_candidates, focus_terms=focus_terms)
+    trimmed = _build_pool_semantic_fit_snapshot(candidates=trimmed_candidates, focus_terms=focus_terms)
+    return RetrievalSemanticFitDiagnostics(
+        focus_terms=focus_terms,
+        pretrim=pretrim,
+        trimmed=trimmed,
+        insufficiency_stage=_derive_semantic_fit_insufficiency_stage(pretrim=pretrim, trimmed=trimmed),
+        pretrim_explicit=pretrim_explicit,
+    )
+
+
+def _assess_candidate_pool_semantic_fit(
+    *,
+    query: str,
+    candidates: tuple[RetrievedEvidenceCandidate, ...],
+) -> tuple[str, float | None]:
+    diagnostics = _build_retrieval_semantic_fit_diagnostics(
+        query=query,
+        pretrim_candidates=candidates,
+        trimmed_candidates=candidates,
+        pretrim_explicit=True,
+    )
+    return diagnostics.pretrim.status, _snapshot_focus_coverage(diagnostics.pretrim)
+
+
+def _build_pool_semantic_fit_snapshot(
+    *,
+    candidates: tuple[RetrievedEvidenceCandidate, ...],
+    focus_terms: tuple[str, ...],
+) -> RetrievalPoolSemanticFitSnapshot:
+    if not focus_terms:
+        return RetrievalPoolSemanticFitSnapshot()
+
+    best_rank: int | None = None
+    best_match_count = 0
+    best_terms: tuple[str, ...] = ()
+    for candidate in candidates:
+        matched_terms = _semantic_focus_overlap(candidate=candidate, focus_terms=focus_terms)
+        match_count = len(matched_terms)
+        if match_count > best_match_count:
+            best_match_count = match_count
+            best_terms = matched_terms
+            best_rank = candidate.rank
+            continue
+        if match_count == best_match_count and match_count > 0 and (best_rank is None or candidate.rank < best_rank):
+            best_terms = matched_terms
+            best_rank = candidate.rank
+
+    return RetrievalPoolSemanticFitSnapshot(
+        status=_semantic_fit_status(focus_term_count=len(focus_terms), matched_term_count=best_match_count),
+        focus_term_count=len(focus_terms),
+        matched_term_count=best_match_count,
+        matched_terms=best_terms,
+        best_candidate_rank=best_rank,
+    )
+
+
+def _snapshot_focus_coverage(snapshot: RetrievalPoolSemanticFitSnapshot) -> float | None:
+    if snapshot.focus_term_count <= 0:
+        return None
+    return snapshot.matched_term_count / snapshot.focus_term_count
+
+
+def _semantic_focus_overlap(
+    *,
+    candidate: RetrievedEvidenceCandidate,
+    focus_terms: tuple[str, ...],
+) -> tuple[str, ...]:
+    candidate_terms = set(
+        _tokenize_semantic_scoring_text(" ".join(part for part in (candidate.title, candidate.snippet, candidate.url) if part))
+    )
+    return tuple(term for term in focus_terms if term in candidate_terms)
+
+
+def _semantic_fit_status(*, focus_term_count: int, matched_term_count: int) -> str:
+    if focus_term_count <= 0:
+        return "unknown"
+    return "sufficient" if matched_term_count >= min(2, focus_term_count) else "insufficient"
+
+
+def _derive_semantic_fit_insufficiency_stage(
+    *,
+    pretrim: RetrievalPoolSemanticFitSnapshot,
+    trimmed: RetrievalPoolSemanticFitSnapshot,
+) -> str:
+    if pretrim.status == "unknown":
+        return "unknown"
+    if pretrim.status == "insufficient":
+        return "upstream_candidate_pool"
+    if trimmed.status == "insufficient":
+        return "downstream_selection"
+    return "none"
 
 
 def _looks_like_pdf_candidate(candidate: RetrievedEvidenceCandidate) -> bool:

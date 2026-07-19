@@ -324,6 +324,11 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
     current_text = seed_text
     evidence_query = ""
     evidence_candidates = ()
+    pretrim_evidence_candidates = ()
+    retrieval_diagnostics = None
+    retrieval_candidate_pool_count = 0
+    retrieval_semantic_fit_status = "unknown"
+    retrieval_best_focus_coverage = None
     retrieval_query = _build_retrieval_query_handoff(seed_text=seed_text)
     event_logger.info(
         "research flow started",
@@ -363,6 +368,11 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
                 )
                 evidence_query = result.retrieval_query
                 evidence_candidates = result.candidates
+                pretrim_evidence_candidates = result.pretrim_candidates
+                retrieval_diagnostics = result.retrieval_diagnostics
+                retrieval_candidate_pool_count = result.candidate_pool_count
+                retrieval_semantic_fit_status = result.semantic_fit_status
+                retrieval_best_focus_coverage = result.best_focus_coverage
                 current_text = current_text + "\n\nRetrieved evidence candidates:\n" + "\n".join(
                     f"- [{candidate.rank}] {candidate.title} <{candidate.url}>" for candidate in result.candidates
                 )
@@ -438,6 +448,11 @@ def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, l
         ),
         evidence_query=evidence_query,
         evidence_candidates=evidence_candidates,
+        pretrim_evidence_candidates=pretrim_evidence_candidates,
+        retrieval_diagnostics=retrieval_diagnostics,
+        retrieval_candidate_pool_count=retrieval_candidate_pool_count,
+        retrieval_semantic_fit_status=retrieval_semantic_fit_status,
+        retrieval_best_focus_coverage=retrieval_best_focus_coverage,
     )
     done_job = job.mark_done()
     event_logger.info(

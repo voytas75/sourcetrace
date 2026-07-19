@@ -2,6 +2,7 @@ from sourcetrace_v2.app.services.compiled_artifacts import build_compiled_artifa
 from sourcetrace_v2.core.contracts.read_models import ExecutionRollup, PersistedExecutionView, PersistedRunEnvelope, PersistedViewStatus, PersistenceCompleteness
 from sourcetrace_v2.core.contracts.trust_metadata import SourceTraceTrustMetadata
 from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker
+from sourcetrace_v2.execution.stages.retrieval import _build_retrieval_semantic_fit_diagnostics
 from sourcetrace_v2.projections.api.trust import TRUST_USABLE, project_operator_trust
 
 
@@ -51,6 +52,37 @@ def _view(*, artifact: ResearchResultArtifact, degraded_calls: int = 0) -> Persi
     )
 
 
+def _semantic_fit_artifact(
+    *,
+    job_id: str,
+    run_id: str,
+    query: str,
+    candidates: tuple[RetrievedEvidenceCandidate, ...],
+) -> ResearchResultArtifact:
+    diagnostics = _build_retrieval_semantic_fit_diagnostics(
+        query=query,
+        pretrim_candidates=candidates,
+        trimmed_candidates=candidates,
+        pretrim_explicit=True,
+    )
+    return ResearchResultArtifact(
+        job_id=job_id,
+        run_id=run_id,
+        result_text="summary",
+        evidence_query=query,
+        evidence_candidates=candidates,
+        pretrim_evidence_candidates=candidates,
+        retrieval_diagnostics=diagnostics,
+        retrieval_candidate_pool_count=len(candidates),
+        retrieval_semantic_fit_status=diagnostics.pretrim.status,
+        retrieval_best_focus_coverage=(
+            diagnostics.pretrim.matched_term_count / diagnostics.pretrim.focus_term_count
+            if diagnostics.pretrim.focus_term_count > 0
+            else None
+        ),
+    )
+
+
 def test_trust_contract_marks_low_authority_selected_shape_as_needs_review() -> None:
     artifact = ResearchResultArtifact(
         job_id="job-trust-align",
@@ -78,6 +110,44 @@ def test_trust_contract_marks_low_authority_selected_shape_as_needs_review() -> 
 
     assert payload["status"] == "usable"
     assert payload["reasons"] == []
+
+
+def test_irrelevant_but_institutional_pool_marks_retrieval_semantic_fit_as_insufficient() -> None:
+    query = "incident response reporting requirements"
+    candidates = (
+        _candidate(
+            title="Agency Alpha climate adaptation strategy",
+            url="https://agency-alpha.gov/publications/climate-adaptation",
+            rank=1,
+            source_type="institutional",
+            snippet="Official strategy for climate adaptation and resilience planning.",
+            query=query,
+        ),
+        _candidate(
+            title="Agency Beta water conservation manual",
+            url="https://agency-beta.gov/guidance/water-conservation",
+            rank=2,
+            source_type="institutional",
+            snippet="Official manual for water conservation programs.",
+            query=query,
+        ),
+    )
+    artifact = _semantic_fit_artifact(
+        job_id="job-trust-align-upstream-insufficient",
+        run_id="run-trust-align-upstream-insufficient",
+        query=query,
+        candidates=candidates,
+    )
+
+    payload = project_operator_trust(view=_view(artifact=artifact))
+
+    assert artifact.retrieval_candidate_pool_count == 2
+    assert artifact.retrieval_semantic_fit_status == "insufficient"
+    assert artifact.retrieval_best_focus_coverage == 0.0
+    assert artifact.retrieval_diagnostics is not None
+    assert artifact.retrieval_diagnostics.insufficiency_stage == "upstream_candidate_pool"
+    assert payload["status"] == "needs_review"
+    assert payload["reasons"] == ["retrieval_insufficient_semantic_fit"]
 
 
 def test_trust_contract_keeps_relevant_different_institutional_domains_usable() -> None:
@@ -108,6 +178,44 @@ def test_trust_contract_keeps_relevant_different_institutional_domains_usable() 
 
     payload = project_operator_trust(view=_view(artifact=artifact))
 
+    assert payload["status"] == TRUST_USABLE
+    assert payload["reasons"] == []
+
+
+def test_healthy_irs_like_pool_does_not_degrade_operator_trust() -> None:
+    query = "tax filing deadline official guidance"
+    candidates = (
+        _candidate(
+            title="IRS tax filing deadline extension guidance",
+            url="https://www.irs.gov/newsroom/tax-filing-deadline-extension-guidance",
+            rank=1,
+            source_type="institutional",
+            snippet="Official IRS guidance about the tax filing deadline and extension rules.",
+            query=query,
+        ),
+        _candidate(
+            title="IRS filing deadline help and payment options",
+            url="https://www.irs.gov/payments/filing-deadline-help",
+            rank=2,
+            source_type="institutional",
+            snippet="Official IRS help for filing deadline questions and payments.",
+            query=query,
+        ),
+    )
+    artifact = _semantic_fit_artifact(
+        job_id="job-trust-align-irs-fit",
+        run_id="run-trust-align-irs-fit",
+        query=query,
+        candidates=candidates,
+    )
+
+    payload = project_operator_trust(view=_view(artifact=artifact))
+
+    assert artifact.retrieval_semantic_fit_status == "sufficient"
+    assert artifact.retrieval_best_focus_coverage is not None
+    assert artifact.retrieval_best_focus_coverage >= 0.5
+    assert artifact.retrieval_diagnostics is not None
+    assert artifact.retrieval_diagnostics.insufficiency_stage == "none"
     assert payload["status"] == TRUST_USABLE
     assert payload["reasons"] == []
 

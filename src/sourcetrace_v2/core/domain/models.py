@@ -63,6 +63,25 @@ class RetrievedEvidenceCandidate:
 
 
 @dataclass(frozen=True)
+class RetrievalPoolSemanticFitSnapshot:
+    status: str = "unknown"
+    focus_term_count: int = 0
+    matched_term_count: int = 0
+    matched_terms: tuple[str, ...] = ()
+    best_candidate_rank: int | None = None
+
+
+@dataclass(frozen=True)
+class RetrievalSemanticFitDiagnostics:
+    contract_version: str = "retrieval-semantic-fit-guard-v1"
+    focus_terms: tuple[str, ...] = ()
+    pretrim: RetrievalPoolSemanticFitSnapshot = field(default_factory=RetrievalPoolSemanticFitSnapshot)
+    trimmed: RetrievalPoolSemanticFitSnapshot = field(default_factory=RetrievalPoolSemanticFitSnapshot)
+    insufficiency_stage: str = "unknown"
+    pretrim_explicit: bool = False
+
+
+@dataclass(frozen=True)
 class ResearchResultArtifact:
     job_id: str
     run_id: str
@@ -70,6 +89,13 @@ class ResearchResultArtifact:
     summary: str = ""
     evidence_query: str = ""
     evidence_candidates: tuple[RetrievedEvidenceCandidate, ...] = ()
+    pretrim_evidence_candidates: tuple[RetrievedEvidenceCandidate, ...] = ()
+    retrieval_diagnostics: RetrievalSemanticFitDiagnostics | None = None
+    # These describe the candidate pool before it is trimmed for downstream
+    # selection. They intentionally do not retain the full raw pool.
+    retrieval_candidate_pool_count: int = 0
+    retrieval_semantic_fit_status: str = "unknown"
+    retrieval_best_focus_coverage: float | None = None
 
 
 @dataclass(frozen=True)
