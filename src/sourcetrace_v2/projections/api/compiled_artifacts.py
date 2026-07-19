@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledResearchArtifact
+from sourcetrace_v2.projections.api.trust_metadata import project_trust_metadata
 
 
 def project_compiled_artifact(*, artifact: CompiledResearchArtifact | None) -> dict[str, object]:
@@ -22,6 +23,7 @@ def project_compiled_artifact(*, artifact: CompiledResearchArtifact | None) -> d
                     "entity_match_summary": item.pdf_context.entity_match_summary,
                     "key_findings": list(item.pdf_context.key_findings),
                 } if item.pdf_context is not None else None,
+                "trust_metadata": project_trust_metadata(item.trust_metadata),
                 "judgment": {
                     "contract_version": item.judgment.contract_version,
                     "authority": {

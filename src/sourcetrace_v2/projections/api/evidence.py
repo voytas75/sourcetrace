@@ -8,6 +8,7 @@ from sourcetrace_v2.core.policies.selected_evidence import (
     decide_selected_evidence,
 )
 from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate
+from sourcetrace_v2.projections.api.trust_metadata import project_trust_metadata
 
 
 def project_selected_evidence(*, artifact: ResearchResultArtifact | None, limit: int = 2) -> dict[str, object]:
@@ -60,6 +61,7 @@ def project_selected_evidence(*, artifact: ResearchResultArtifact | None, limit:
                     "entity_match_summary": candidate.pdf_context.entity_match_summary,
                     "key_findings": list(candidate.pdf_context.key_findings),
                 } if candidate.pdf_context is not None else None,
+                "trust_metadata": project_trust_metadata(candidate.trust_metadata),
                 "judgment": _project_judgment(build_candidate_judgment(candidate)),
             }
             for candidate in selected

@@ -1,5 +1,7 @@
 # SourceTrace v2 trust-jurisdiction-alignment v1 — 2026-06-28
 
+> **Superseded for current runtime behavior (2026-07-19).** The former host/title-anchor comparison was an authority/domain inequality test, not jurisdiction evidence. Current trust evaluates a jurisdiction mismatch only from explicit, sufficiently confident SourceTrace metadata. See [`trust-metadata-contract-v2-2026-07-19.md`](trust-metadata-contract-v2-2026-07-19.md).
+
 ## Goal
 
 Tighten the operator-facing trust signal for selected evidence pairs that look respectable at first glance, but are still subtly unsafe because they mix institutional authorities from different jurisdictions.

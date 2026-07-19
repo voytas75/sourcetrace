@@ -7,10 +7,13 @@ from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
 from sourcetrace_v2.adapters.search.stub import StubSearchGateway
 from sourcetrace_v2.adapters.storage.jsonl import JsonlReceiptRepository, JsonlResultArtifactRepository
 from sourcetrace_v2.app.services.http_api import handle_get_persisted_compiled_artifact_request
+from sourcetrace_v2.app.services.compiled_artifacts import build_compiled_artifact
 from sourcetrace_v2.app.composition.runtime import RuntimeAssembly
 from sourcetrace_v2.app.services.http_api import handle_get_persisted_execution_request
 from sourcetrace_v2.app.services.run_use_case import run_and_persist_minimal_flow
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
+from sourcetrace_v2.core.contracts.trust_metadata import SourceTraceTrustMetadata
+from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate
 
 
 def test_jsonl_storage_roundtrip_supports_run_use_case(tmp_path: Path) -> None:
@@ -174,3 +177,42 @@ def test_jsonl_storage_raises_on_nontrailing_corruption(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         results.get_result(job_id='job-ok', run_id='run-ok')
+
+
+def test_jsonl_storage_roundtrips_explicit_trust_metadata(tmp_path: Path) -> None:
+    results = JsonlResultArtifactRepository(tmp_path)
+    metadata = SourceTraceTrustMetadata(
+        authority_id="authority-one", jurisdiction_id="US", scope="national",
+        provenance="operator", confidence="high",
+    )
+    artifact = ResearchResultArtifact(
+        job_id="job-jsonl-trust-metadata",
+        run_id="run-jsonl-trust-metadata",
+        result_text="summary",
+        evidence_candidates=(
+            RetrievedEvidenceCandidate(
+                candidate_id="candidate-trust-metadata",
+                job_id="job-jsonl-trust-metadata",
+                run_id="run-jsonl-trust-metadata",
+                provider="fixture",
+                query="official guidance",
+                title="Official guidance",
+                url="https://authority.example.test/guidance",
+                snippet="Official guidance snippet.",
+                source_type="institutional",
+                trust_metadata=metadata,
+            ),
+        ),
+    )
+    compiled = build_compiled_artifact(artifact=artifact)
+
+    results.save_result(artifact)
+    results.save_compiled_artifact(compiled)
+
+    loaded_artifact = results.get_result(job_id=artifact.job_id, run_id=artifact.run_id)
+    loaded_compiled = results.get_compiled_artifact(job_id=artifact.job_id, run_id=artifact.run_id)
+
+    assert loaded_artifact is not None
+    assert loaded_compiled is not None
+    assert loaded_artifact.evidence_candidates[0].trust_metadata == metadata
+    assert loaded_compiled.selected_evidence[0].trust_metadata == metadata

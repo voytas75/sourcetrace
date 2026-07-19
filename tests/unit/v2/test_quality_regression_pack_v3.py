@@ -9,12 +9,21 @@ from sourcetrace_v2.core.contracts.read_models import (
     PersistedViewStatus,
     PersistenceCompleteness,
 )
+from sourcetrace_v2.core.contracts.trust_metadata import SourceTraceTrustMetadata
 from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker
 from sourcetrace_v2.projections.api.evidence import project_selected_evidence
 from sourcetrace_v2.projections.api.trust import project_operator_trust
 
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "fixtures" / "v2" / "quality_regression_pack_v3.json"
+
+
+def _candidate_from_payload(payload: dict[str, object]) -> RetrievedEvidenceCandidate:
+    fields = dict(payload)
+    metadata = fields.get("trust_metadata")
+    if isinstance(metadata, dict):
+        fields["trust_metadata"] = SourceTraceTrustMetadata(**metadata)
+    return RetrievedEvidenceCandidate(**fields)
 
 
 def _load_cases() -> list[dict[str, object]]:
@@ -50,7 +59,7 @@ def test_quality_regression_pack_v3_cases() -> None:
             run_id=artifact_payload["run_id"],
             result_text=artifact_payload["result_text"],
             evidence_candidates=tuple(
-                RetrievedEvidenceCandidate(**candidate)
+                _candidate_from_payload(candidate)
                 for candidate in artifact_payload["evidence_candidates"]
             ),
         )

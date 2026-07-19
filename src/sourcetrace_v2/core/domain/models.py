@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
+from sourcetrace_v2.core.contracts.trust_metadata import SourceTraceTrustMetadata
 from sourcetrace_v2.core.domain.identifiers import (
     DegradationReason,
     FeatureId,
@@ -58,6 +59,7 @@ class RetrievedEvidenceCandidate:
     rank: int = 1
     source_type: str = "unknown"
     pdf_context: PdfEvidenceContext | None = None
+    trust_metadata: SourceTraceTrustMetadata | None = None
 
 
 @dataclass(frozen=True)

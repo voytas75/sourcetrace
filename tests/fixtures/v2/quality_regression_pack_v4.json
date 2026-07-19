@@ -1,6 +1,6 @@
 [
   {
-    "case_id": "legal_hold_public_institutional_pair_now_needs_review",
+    "case_id": "legal_hold_public_institutional_pair_jurisdiction_unassessed",
     "query": "legal hold steps records retention official guidance site:gov OR site:.edu OR site:archives.gov OR site:justice.gov",
     "artifact": {
       "job_id": "job-quality-pack-v4-legal-hold",
@@ -54,14 +54,12 @@
       "must_exclude": [
         "1743-2 - NIH Litigation Hold Policy"
       ],
-      "note": "This case pins the post-query-refinement improvement: the earlier weak vendor drift is gone, but the selected institutional pair still spans different authorities and should remain review-marked."
+      "note": "This case pins the post-query-refinement improvement: the earlier weak vendor drift is gone. Different public authorities alone are not jurisdiction evidence."
     },
     "trust": {
-      "status": "needs_review",
-      "reasons": [
-        "jurisdiction_mixed_selected_institutional_pair"
-      ],
-      "note": "The current trust layer should keep this shape honest because the selected institutional pair anchors to different public authorities."
+      "status": "usable",
+      "reasons": [],
+      "note": "The current trust layer leaves jurisdiction unassessed unless selected evidence carries explicit, sufficiently confident jurisdiction metadata."
     }
   },
   {

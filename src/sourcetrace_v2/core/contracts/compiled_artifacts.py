@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sourcetrace_v2.core.contracts.trust_metadata import SourceTraceTrustMetadata
+
 
 @dataclass(frozen=True)
 class EvidenceJudgmentDimension:
@@ -35,6 +37,7 @@ class CompiledEvidenceSnapshot:
     snippet: str = ""
     judgment: EvidenceJudgmentSnapshot | None = None
     pdf_context: PdfEvidenceContextSnapshot | None = None
+    trust_metadata: SourceTraceTrustMetadata | None = None
 
 
 @dataclass(frozen=True)

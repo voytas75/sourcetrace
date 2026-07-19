@@ -12,6 +12,7 @@ from sourcetrace_v2.core.contracts.compiled_artifacts import (
     EvidenceJudgmentSnapshot,
     PdfEvidenceContextSnapshot,
 )
+from sourcetrace_v2.core.contracts.trust_metadata import SourceTraceTrustMetadata
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus, StageId, StageStatus
 from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, PdfEvidenceContext, ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker, StageExecutionReceipt
 
@@ -78,6 +79,18 @@ def _deserialize_pdf_context_snapshot(payload: dict[str, Any] | None) -> PdfEvid
     )
 
 
+def _deserialize_trust_metadata(payload: dict[str, Any] | None) -> SourceTraceTrustMetadata | None:
+    if payload is None:
+        return None
+    return SourceTraceTrustMetadata(
+        authority_id=str(payload.get("authority_id", "") or ""),
+        jurisdiction_id=str(payload.get("jurisdiction_id", "") or ""),
+        scope=str(payload.get("scope", "unknown") or "unknown"),
+        provenance=str(payload.get("provenance", "unassessed") or "unassessed"),
+        confidence=str(payload.get("confidence", "unassessed") or "unassessed"),
+    )
+
+
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -140,6 +153,7 @@ class JsonlResultArtifactRepository:
                     rank=candidate.get("rank", 1),
                     source_type=str(candidate.get("source_type", "unknown") or "unknown"),
                     pdf_context=_deserialize_pdf_context(candidate.get("pdf_context")),
+                    trust_metadata=_deserialize_trust_metadata(candidate.get("trust_metadata")),
                 )
                 for candidate in match.get("evidence_candidates", [])
             ),
@@ -170,6 +184,7 @@ class JsonlResultArtifactRepository:
                     snippet=item.get("snippet", ""),
                     judgment=_deserialize_judgment_snapshot(item.get("judgment")),
                     pdf_context=_deserialize_pdf_context_snapshot(item.get("pdf_context")),
+                    trust_metadata=_deserialize_trust_metadata(item.get("trust_metadata")),
                 )
                 for item in match.get("selected_evidence", [])
             ),

@@ -25,6 +25,7 @@ def build_compiled_artifact(*, artifact: ResearchResultArtifact) -> CompiledRese
                 if candidate.pdf_context is not None
                 else None
             ),
+            trust_metadata=candidate.trust_metadata,
         )
         for candidate in selected
     )

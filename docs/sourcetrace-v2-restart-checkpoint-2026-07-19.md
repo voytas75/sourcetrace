@@ -20,6 +20,7 @@ For the managed local wrapper, use the `start`, `wait`, `status`, and `stop` sub
 - Dependency resolution was refreshed locally with `uv lock --offline`; the lock file now represents the base `pdfplumber` dependency declared in `pyproject.toml`.
 - `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest -q -p no:cacheprovider` completed with `665 passed, 3 xfailed`.
 - `uv sync --locked --offline --dry-run --dev --extra dev` completed successfully against the refreshed lock.
+- Trust no longer infers jurisdiction mismatch from URL/title anchors. `jurisdiction_mixed_selected_institutional_pair` now requires explicit selected-evidence `trust_metadata`; absent metadata is treated as unknown rather than guessed.
 
 This checkpoint deliberately does **not** claim a live Azure OpenAI or SearxNG run. It also does not start, stop, or alter any service or systemd unit.
 
@@ -37,6 +38,7 @@ When live-provider validation is explicitly in scope, configure the required loc
 ## Related documents
 
 - [README-dev runtime commands](../README-dev.md#runtime-commands)
+- [v2 trust-metadata contract](trust-metadata-contract-v2-2026-07-19.md)
 - [v2 closure / packaging checkpoint](sourcetrace-v2-closure-packaging-checkpoint-2026-06-27.md)
 - [v2 docs posture](sourcetrace-v2-docs-posture-2026-06-27.md)
 - [Architecture SSOT / legacy product baseline](architecture-ssot.md)

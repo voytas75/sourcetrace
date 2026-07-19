@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
 from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledEvidenceSnapshot
 from sourcetrace_v2.core.contracts.read_models import PersistedExecutionView, PersistedViewStatus
 
@@ -60,12 +58,12 @@ def project_operator_trust(*, view: PersistedExecutionView) -> dict[str, object]
             reasons.append("low_confidence_selected_shape")
         elif "institutional" not in selected_source_types and selected_source_types <= {"unknown", "commentary", "vendor"}:
             reasons.append("low_confidence_selected_shape")
-        elif _selected_institutional_pair_has_jurisdiction_mismatch(selected_candidates):
+        elif _selected_institutional_pair_has_explicit_jurisdiction_mismatch(selected_candidates):
             reasons.append("jurisdiction_mixed_selected_institutional_pair")
+        elif _selected_candidates_have_strong_authority_but_weak_fit(selected_candidates):
+            reasons.append("strong_authority_but_weak_fit_selected_shape")
 
-    if "jurisdiction_mixed_selected_institutional_pair" in reasons and len(reasons) == 1:
-        status = TRUST_NEEDS_REVIEW
-    elif reasons:
+    if reasons:
         status = TRUST_WEAK if reasons == ["degraded_llm_calls"] else TRUST_NEEDS_REVIEW
     else:
         status = TRUST_USABLE
@@ -78,51 +76,52 @@ def project_operator_trust(*, view: PersistedExecutionView) -> dict[str, object]
     }
 
 
-def _selected_institutional_pair_has_jurisdiction_mismatch(selected_candidates: tuple[CompiledEvidenceSnapshot, ...]) -> bool:
+def _selected_institutional_pair_has_explicit_jurisdiction_mismatch(
+    selected_candidates: tuple[CompiledEvidenceSnapshot, ...],
+) -> bool:
     if len(selected_candidates) < 2:
         return False
     if any(_source_type_from_compiled_candidate(candidate) != "institutional" for candidate in selected_candidates):
         return False
 
-    anchors = [_institutional_anchor(candidate) for candidate in selected_candidates]
-    if any(anchor is None for anchor in anchors):
+    jurisdiction_ids = [_trusted_jurisdiction_id(candidate) for candidate in selected_candidates]
+    if any(jurisdiction_id is None for jurisdiction_id in jurisdiction_ids):
         return False
-    return len(set(anchors)) > 1
+    return len(set(jurisdiction_ids)) > 1
 
 
-def _institutional_anchor(candidate: CompiledEvidenceSnapshot) -> str | None:
-    url = candidate.url
-    title = candidate.title
-    host = urlparse(url).netloc.lower()
-    labels = [label for label in host.split(".") if label and label != "www"]
-    if not labels:
+def _trusted_jurisdiction_id(candidate: CompiledEvidenceSnapshot) -> str | None:
+    """Use only explicit, sufficiently confident jurisdiction metadata.
+
+    Hosts, titles, public suffixes, and differing authority IDs are source cues,
+    not jurisdiction evidence. Unknown metadata must remain non-blocking rather
+    than fabricating a jurisdiction claim.
+    """
+    metadata = candidate.trust_metadata
+    if metadata is None or metadata.confidence not in {"high", "medium"}:
         return None
+    jurisdiction_id = metadata.jurisdiction_id.strip().casefold()
+    return jurisdiction_id or None
 
-    if labels[-1] in {"uk", "au", "za", "pl", "eu"} and len(labels) >= 2:
-        return ".".join(labels[-2:])
 
-    if labels[-1] == "gov" and len(labels) >= 2:
-        return ".".join(labels[-2:])
+def _selected_candidates_have_strong_authority_but_weak_fit(
+    selected_candidates: tuple[CompiledEvidenceSnapshot, ...],
+) -> bool:
+    if len(selected_candidates) < 2:
+        return False
 
-    if labels[-1] == "com" and len(labels) >= 2:
-        return ".".join(labels[-2:])
+    judgments = tuple(candidate.judgment for candidate in selected_candidates if candidate.judgment is not None)
+    if len(judgments) != len(selected_candidates):
+        return False
 
-    anchor = ".".join(labels[-2:]) if len(labels) >= 2 else labels[-1]
+    if not all(judgment.authority.band in _STRONG_BANDS for judgment in judgments):
+        return False
+    if not all(judgment.answer_fit.band in _LOW_BANDS for judgment in judgments):
+        return False
 
-    lowered_title = title.lower()
-    title_markers = {
-        "irs": "irs.gov",
-        "sars": "sars.gov.za",
-        "gov.uk": "gov.uk",
-        "hhs": "hhs.gov",
-        "microsoft entra": "microsoft.com",
-        "microsoft": "microsoft.com",
-    }
-    for marker, mapped in title_markers.items():
-        if marker in lowered_title:
-            return mapped
-
-    return anchor
+    topic_match_weak = all(judgment.topic_match.band in _LOW_BANDS for judgment in judgments)
+    specificity_weak = all(judgment.specificity.band in _LOW_BANDS for judgment in judgments)
+    return topic_match_weak or specificity_weak
 
 
 
@@ -134,4 +133,3 @@ def _source_type_from_compiled_candidate(candidate: CompiledEvidenceSnapshot) ->
     if candidate.judgment.authority.band in _LOW_BANDS:
         return "unknown"
     return "vendor"
-

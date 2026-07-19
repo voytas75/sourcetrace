@@ -80,7 +80,14 @@
           "url": "https://www.irs.gov/businesses/small-businesses-self-employed/starting-or-ending-a-business-3",
           "snippet": "IRS guidance for small businesses.",
           "rank": 1,
-          "source_type": "institutional"
+          "source_type": "institutional",
+          "trust_metadata": {
+            "authority_id": "us-irs",
+            "jurisdiction_id": "US",
+            "scope": "national",
+            "provenance": "fixture",
+            "confidence": "high"
+          }
         },
         {
           "candidate_id": "cand:taxv3:2",
@@ -92,7 +99,14 @@
           "url": "https://www.sars.gov.za/types-of-tax/small-businesses-and-employment-taxes/",
           "snippet": "SARS small business tax guidance.",
           "rank": 2,
-          "source_type": "institutional"
+          "source_type": "institutional",
+          "trust_metadata": {
+            "authority_id": "za-sars",
+            "jurisdiction_id": "ZA",
+            "scope": "national",
+            "provenance": "fixture",
+            "confidence": "high"
+          }
         },
         {
           "candidate_id": "cand:taxv3:3",
@@ -117,14 +131,14 @@
       "must_exclude": [
         "Tax filing deadlines for entrepreneurs - commentary"
       ],
-      "note": "This case pins the improved retrieval shape: the pair is now institutional/institutional, but it is still jurisdiction-mixed and therefore not a fully clean answer shape."
+      "note": "This case pins an explicitly declared cross-jurisdiction institutional pair. The review signal comes from metadata, not host or title inference."
     },
     "trust": {
       "status": "needs_review",
       "reasons": [
         "jurisdiction_mixed_selected_institutional_pair"
       ],
-      "note": "The trust layer now marks this pair for review because the selected institutional anchors point at different jurisdictions/authorities."
+      "note": "The trust layer marks this pair for review because the selected evidence carries explicit, high-confidence, different jurisdiction identifiers."
     }
   }
 ]
