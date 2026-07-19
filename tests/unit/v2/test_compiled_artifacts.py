@@ -5,6 +5,7 @@ from sourcetrace_v2.app.services.compiled_artifacts import build_compiled_artifa
 from sourcetrace_v2.app.services.execution import execute_minimal_research_flow
 from sourcetrace_v2.app.services.http_api import handle_get_persisted_compiled_artifact_request, handle_run_minimal_flow_request
 from sourcetrace_v2.app.services.readback import load_persisted_execution_view
+from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate
 from sourcetrace_v2.projections.api.compiled_artifacts import project_compiled_artifact
 
 
@@ -77,3 +78,57 @@ def test_run_http_projection_exposes_compiled_artifact_block() -> None:
     compiled_payload = json.loads(compiled_response.body)
     assert compiled_response.status_code == 200
     assert compiled_payload["compiled_artifact"]["artifact_id"] == "compiled:job-compiled-payload:run-compiled-payload"
+
+
+def test_compiled_artifact_selection_uses_bounded_evidence_candidates() -> None:
+    trimmed_candidates = (
+        RetrievedEvidenceCandidate(
+            candidate_id="cand-1",
+            job_id="job-compiled-trimmed",
+            run_id="run-compiled-trimmed",
+            provider="fixture",
+            query="incident response guidance",
+            title="Incident response guidance",
+            url="https://agency.example.test/guidance/incident-response",
+            snippet="Official incident response guidance.",
+            rank=1,
+            source_type="institutional",
+        ),
+        RetrievedEvidenceCandidate(
+            candidate_id="cand-2",
+            job_id="job-compiled-trimmed",
+            run_id="run-compiled-trimmed",
+            provider="fixture",
+            query="incident response guidance",
+            title="Incident response checklist",
+            url="https://agency.example.test/checklists/incident-response",
+            snippet="Official incident response checklist.",
+            rank=2,
+            source_type="institutional",
+        ),
+        RetrievedEvidenceCandidate(
+            candidate_id="cand-3",
+            job_id="job-compiled-trimmed",
+            run_id="run-compiled-trimmed",
+            provider="fixture",
+            query="incident response guidance",
+            title="Security overview",
+            url="https://agency.example.test/security/overview",
+            snippet="Broad security overview.",
+            rank=3,
+            source_type="institutional",
+        ),
+    )
+    artifact = ResearchResultArtifact(
+        job_id="job-compiled-trimmed",
+        run_id="run-compiled-trimmed",
+        result_text="summary",
+        evidence_candidates=trimmed_candidates,
+    )
+
+    compiled = build_compiled_artifact(artifact=artifact)
+
+    assert [item.title for item in compiled.selected_evidence] == [
+        "Incident response guidance",
+        "Incident response checklist",
+    ]

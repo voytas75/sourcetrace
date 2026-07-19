@@ -14,7 +14,16 @@ from sourcetrace_v2.core.contracts.compiled_artifacts import (
 )
 from sourcetrace_v2.core.contracts.trust_metadata import SourceTraceTrustMetadata
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus, StageId, StageStatus
-from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, PdfEvidenceContext, ResearchResultArtifact, RetrievedEvidenceCandidate, RunPersistenceMarker, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import (
+    LlmExecutionReceipt,
+    PdfEvidenceContext,
+    ResearchResultArtifact,
+    RetrievedEvidenceCandidate,
+    RetrievalPoolSemanticFitSnapshot,
+    RetrievalSemanticFitDiagnostics,
+    RunPersistenceMarker,
+    StageExecutionReceipt,
+)
 
 
 def _serialize_dataclass(instance: Any) -> dict[str, Any]:
@@ -91,6 +100,41 @@ def _deserialize_trust_metadata(payload: dict[str, Any] | None) -> SourceTraceTr
     )
 
 
+def _deserialize_retrieval_pool_semantic_fit_snapshot(
+    payload: dict[str, Any] | None,
+) -> RetrievalPoolSemanticFitSnapshot | None:
+    if payload is None:
+        return None
+    return RetrievalPoolSemanticFitSnapshot(
+        status=str(payload.get("status", "unknown") or "unknown"),
+        focus_term_count=int(payload.get("focus_term_count", 0) or 0),
+        matched_term_count=int(payload.get("matched_term_count", 0) or 0),
+        matched_terms=tuple(str(item) for item in payload.get("matched_terms", [])),
+        best_candidate_rank=(
+            int(payload["best_candidate_rank"])
+            if payload.get("best_candidate_rank") is not None
+            else None
+        ),
+    )
+
+
+def _deserialize_retrieval_diagnostics(
+    payload: dict[str, Any] | None,
+) -> RetrievalSemanticFitDiagnostics | None:
+    if payload is None:
+        return None
+    pretrim = _deserialize_retrieval_pool_semantic_fit_snapshot(payload.get("pretrim"))
+    trimmed = _deserialize_retrieval_pool_semantic_fit_snapshot(payload.get("trimmed"))
+    return RetrievalSemanticFitDiagnostics(
+        contract_version=str(payload.get("contract_version", "retrieval-semantic-fit-guard-v1") or "retrieval-semantic-fit-guard-v1"),
+        focus_terms=tuple(str(item) for item in payload.get("focus_terms", [])),
+        pretrim=pretrim if pretrim is not None else RetrievalPoolSemanticFitSnapshot(),
+        trimmed=trimmed if trimmed is not None else RetrievalPoolSemanticFitSnapshot(),
+        insufficiency_stage=str(payload.get("insufficiency_stage", "unknown") or "unknown"),
+        pretrim_explicit=bool(payload.get("pretrim_explicit", False)),
+    )
+
+
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -134,28 +178,55 @@ class JsonlResultArtifactRepository:
                 match = row
         if match is None:
             return None
+        evidence_candidates = tuple(
+            RetrievedEvidenceCandidate(
+                candidate_id=candidate["candidate_id"],
+                job_id=candidate["job_id"],
+                run_id=candidate["run_id"],
+                provider=candidate["provider"],
+                query=candidate["query"],
+                title=candidate["title"],
+                url=candidate["url"],
+                snippet=candidate.get("snippet", ""),
+                rank=candidate.get("rank", 1),
+                source_type=str(candidate.get("source_type", "unknown") or "unknown"),
+                pdf_context=_deserialize_pdf_context(candidate.get("pdf_context")),
+                trust_metadata=_deserialize_trust_metadata(candidate.get("trust_metadata")),
+            )
+            for candidate in match.get("evidence_candidates", [])
+        )
+        pretrim_candidates = tuple(
+            RetrievedEvidenceCandidate(
+                candidate_id=candidate["candidate_id"],
+                job_id=candidate["job_id"],
+                run_id=candidate["run_id"],
+                provider=candidate["provider"],
+                query=candidate["query"],
+                title=candidate["title"],
+                url=candidate["url"],
+                snippet=candidate.get("snippet", ""),
+                rank=candidate.get("rank", 1),
+                source_type=str(candidate.get("source_type", "unknown") or "unknown"),
+                pdf_context=_deserialize_pdf_context(candidate.get("pdf_context")),
+                trust_metadata=_deserialize_trust_metadata(candidate.get("trust_metadata")),
+            )
+            for candidate in match.get("pretrim_evidence_candidates", match.get("evidence_candidates", []))
+        )
         return ResearchResultArtifact(
             job_id=match["job_id"],
             run_id=match["run_id"],
             result_text=match["result_text"],
             summary=match.get("summary", ""),
             evidence_query=match.get("evidence_query", ""),
-            evidence_candidates=tuple(
-                RetrievedEvidenceCandidate(
-                    candidate_id=candidate["candidate_id"],
-                    job_id=candidate["job_id"],
-                    run_id=candidate["run_id"],
-                    provider=candidate["provider"],
-                    query=candidate["query"],
-                    title=candidate["title"],
-                    url=candidate["url"],
-                    snippet=candidate.get("snippet", ""),
-                    rank=candidate.get("rank", 1),
-                    source_type=str(candidate.get("source_type", "unknown") or "unknown"),
-                    pdf_context=_deserialize_pdf_context(candidate.get("pdf_context")),
-                    trust_metadata=_deserialize_trust_metadata(candidate.get("trust_metadata")),
-                )
-                for candidate in match.get("evidence_candidates", [])
+            evidence_candidates=evidence_candidates,
+            pretrim_evidence_candidates=pretrim_candidates,
+            retrieval_diagnostics=_deserialize_retrieval_diagnostics(match.get("retrieval_diagnostics")),
+            retrieval_candidate_pool_count=int(match.get("retrieval_candidate_pool_count", len(pretrim_candidates)) or len(pretrim_candidates)),
+            retrieval_semantic_fit_status=str(match.get("retrieval_semantic_fit_status", "unknown") or "unknown"),
+            retrieval_best_focus_coverage=(
+                float(match["retrieval_best_focus_coverage"])
+                if match.get("retrieval_best_focus_coverage") is not None
+                else None
             ),
         )
 

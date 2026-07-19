@@ -18,6 +18,11 @@ def project_operator_trust(*, view: PersistedExecutionView) -> dict[str, object]
     compiled = view.compiled_artifact
     selected_count = len(compiled.selected_evidence) if compiled is not None else 0
     candidate_count = len(artifact.evidence_candidates) if artifact is not None else 0
+    candidate_pool_count = (
+        artifact.retrieval_candidate_pool_count
+        if artifact is not None and artifact.retrieval_candidate_pool_count > 0
+        else (len(artifact.pretrim_evidence_candidates) if artifact is not None and artifact.pretrim_evidence_candidates else candidate_count)
+    )
 
     reasons: list[str] = []
 
@@ -28,6 +33,8 @@ def project_operator_trust(*, view: PersistedExecutionView) -> dict[str, object]
             "reasons": reasons,
             "selected_evidence_count": selected_count,
             "candidate_count": candidate_count,
+            "retrieval_candidate_pool_count": candidate_pool_count,
+            "pretrim_candidate_count": candidate_pool_count,
         }
 
     if view.rollup.failed_stages > 0:
@@ -37,6 +44,29 @@ def project_operator_trust(*, view: PersistedExecutionView) -> dict[str, object]
             "reasons": reasons,
             "selected_evidence_count": selected_count,
             "candidate_count": candidate_count,
+            "retrieval_candidate_pool_count": candidate_pool_count,
+            "pretrim_candidate_count": candidate_pool_count,
+        }
+
+    diagnostics = artifact.retrieval_diagnostics if artifact is not None else None
+    if diagnostics is not None and diagnostics.pretrim_explicit and diagnostics.pretrim.status == "insufficient":
+        return {
+            "status": TRUST_NEEDS_REVIEW,
+            "reasons": ["retrieval_insufficient_semantic_fit"],
+            "selected_evidence_count": selected_count,
+            "candidate_count": candidate_count,
+            "retrieval_candidate_pool_count": candidate_pool_count,
+            "pretrim_candidate_count": candidate_pool_count,
+        }
+
+    if artifact is not None and diagnostics is None and artifact.retrieval_semantic_fit_status == "insufficient":
+        return {
+            "status": TRUST_NEEDS_REVIEW,
+            "reasons": ["retrieval_insufficient_semantic_fit"],
+            "selected_evidence_count": selected_count,
+            "candidate_count": candidate_count,
+            "retrieval_candidate_pool_count": candidate_pool_count,
+            "pretrim_candidate_count": candidate_pool_count,
         }
 
     if view.rollup.degraded_calls > 0:
@@ -73,6 +103,8 @@ def project_operator_trust(*, view: PersistedExecutionView) -> dict[str, object]
         "reasons": reasons,
         "selected_evidence_count": selected_count,
         "candidate_count": candidate_count,
+        "retrieval_candidate_pool_count": candidate_pool_count,
+        "pretrim_candidate_count": candidate_pool_count,
     }
 
 

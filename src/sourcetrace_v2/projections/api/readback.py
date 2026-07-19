@@ -3,12 +3,18 @@ from __future__ import annotations
 from sourcetrace_v2.core.contracts.read_models import PersistedExecutionView
 from sourcetrace_v2.projections.api.compiled_artifacts import project_compiled_artifact
 from sourcetrace_v2.projections.api.evidence import project_selected_evidence
+from sourcetrace_v2.projections.api.retrieval_diagnostics import project_retrieval_semantic_fit_diagnostics
 from sourcetrace_v2.projections.api.trust import project_operator_trust
 
 
 def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[str, object]:
     artifact = view.artifact
     envelope = view.envelope
+    pretrim_candidates = (
+        artifact.pretrim_evidence_candidates
+        if artifact is not None and artifact.pretrim_evidence_candidates
+        else (artifact.evidence_candidates if artifact is not None else ())
+    )
     return {
         "status": view.status.value,
         "job_id": envelope.job_id,
@@ -30,6 +36,14 @@ def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[st
         "evidence_input": {
             "query": artifact.evidence_query if artifact is not None else "",
             "candidate_count": len(artifact.evidence_candidates) if artifact is not None else 0,
+            "retrieval_candidate_pool_count": (
+                artifact.retrieval_candidate_pool_count
+                if artifact is not None and artifact.retrieval_candidate_pool_count > 0
+                else len(pretrim_candidates)
+            ),
+            "retrieval_semantic_fit_status": artifact.retrieval_semantic_fit_status if artifact is not None else "unknown",
+            "retrieval_best_focus_coverage": artifact.retrieval_best_focus_coverage if artifact is not None else None,
+            "pretrim_candidate_count": len(pretrim_candidates),
             "candidates": [
                 {
                     "title": candidate.title,
@@ -40,6 +54,17 @@ def project_persisted_execution_view(*, view: PersistedExecutionView) -> dict[st
                 }
                 for candidate in (artifact.evidence_candidates if artifact is not None else ())
             ],
+            "pretrim_candidates": [
+                {
+                    "title": candidate.title,
+                    "url": candidate.url,
+                    "provider": candidate.provider,
+                    "rank": candidate.rank,
+                    "source_type": candidate.source_type,
+                }
+                for candidate in pretrim_candidates
+            ],
+            "semantic_fit_diagnostics": project_retrieval_semantic_fit_diagnostics(artifact=artifact),
         },
         "selected_evidence": project_selected_evidence(artifact=artifact),
         "trust": project_operator_trust(view=view),

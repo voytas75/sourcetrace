@@ -1,5 +1,5 @@
 from sourcetrace_v2.core.domain.models import RetrievedEvidenceCandidate
-from sourcetrace_v2.execution.stages.retrieval import RetrievalStage
+from sourcetrace_v2.execution.stages.retrieval import RetrievalStage, _assess_candidate_pool_semantic_fit
 
 
 class _SpySearch:
@@ -64,3 +64,19 @@ def test_source_mix_can_rescue_lower_ranked_institutional_candidate_before_final
     assert trimmed[0].source_type == "institutional"
     assert trimmed[0].url == "https://www.hhs.gov/digital/governance/it-policy-archive/litigation-holds.html"
     assert len(trimmed) == 3
+
+
+def test_semantic_fit_assesses_the_pretrim_candidate_pool() -> None:
+    query = "incident response reporting requirements"
+    stage = RetrievalStage(search=None)  # type: ignore[arg-type]
+    pretrim_candidates = (
+        _candidate(title="Climate adaptation strategy", url="https://agency.example/climate", rank=1, source_type="institutional"),
+        _candidate(title="Water conservation manual", url="https://agency.example/water", rank=2, source_type="institutional"),
+        _candidate(title="Emergency preparedness overview", url="https://agency.example/preparedness", rank=3, source_type="institutional"),
+        _candidate(title="Incident response reporting requirements", url="https://agency.example/incident-response-reporting", rank=4, source_type="institutional"),
+    )
+
+    status, coverage = _assess_candidate_pool_semantic_fit(query=query, candidates=pretrim_candidates)
+
+    assert status == "sufficient"
+    assert coverage == 1.0
