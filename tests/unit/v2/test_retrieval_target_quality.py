@@ -3,7 +3,11 @@ import json
 from sourcetrace_v2.app.composition.runtime import build_preferred_search_backed_stubbed_jsonl_runtime
 from sourcetrace_v2.app.services.http_api import handle_run_minimal_flow_request
 from sourcetrace_v2.core.domain.models import RetrievedEvidenceCandidate
-from sourcetrace_v2.execution.stages.retrieval import RetrievalStage
+from sourcetrace_v2.execution.stages.retrieval import (
+    RetrievalStage,
+    _candidate_target_quality_priority,
+    _query_focus_tokens,
+)
 
 
 def test_run_flow_promotes_more_targeted_official_candidate_before_selection(tmp_path) -> None:
@@ -154,6 +158,30 @@ def test_run_flow_expands_and_reorders_community_quality_of_life_queries_toward_
     )
     assert payload["evidence_input"]["candidates"][2]["title"] == "Brain drain among diaspora communities in Germany"
     assert "top_source=procedural_admin_unified_search:Housing, employment and life satisfaction among the Polish diaspora in Germany" in payload["artifact"]["summary"]
+
+
+def test_relevance_focus_excludes_search_operator_clauses() -> None:
+    query = "employer reporting obligations official guidance site:driver-registry.example OR site:labour-authority.example"
+
+    assert _query_focus_tokens(query) == ("employer", "report", "obligation")
+
+
+def test_target_quality_uses_semantic_terms_and_light_morphology_not_search_constraints() -> None:
+    query = "employer official guidance site:driver-registry.example"
+    driver_result = RetrievedEvidenceCandidate(
+        candidate_id="driver", job_id="job", run_id="run", provider="fixture", query=query,
+        title="Driver registry notice", url="https://driver-registry.example/notice",
+        snippet="Driver registration information.", rank=1, source_type="institutional",
+    )
+    employer_result = RetrievedEvidenceCandidate(
+        candidate_id="employer", job_id="job", run_id="run", provider="fixture", query=query,
+        title="Employers handbook", url="https://labour-authority.example/handbook",
+        snippet="Official obligations for employers.", rank=2, source_type="institutional",
+    )
+
+    assert _candidate_target_quality_priority(candidate=employer_result, query=query) > _candidate_target_quality_priority(
+        candidate=driver_result, query=query
+    )
 
 
 def test_retrieval_stage_prefers_exact_subject_institutional_candidate_over_broad_adjacent_institutional_page() -> None:

@@ -488,6 +488,7 @@ def _candidate_surface_text(candidate: RetrievedEvidenceCandidate) -> str:
 
 
 _SCORING_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_SEARCH_OPERATOR_CLAUSE_RE = re.compile(r"(?i)(?:^|\s)(?:site|domain|inurl|intitle):[^\s]+")
 _QUERY_FOCUS_STOPWORDS = frozenset(
     {
         "a",
@@ -546,11 +547,11 @@ _ADJACENT_BROAD_INSTITUTIONAL_MARKERS = frozenset(
 
 def _candidate_target_quality_priority(*, candidate: RetrievedEvidenceCandidate, query: str) -> int:
     focus_tokens = _query_focus_tokens(query)
-    title_tokens = set(_tokenize_scoring_text(candidate.title))
+    title_tokens = set(_tokenize_semantic_scoring_text(candidate.title))
     supporting_tokens = set(
-        _tokenize_scoring_text(" ".join(part for part in (candidate.snippet, candidate.url) if part))
+        _tokenize_semantic_scoring_text(" ".join(part for part in (candidate.snippet, candidate.url) if part))
     )
-    normalized_candidate_text = _normalize_scoring_text(" ".join((candidate.title, candidate.snippet, candidate.url)))
+    normalized_candidate_text = _normalize_semantic_scoring_text(" ".join((candidate.title, candidate.snippet, candidate.url)))
     score = 0
     if focus_tokens:
         focus_token_set = set(focus_tokens)
@@ -594,7 +595,7 @@ def _institutional_exact_subject_bonus(
     score = 0
     title_overlap = focus_tokens & title_tokens
     parsed = urlparse(candidate.url)
-    path_text = _normalize_scoring_text(parsed.path.replace("-", " ").replace("_", " "))
+    path_text = _normalize_semantic_scoring_text(parsed.path.replace("-", " ").replace("_", " "))
     path_tokens = set(path_text.split()) if path_text else set()
     path_overlap = focus_tokens & path_tokens
     if len(title_overlap) >= 2:
@@ -630,7 +631,7 @@ def _looks_adjacent_broad_institutional(*, candidate: RetrievedEvidenceCandidate
 def _query_focus_tokens(query: str) -> tuple[str, ...]:
     ordered: list[str] = []
     seen: set[str] = set()
-    for token in _tokenize_scoring_text(query):
+    for token in _tokenize_semantic_scoring_text(_semantic_scoring_query(query)):
         if token in _QUERY_FOCUS_STOPWORDS or token in _QUERY_INTENT_MARKERS:
             continue
         if len(token) < 2:
@@ -652,12 +653,42 @@ def _query_focus_phrases(query: str) -> tuple[str, ...]:
     )
 
 
+def _semantic_scoring_query(query: str) -> str:
+    """Remove search-engine operator clauses before lexical relevance scoring.
+
+    The raw query still reaches the search provider unchanged. Constraints such as
+    ``site:authority.example`` select a search corpus; they are not evidence that
+    a result supports the user's substantive question.
+    """
+    return _SEARCH_OPERATOR_CLAUSE_RE.sub(" ", query)
+
+
+def _normalize_scoring_token(token: str) -> str:
+    if len(token) > 4 and token.endswith("ies"):
+        return f"{token[:-3]}y"
+    if len(token) > 4 and token.endswith("ing"):
+        return token[:-3]
+    if len(token) > 3 and token.endswith("ed"):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s"):
+        return token[:-1]
+    return token
+
+
 def _tokenize_scoring_text(value: str) -> tuple[str, ...]:
     return tuple(_SCORING_TOKEN_RE.findall(value.lower()))
 
 
+def _tokenize_semantic_scoring_text(value: str) -> tuple[str, ...]:
+    return tuple(_normalize_scoring_token(token) for token in _tokenize_scoring_text(value))
+
+
 def _normalize_scoring_text(value: str) -> str:
     return " ".join(_tokenize_scoring_text(value))
+
+
+def _normalize_semantic_scoring_text(value: str) -> str:
+    return " ".join(_tokenize_semantic_scoring_text(value))
 
 
 def _looks_like_pdf_candidate(candidate: RetrievedEvidenceCandidate) -> bool:
