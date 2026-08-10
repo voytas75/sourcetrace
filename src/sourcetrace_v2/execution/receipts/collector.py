@@ -2,14 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sourcetrace_v2.core.domain.models import ExecutionRollup, LlmExecutionReceipt, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import (
+    ExecutionRollup,
+    LlmExecutionReceipt,
+    StageExecutionReceipt,
+)
 from sourcetrace_v2.execution.rollups.builder import build_execution_rollup
 
 
 @dataclass
 class ReceiptCollector:
-    stage_receipts: list[StageExecutionReceipt] = field(default_factory=list)
-    llm_receipts: list[LlmExecutionReceipt] = field(default_factory=list)
+    stage_receipts: list[StageExecutionReceipt] = field(
+        default_factory=list[StageExecutionReceipt]
+    )
+    llm_receipts: list[LlmExecutionReceipt] = field(
+        default_factory=list[LlmExecutionReceipt]
+    )
 
     def append_stage(self, receipt: StageExecutionReceipt) -> None:
         self.stage_receipts.append(receipt)
