@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-from sourcetrace_v2.core.domain.models import ResearchJob, ResearchResultArtifact, ResearchRun
+from sourcetrace_v2.core.domain.models import (
+    ResearchJob,
+    ResearchResultArtifact,
+    ResearchRun,
+)
 from sourcetrace_v2.execution.receipts.collector import ReceiptCollector
 from sourcetrace_v2.projections.api.evidence import project_selected_evidence
 
 
-def project_minimal_result(*, job: ResearchJob, run: ResearchRun, artifact: ResearchResultArtifact, collector: ReceiptCollector) -> dict[str, object]:
+def project_minimal_result(
+    *,
+    job: ResearchJob,
+    run: ResearchRun,
+    artifact: ResearchResultArtifact,
+    collector: ReceiptCollector,
+) -> dict[str, object]:
     rollup = collector.build_rollup(job_id=job.job_id, run_id=run.run_id)
     return {
         "job": {
