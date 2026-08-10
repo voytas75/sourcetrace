@@ -21,13 +21,13 @@ class ResearchJob:
     status: JobStatus = JobStatus.QUEUED
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    def mark_running(self) -> "ResearchJob":
+    def mark_running(self) -> ResearchJob:
         return replace(self, status=JobStatus.RUNNING)
 
-    def mark_done(self) -> "ResearchJob":
+    def mark_done(self) -> ResearchJob:
         return replace(self, status=JobStatus.DONE)
 
-    def mark_error(self) -> "ResearchJob":
+    def mark_error(self) -> ResearchJob:
         return replace(self, status=JobStatus.ERROR)
 
 
@@ -75,8 +75,12 @@ class RetrievalPoolSemanticFitSnapshot:
 class RetrievalSemanticFitDiagnostics:
     contract_version: str = "retrieval-semantic-fit-guard-v1"
     focus_terms: tuple[str, ...] = ()
-    pretrim: RetrievalPoolSemanticFitSnapshot = field(default_factory=RetrievalPoolSemanticFitSnapshot)
-    trimmed: RetrievalPoolSemanticFitSnapshot = field(default_factory=RetrievalPoolSemanticFitSnapshot)
+    pretrim: RetrievalPoolSemanticFitSnapshot = field(
+        default_factory=RetrievalPoolSemanticFitSnapshot
+    )
+    trimmed: RetrievalPoolSemanticFitSnapshot = field(
+        default_factory=RetrievalPoolSemanticFitSnapshot
+    )
     insufficiency_stage: str = "unknown"
     pretrim_explicit: bool = False
 
