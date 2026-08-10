@@ -5,7 +5,12 @@ import re
 from dataclasses import dataclass, replace
 
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, FeatureId, StageId
-from sourcetrace_v2.core.domain.models import ResearchJob, ResearchResultArtifact, ResearchRun
+from sourcetrace_v2.core.domain.models import (
+    ResearchJob,
+    ResearchResultArtifact,
+    ResearchRun,
+    RetrievedEvidenceCandidate,
+)
 from sourcetrace_v2.core.policies.deep_research import resolve_deep_research_stage_profile
 from sourcetrace_v2.execution.context.models import ExecutionContext
 from sourcetrace_v2.execution.receipts.collector import ReceiptCollector
@@ -112,7 +117,12 @@ _QUERY_FOCUS_STOPWORDS = frozenset(
 ) | _DOCUMENT_SOURCE_MARKERS | _FINDINGS_INTENT_MARKERS
 
 
-def _build_result_summary(*, seed_text: str, evidence_query: str, evidence_candidates: tuple) -> str:
+def _build_result_summary(
+    *,
+    seed_text: str,
+    evidence_query: str,
+    evidence_candidates: tuple[RetrievedEvidenceCandidate, ...],
+) -> str:
     if evidence_candidates:
         top = evidence_candidates[0]
         return f"minimal v2 flow | query={evidence_query or seed_text} | top_source={top.provider}:{top.title}"
