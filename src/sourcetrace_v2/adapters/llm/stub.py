@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from sourcetrace_v2.adapters.llm.interfaces import LlmCallResult, LlmTextGateway
-from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus
+from sourcetrace_v2.core.domain.identifiers import (
+    DegradationReason,
+    ReceiptCoverageStatus,
+)
 from sourcetrace_v2.runtime.config.models import RuntimeConfig
 from sourcetrace_v2.runtime.config.resolver import resolve_profile
 
