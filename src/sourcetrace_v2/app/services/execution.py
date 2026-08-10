@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, FeatureId, StageId
 from sourcetrace_v2.core.domain.models import (
+    LlmExecutionReceipt,
     ResearchJob,
     ResearchResultArtifact,
     ResearchRun,
@@ -249,7 +250,10 @@ def _query_implies_community_outcome_focus(seed_text: str) -> bool:
     return community_like and quality_of_life_like
 
 
-def dataclass_replace_llm_receipt(receipt, degradation_reason: DegradationReason):
+def dataclass_replace_llm_receipt(
+    receipt: LlmExecutionReceipt,
+    degradation_reason: DegradationReason,
+) -> LlmExecutionReceipt:
     return replace(receipt, degradation_reason=degradation_reason)
 
 
