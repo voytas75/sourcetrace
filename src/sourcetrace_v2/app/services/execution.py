@@ -257,7 +257,12 @@ def dataclass_replace_llm_receipt(
     return replace(receipt, degradation_reason=degradation_reason)
 
 
-def _build_synthesis_prompt(*, seed_text: str, evidence_query: str, evidence_candidates: tuple) -> str:
+def _build_synthesis_prompt(
+    *,
+    seed_text: str,
+    evidence_query: str,
+    evidence_candidates: tuple[RetrievedEvidenceCandidate, ...],
+) -> str:
     lines = [
         "You are writing a bounded evidence-grounded synthesis for an operator.",
         "Use only the evidence below. Do not ask the user to upload a PDF, paste text, or provide more material when evidence already exists.",
