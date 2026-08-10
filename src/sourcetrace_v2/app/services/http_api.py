@@ -25,6 +25,8 @@ def handle_run_minimal_flow_request(*, job_id: str, run_id: str, seed_text: str,
         pdf=runtime.pdf,
     )
     payload = project_persisted_execution_view(view=view)
+    if view.status is PersistedViewStatus.INCOMPLETE:
+        return json_response(payload, status_code=202)
     return json_response(payload, status_code=201)
 
 

@@ -1,5 +1,7 @@
 import json
+from dataclasses import replace
 
+from sourcetrace_v2.adapters.search.searxng import SearchGatewayError
 from sourcetrace_v2.app.composition.runtime import build_stubbed_memory_runtime
 from sourcetrace_v2.app.services.http_api import handle_get_persisted_execution_request, handle_run_minimal_flow_request
 
@@ -26,6 +28,30 @@ def test_handle_run_minimal_flow_request_returns_created_json_response() -> None
     assert payload["selected_evidence"]["selected_count"] == 2
     assert payload["selected_evidence"]["selection_notes"][0] == "selected top 2 retrieval candidates after minimal content guard and domain diversity pass"
     assert payload["rollup"]["total_tokens"] == 384
+
+
+def test_handle_run_minimal_flow_request_returns_incomplete_for_search_failure() -> None:
+    class FailingSearch:
+        def search(self, *, job_id: str, run_id: str, query: str, limit: int):
+            raise SearchGatewayError("SearxNG search failed: TypeError: invalid envelope")
+
+    runtime = replace(build_stubbed_memory_runtime(), search=FailingSearch())
+
+    response = handle_run_minimal_flow_request(
+        job_id="job-http-search-failure",
+        run_id="run-http-search-failure",
+        seed_text="test query",
+        runtime=runtime,
+    )
+
+    payload = json.loads(response.body)
+    assert response.status_code == 202
+    assert payload["status"] == "incomplete"
+    assert payload["persistence"]["completeness"] == "partial"
+    assert payload["artifact"]["present"] is False
+    assert payload["rollup"]["failed_stages"] == 1
+    assert payload["receipts"]["stages"][-1]["stage_id"] == "retrieval"
+    assert payload["receipts"]["stages"][-1]["status"] == "failed"
 
 
 def test_handle_get_persisted_execution_request_returns_projection() -> None:
