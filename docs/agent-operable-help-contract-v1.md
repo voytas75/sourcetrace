@@ -1,13 +1,17 @@
-# Agent-operable help contract v1
+# Agent-operable help contract v1 — legacy reference
+
+Status: historical v1 operator-help contract; not the current v2 operator contract.
+
+> **Current v2 pointer:** use [`sourcetrace-v2-restart-checkpoint-2026-07-19.md`](sourcetrace-v2-restart-checkpoint-2026-07-19.md) and `README-dev.md` for supported commands.
 
 ## Goal
-Define a project SSOT for command, option, parameter, endpoint, and result semantics that should be available both:
+Define a historical v1 semantic contract for command, option, parameter, endpoint, and result semantics that was intended to be available both:
 1. inside the application through `help` / `--help`, and
 2. as project documentation in-repo.
 
 This document is the first semantic contract draft. It is not yet a generated schema layer.
 
-## Scope for v1
+## Scope for historical v1
 Focus on the most important control surfaces an operator or AI agent needs to safely run, inspect, and reason about the local SourceTrace runtime.
 
 Covered in v1:

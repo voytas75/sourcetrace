@@ -10,10 +10,10 @@ Make the current docs stance explicit:
 ## Active line
 
 Treat these as the active implementation track:
-- `docs/STATUS.md`
+- `docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md` — the sole current runtime/restart entrypoint
 - `docs/sourcetrace-v2-full-closure-map-2026-06-27.md`
 - `docs/sourcetrace-v2-broader-migration-plan-2026-06-27.md`
-- `docs/sourcetrace-v2-*.md` created during the 2026-06-27 v2 slices
+- relevant `docs/sourcetrace-v2-*` contract/brief/checkpoint notes that are not explicitly marked historical
 - `src/sourcetrace_v2/**`
 
 ## Legacy line
@@ -27,10 +27,10 @@ Treat these as legacy/reference unless explicitly needed for migration or live-r
 ## Practical reading rule
 
 When deciding what to build next:
-1. start from `docs/STATUS.md`
-2. then `docs/sourcetrace-v2-full-closure-map-2026-06-27.md`
-3. then the relevant `docs/sourcetrace-v2-*` contract/brief/checkpoint note
-4. use v1/deep-research docs only as legacy reference or migration evidence
+1. start from `docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md`
+2. then read `README-dev.md` for current commands and local verification
+3. then read the relevant `docs/sourcetrace-v2-*` contract or checkpoint note
+4. use `docs/STATUS.md` and v1/deep-research docs only as historical reference or migration evidence
 
 ## Non-goal
 

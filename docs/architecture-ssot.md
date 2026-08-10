@@ -6,7 +6,7 @@ Scope: canonical product and architecture baseline for the SourceTrace repositor
 > **Active v2 pointer (2026-07-19):** use [the active-v2 restart checkpoint](sourcetrace-v2-restart-checkpoint-2026-07-19.md) for the current local entrypoint, verified posture, limitations, and next action. This document remains the baseline for product intent and architecture principles.
 
 ## Purpose
-SourceTrace is an application project for building an evidence-centric OSINT + LLM system. This document is the current SSOT for product intent, quality rules, core domain objects, and MVP boundaries.
+SourceTrace is an application project for building an evidence-centric OSINT + LLM system. This document is a legacy product and architecture baseline for intent, quality rules, core domain objects, and MVP boundaries; it is not the current v2 runtime or implementation SSOT.
 
 ## Product goal
 Build a system that helps an analyst gather sources, preserve raw evidence, extract traceable claims, review them, and generate reports with explicit confidence bands.
@@ -150,7 +150,7 @@ A synthesized investigation output assembled from reviewed or classified claims.
 - `docs/research/research-ledger.md`: rolling evidence from reviewed external sources.
 - `docs/execution-blueprint.md`: provisional implementation-facing plan, still pre-build.
 
-## Current recommended next step
+## Historical v1 recommended checkpoint
 The initial contract-first baseline is now extended through lower-level seams, a minimal in-memory runtime path, and a minimal analyst-facing delivery surface.
 
 Confirmed now:

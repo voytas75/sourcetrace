@@ -1,4 +1,6 @@
-# STATUS
+# STATUS — historical checkpoint log
+
+> **Historical reference:** this chronological log is not the active runtime or restart guide. Start active v2 work from [`sourcetrace-v2-restart-checkpoint-2026-07-19.md`](sourcetrace-v2-restart-checkpoint-2026-07-19.md), then use `README-dev.md` for current commands.
 
 ## 2026-06-27 — SourceTrace v2 runtime surface cleanup checkpoint
 

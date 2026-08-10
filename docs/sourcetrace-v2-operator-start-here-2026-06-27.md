@@ -1,6 +1,8 @@
 # SourceTrace v2 operator start here — 2026-06-27
 
-## Start here
+Status: historical v2 closure/packaging orientation; superseded as the runtime restart guide by [`sourcetrace-v2-restart-checkpoint-2026-07-19.md`](sourcetrace-v2-restart-checkpoint-2026-07-19.md).
+
+## Historical closure reading order
 
 If you are resuming SourceTrace v2 work in a fresh session, read in this order:
 
@@ -13,7 +15,7 @@ Then decide which of these modes you are in:
 - **closure/packaging mode** — stay inside the bounded v2 baseline
 - **post-baseline mode** — open a new named expansion track on purpose
 
-## Current default posture
+## 2026-06-27 default posture
 
 Default posture is:
 - `sourcetrace_v2` is the active implementation line,

@@ -36,8 +36,8 @@ The repo now exposes an app-level help surface for the v2 runtime control comman
 - `PYTHONPATH=src python -m sourcetrace_v2.operator.www wait --help`
 - `PYTHONPATH=src python -m sourcetrace_v2.operator.www write-user-unit --help`
 
-The semantic SSOT draft for agent-/operator-usable help still lives in:
-- `docs/agent-operable-help-contract-v1.md`
+The historical v1 agent-help contract remains in:
+- `docs/agent-operable-help-contract-v1.md` — legacy reference, not the current v2 operator contract.
 
 ### Default v2 WWW mode
 Use this when you want the repo-owned v2 runtime config plus:

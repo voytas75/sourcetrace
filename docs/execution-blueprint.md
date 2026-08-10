@@ -1,10 +1,12 @@
 # SourceTrace Execution Blueprint v0
 
-Status: provisional
-Mode: implementation has started in bounded contract-first slices
-Purpose: describe the intended module boundaries, delivered contract baseline, next-layer build order, open questions, and decision gates.
+Status: historical v0 execution plan for the legacy implementation direction
+Mode: historical bounded contract-first planning record
+Purpose: preserve the former intended module boundaries, delivered contract baseline, build order, open questions, and decision gates.
 
-> This is still a living bridge between research and execution, but it now needs to reflect delivered bounded implementation work.
+> **Current v2 pointer:** use [`sourcetrace-v2-restart-checkpoint-2026-07-19.md`](sourcetrace-v2-restart-checkpoint-2026-07-19.md) and `README-dev.md` for the active runtime, verification posture, and next action.
+
+> This is a historical bridge between research and the earlier execution direction; it is not the active v2 plan.
 
 ## Goal
 Prepare SourceTrace to move from research into a bounded MVP build without locking in architecture too early.
@@ -87,10 +89,10 @@ Prefer a small number of strong, auditable primitives over broad early feature c
 - which exact entailment/NLI path is sufficient for the first usable build
 - which review interactions belong in MVP versus iteration 2
 
-## Current recommended operational step
-- The current canonical execution SSOT for live quality validation is:
+## Historical v1 recommended operational checkpoint
+- The then-canonical execution SSOT for the historical live-quality validation was:
   - `docs/plans/2026-05-21-real-data-test-use-ssot.md`
-- Current recommendation:
+- Historical recommendation:
   - run the first controlled 10-document real-data campaign through `python -m sourcetrace.local_launcher`,
   - capture one structured observation note per document,
   - use those findings to choose the next bounded quality slice.

@@ -1,12 +1,14 @@
 # Deep Research execution SSOT
 
-Status: active SSOT
+Status: legacy / historical Deep Research execution SSOT
 Date: 2026-06-24
-Scope: canonical runtime-truth and execution-semantics reference for SourceTrace Deep Research.
+Scope: historical runtime-truth and execution-semantics reference for the legacy Deep Research path.
+
+> **Current v2 pointer:** use [`sourcetrace-v2-restart-checkpoint-2026-07-19.md`](sourcetrace-v2-restart-checkpoint-2026-07-19.md) and `README-dev.md` for the supported runtime and operator path.
 
 ## 1. Purpose
 
-This file is the canonical execution SSOT for Deep Research runtime truth.
+This file is a historical execution SSOT for the legacy Deep Research runtime. It does not define the current v2 operator contract.
 Use it to answer:
 - whether Deep Research is actually available,
 - what lifecycle state a job is in,
@@ -14,7 +16,7 @@ Use it to answer:
 - how to interpret result artifacts versus compiled artifacts versus lint,
 - what operator-facing truth rules apply.
 
-Do not use restart notes or slice follow-ups as the canonical answer when this file is sufficient.
+For the legacy Deep Research runtime, do not use restart notes or slice follow-ups as the canonical answer when this file is sufficient.
 
 ## 2. Runtime posture truth
 
