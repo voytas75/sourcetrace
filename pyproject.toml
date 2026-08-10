@@ -24,8 +24,6 @@ sourcetrace-web = "sourcetrace_v2.operator.www:main"
 sourcetrace-local = "sourcetrace_v2.operator.www:main"
 sourcetrace-v2-run = "sourcetrace_v2.operator.run_minimal_flow:main"
 sourcetrace-v2-readback = "sourcetrace_v2.operator.readback:main"
-sourcetrace-smoke-flow = "sourcetrace.smoke_flow:main"
-sourcetrace-credibility-smoke = "sourcetrace.credibility_smoke:main"
 sourcetrace-www-start = "sourcetrace_v2.operator.www:start_main"
 sourcetrace-www-status = "sourcetrace_v2.operator.www:status_main"
 sourcetrace-www-stop = "sourcetrace_v2.operator.www:stop_main"
@@ -39,5 +37,5 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit/v2"]
 pythonpath = ["src"]

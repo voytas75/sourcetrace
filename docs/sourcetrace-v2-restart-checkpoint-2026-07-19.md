@@ -1,6 +1,6 @@
 # SourceTrace active-v2 restart checkpoint — 2026-07-19
 
-Status: current active-v2 entrypoint / restart guide  
+Status: current active-v2 entrypoint / restart guide
 Scope: local repository posture only; no live provider, service, or deployment validation
 
 ## Start here
@@ -16,7 +16,6 @@ For the managed local wrapper, use the `start`, `wait`, `status`, and `stop` sub
 ## Verified repository posture
 
 - The default runtime command and installed console scripts target `sourcetrace_v2.operator.www`.
-- The legacy `sourcetrace.www_control` wait wrapper imports and dispatches consistently again.
 - Dependency resolution was refreshed locally with `uv lock --offline`; the lock file now represents the base `pdfplumber` dependency declared in `pyproject.toml`.
 - `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest -q -p no:cacheprovider` completed with `665 passed, 3 xfailed`.
 - `uv sync --locked --offline --dry-run --dev --extra dev` completed successfully against the refreshed lock.

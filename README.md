@@ -52,7 +52,6 @@ uv run pytest -q
 ```bash
 uv run sourcetrace-www-start
 uv run sourcetrace-www-wait --host 127.0.0.1 --port 8000 --timeout-seconds 15
-# legacy reference: uv run python -m sourcetrace.web
 ```
 
 Expected startup:
@@ -76,7 +75,7 @@ For detailed runtime commands, environment variables, and operator workflows, se
 
 ## What still needs caution
 - SourceTrace is still a local-first operator system, not a hosted production service
-- the thin `sourcetrace.web` path is a local stdlib runtime, not a production server stack
+- the v2 HTTP/operator surface is a local stdlib runtime, not a production server stack
 - broader extraction, normalization, and credibility behavior over real providers remains runtime-dependent and should be re-verified live when quality matters
 - Deep Research recovery still behaves more like recovery-as-error than a true resume model
 - LLM output remains an assistant layer and should not be treated as the source of truth

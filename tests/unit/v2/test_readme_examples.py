@@ -1,10 +1,10 @@
 from pathlib import Path
 
 
-README_PATH = Path(__file__).resolve().parents[2] / "README.md"
+README_PATH = Path(__file__).resolve().parents[3] / "README.md"
 
 
-def test_readme_documents_local_web_smoke_examples() -> None:
+def test_readme_documents_v2_local_runtime_examples() -> None:
     readme = README_PATH.read_text(encoding="utf-8")
 
     assert "SourceTrace is a local-first system for evidence-centric OSINT work." in readme
@@ -27,13 +27,14 @@ def test_readme_documents_local_web_smoke_examples() -> None:
     assert "uv run pytest -q" in readme
     assert "uv run sourcetrace-www-start" in readme
     assert "uv run sourcetrace-www-wait --host 127.0.0.1 --port 8000 --timeout-seconds 15" in readme
-    assert "uv run python -m sourcetrace.web" in readme
+    assert "SourceTrace v2 local server listening on `http://127.0.0.1:8000`" in readme
     assert "## What SourceTrace can do today" in readme
     assert "serve a local HTML landing page and local API surface" in readme
     assert "run a bounded Deep Research flow with persisted progress and result artifacts" in readme
     assert "## What still needs caution" in readme
     assert "SourceTrace is still a local-first operator system, not a hosted production service" in readme
     assert "## Documentation map" in readme
+    assert "docs/sourcetrace-v2-restart-checkpoint-2026-07-19.md" in readme
     assert "docs/architecture-ssot.md" in readme
     assert "docs/execution-blueprint.md" in readme
     assert "Everything else that is not needed for first project understanding belongs in `notes/`" in readme

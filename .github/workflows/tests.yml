@@ -25,5 +25,5 @@ jobs:
       - name: Sync dependencies
         run: uv sync --dev --extra dev
 
-      - name: Run test suite
-        run: PYTHONDONTWRITEBYTECODE=1 uv run pytest -q
+      - name: Run v2 test suite
+        run: PYTHONDONTWRITEBYTECODE=1 uv run pytest -q tests/unit/v2

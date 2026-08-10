@@ -137,11 +137,9 @@ curl -X POST http://127.0.0.1:8000/api/v2/run \
 uv run sourcetrace-v2-run "deep research architecture" --json-pretty
 ```
 
-### Useful repo-owned smoke helpers
+### Useful repo-owned v2 helpers
 - `uv run sourcetrace-v2-run`
 - `uv run sourcetrace-v2-readback`
-- `python -m sourcetrace.smoke_flow`
-- `python -m sourcetrace.credibility_smoke`
 
 ## Development constraints
 - prefer small slices over broad refactors

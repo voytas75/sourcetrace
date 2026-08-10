@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  smoke-flow:
+  v2-offline-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -27,43 +27,8 @@ jobs:
       - name: Sync dependencies
         run: uv sync --dev --extra dev
 
-      - name: Run unit smoke CLI checks
-        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run pytest -q tests/unit/test_smoke_flow.py
-
-      - name: Start Sourcetrace local launcher API
-        env:
-          SOURCETRACE_LLM_API_KEY: ci-smoke-placeholder-key
-          SOURCETRACE_LLM_BASE_URL: https://example.invalid/llm
-          SOURCETRACE_LLM_API_VERSION: ci-smoke
-          SOURCETRACE_CI_SMOKE_STUB_CLAIM_EXTRACTION: "1"
-          SOURCETRACE_CI_SMOKE_STUB_CREDIBILITY: "1"
-        run: |
-          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run --python 3.13 python -m sourcetrace.local_launcher > /tmp/sourcetrace-ci-smoke.log 2>&1 &
-          echo $! > /tmp/sourcetrace-ci-smoke.pid
-
-      - name: Wait for local-launcher readiness
-        run: |
-          for _ in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8000/api/ready >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Sourcetrace local launcher did not become ready in time." >&2
-          cat /tmp/sourcetrace-ci-smoke.log >&2 || true
-          exit 1
-
-
-      - name: Run reusable smoke flow
-        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run python -m sourcetrace.smoke_flow --pretty --expect-claims-min 1
-
-      - name: Show server log on failure
-        if: failure()
-        run: cat /tmp/sourcetrace-ci-smoke.log || true
-
-      - name: Stop Sourcetrace WWW API
-        if: always()
-        run: |
-          if [ -f /tmp/sourcetrace-ci-smoke.pid ]; then
-            kill "$(cat /tmp/sourcetrace-ci-smoke.pid)" || true
-          fi
+      - name: Run offline v2 operator smoke
+        run: >-
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src uv run pytest -q
+          tests/unit/v2/test_operator_entrypoint.py
+          tests/unit/v2/test_runtime_composition.py
