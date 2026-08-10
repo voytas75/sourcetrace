@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from sourcetrace_v2.core.contracts.compiled_read_models import PersistedCompiledArtifactView
+from sourcetrace_v2.core.contracts.compiled_read_models import (
+    PersistedCompiledArtifactView,
+)
 from sourcetrace_v2.projections.api.compiled_artifacts import project_compiled_artifact
 
 
-def project_persisted_compiled_artifact_view(*, view: PersistedCompiledArtifactView) -> dict[str, object]:
+def project_persisted_compiled_artifact_view(
+    *, view: PersistedCompiledArtifactView
+) -> dict[str, object]:
     envelope = view.envelope
     return {
         "status": view.status.value,
