@@ -1,12 +1,20 @@
 import json
 
-from sourcetrace_v2.adapters.search.searxng import SearxNGBootstrap, SearxNGSearchGateway
-from sourcetrace_v2.app.composition.runtime import build_env_backed_searxng_stubbed_jsonl_runtime
+import pytest
+
+from sourcetrace_v2.adapters.search.searxng import (
+    SearchGatewayError,
+    SearxNGBootstrap,
+    SearxNGSearchGateway,
+)
+from sourcetrace_v2.app.composition.runtime import (
+    build_env_backed_searxng_stubbed_jsonl_runtime,
+)
 from sourcetrace_v2.app.services.http_api import handle_run_minimal_flow_request
 
 
 class _FakeResponse:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload: object) -> None:
         self.payload = payload
 
     def read(self) -> bytes:
@@ -17,6 +25,31 @@ class _FakeResponse:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ([], "SearxNG JSON response must be an object"),
+        (
+            {"results": {"url": "https://example.test/not-a-list"}},
+            "SearxNG JSON response field 'results' must be a list",
+        ),
+    ],
+)
+def test_searxng_search_gateway_rejects_malformed_json_envelopes(
+    monkeypatch, payload: object, message: str
+) -> None:
+    monkeypatch.setattr(
+        "sourcetrace_v2.adapters.search.searxng.urlopen",
+        lambda request, timeout=0: _FakeResponse(payload),
+    )
+    gateway = SearxNGSearchGateway(
+        bootstrap=SearxNGBootstrap(base_url="http://127.0.0.1:8080")
+    )
+
+    with pytest.raises(SearchGatewayError, match=message):
+        gateway.search(job_id="job-search", run_id="run-search", query="test query", limit=2)
 
 
 def test_searxng_search_gateway_returns_typed_candidates(monkeypatch) -> None:

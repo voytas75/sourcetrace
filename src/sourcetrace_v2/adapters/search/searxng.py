@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import cast
 from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -21,6 +22,12 @@ class SearxNGBootstrap:
     timeout_seconds: int = 10
 
 
+def _as_object_mapping(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return cast(dict[str, object], value)
+
+
 class SearxNGSearchGateway(SearchGateway):
     provider_name = "searxng"
 
@@ -31,7 +38,7 @@ class SearxNGSearchGateway(SearchGateway):
     def search(self, *, job_id: str, run_id: str, query: str, limit: int) -> tuple[RetrievedEvidenceCandidate, ...]:
         try:
             rows = self._fetch(query=query, count=limit)
-        except (OSError, TimeoutError, URLError, ValueError) as exc:
+        except (OSError, TimeoutError, URLError, TypeError, ValueError) as exc:
             raise SearchGatewayError(f"SearxNG search failed: {type(exc).__name__}: {exc}") from exc
         candidates: list[RetrievedEvidenceCandidate] = []
         seen: set[str] = set()
@@ -70,8 +77,16 @@ class SearxNGSearchGateway(SearchGateway):
             headers={"Accept": "application/json", "User-Agent": "SourceTrace-v2/0.1"},
         )
         with urlopen(request, timeout=self.bootstrap.timeout_seconds) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        results = payload.get("results")
-        if not isinstance(results, list):
-            return []
-        return [item for item in results[:count] if isinstance(item, dict)]
+            payload = _as_object_mapping(json.loads(response.read().decode("utf-8")))
+        if payload is None:
+            raise TypeError("SearxNG JSON response must be an object")
+        raw_results = payload.get("results")
+        if not isinstance(raw_results, list):
+            raise TypeError("SearxNG JSON response field 'results' must be a list")
+        results = cast(list[object], raw_results)
+        rows: list[dict[str, object]] = []
+        for raw_item in results[:count]:
+            item = _as_object_mapping(raw_item)
+            if item is not None:
+                rows.append(item)
+        return rows
