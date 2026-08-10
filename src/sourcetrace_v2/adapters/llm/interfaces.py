@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus
+from sourcetrace_v2.core.domain.identifiers import (
+    DegradationReason,
+    ReceiptCoverageStatus,
+)
 
 
 @dataclass(frozen=True)
