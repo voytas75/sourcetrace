@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Protocol
 
 from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledResearchArtifact
-from sourcetrace_v2.core.domain.models import LlmExecutionReceipt, ResearchResultArtifact, RunPersistenceMarker, StageExecutionReceipt
+from sourcetrace_v2.core.domain.models import (
+    LlmExecutionReceipt,
+    ResearchResultArtifact,
+    RunPersistenceMarker,
+    StageExecutionReceipt,
+)
 
 
 class ResultArtifactRepository(Protocol):
@@ -17,6 +22,12 @@ class ResultArtifactRepository(Protocol):
         ...
 
     def get_compiled_artifact(self, *, job_id: str, run_id: str) -> CompiledResearchArtifact | None:
+        ...
+
+    def save_run_marker(self, marker: RunPersistenceMarker) -> RunPersistenceMarker:
+        ...
+
+    def get_run_marker(self, *, job_id: str, run_id: str) -> RunPersistenceMarker | None:
         ...
 
 
