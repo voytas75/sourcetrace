@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from sourcetrace_v2.core.domain.models import RetrievedEvidenceCandidate
 from sourcetrace_v2.adapters.search.interfaces import SearchGateway
+from sourcetrace_v2.core.domain.models import RetrievedEvidenceCandidate
 
 
 class StubSearchGateway(SearchGateway):
     def __init__(self, *, provider_name: str = "stub-search") -> None:
         self.provider_name = provider_name
 
-    def search(self, *, job_id: str, run_id: str, query: str, limit: int) -> tuple[RetrievedEvidenceCandidate, ...]:
+    def search(
+        self, *, job_id: str, run_id: str, query: str, limit: int
+    ) -> tuple[RetrievedEvidenceCandidate, ...]:
         return tuple(
             RetrievedEvidenceCandidate(
                 candidate_id=f"cand:{run_id}:{index}",
