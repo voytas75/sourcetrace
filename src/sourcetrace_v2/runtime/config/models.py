@@ -36,6 +36,8 @@ class LoggingPolicy:
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    profiles: dict[str, RuntimeProfile] = field(default_factory=dict)
+    profiles: dict[str, RuntimeProfile] = field(
+        default_factory=dict[str, RuntimeProfile]
+    )
     deep_research: FeaturePolicy = field(default_factory=FeaturePolicy)
     logging: LoggingPolicy = field(default_factory=LoggingPolicy)
