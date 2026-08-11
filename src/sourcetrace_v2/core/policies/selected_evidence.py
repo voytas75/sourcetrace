@@ -53,7 +53,7 @@ def _normalize_token(token: str) -> str:
 
 
 def _tokenize(value: str) -> tuple[str, ...]:
-    tokens = []
+    tokens: list[str] = []
     for raw in _TOKEN_RE.findall(value.lower()):
         token = _normalize_token(raw)
         if len(token) < 3 or token in _STOPWORDS:
@@ -296,7 +296,7 @@ def _score_answer_fit(
         score = 2
     elif ratio > 0:
         score = 1
-    signals = []
+    signals: list[str] = []
     if authority.score:
         signals.append("authority_contributes")
     if topic_match.score:
