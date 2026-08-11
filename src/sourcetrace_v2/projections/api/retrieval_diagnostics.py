@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from sourcetrace_v2.core.domain.models import ResearchResultArtifact
+from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievalPoolSemanticFitSnapshot
 
 
-def _snapshot(snapshot):
+def _snapshot(snapshot: RetrievalPoolSemanticFitSnapshot) -> dict[str, object]:
     return {
         "status": snapshot.status,
         "focus_term_count": snapshot.focus_term_count,

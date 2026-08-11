@@ -7,7 +7,8 @@ from sourcetrace_v2.core.policies.selected_evidence import (
     build_judgment_comparison,
     decide_selected_evidence,
 )
-from sourcetrace_v2.core.domain.models import ResearchResultArtifact, RetrievedEvidenceCandidate
+from sourcetrace_v2.core.contracts.compiled_artifacts import EvidenceJudgmentDimension, EvidenceJudgmentSnapshot
+from sourcetrace_v2.core.domain.models import ResearchResultArtifact
 from sourcetrace_v2.projections.api.trust_metadata import project_trust_metadata
 
 
@@ -69,7 +70,7 @@ def project_selected_evidence(*, artifact: ResearchResultArtifact | None, limit:
     }
 
 
-def _project_judgment(judgment: object) -> dict[str, object]:
+def _project_judgment(judgment: EvidenceJudgmentSnapshot) -> dict[str, object]:
     return {
         "contract_version": judgment.contract_version,
         "authority": _project_dimension(judgment.authority),
@@ -79,7 +80,7 @@ def _project_judgment(judgment: object) -> dict[str, object]:
     }
 
 
-def _project_dimension(dimension: object) -> dict[str, object]:
+def _project_dimension(dimension: EvidenceJudgmentDimension) -> dict[str, object]:
     return {
         "score": dimension.score,
         "band": dimension.band,
