@@ -1,9 +1,9 @@
-from sourcetrace.runtime_pdf_backend_openclaw import (
-    build_native_pdf_ingestor_with_llm,
+from sourcetrace_pdf_runtime.capability import (
     _PageText,
     _extract_toc_candidate_pages,
     _section_snippet_candidates,
 )
+from sourcetrace.runtime_pdf_backend_openclaw import build_native_pdf_ingestor_with_llm
 
 
 def test_section_snippet_candidates_prefers_substantive_section_blocks() -> None:

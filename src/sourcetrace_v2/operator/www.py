@@ -13,9 +13,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 from uuid import uuid4
 
-from sourcetrace.runtime_pdf_backend_openclaw import openclaw_pdf_capability
-from sourcetrace.runtime_pdf_ingest import build_research_pdf_analyzer
-from sourcetrace_v2.adapters.pdf.runtime_ingest import RuntimePdfReadGateway
+from sourcetrace_v2.adapters.pdf.local_runtime import build_local_pdf_read_gateway
 from sourcetrace_v2.app.composition.runtime import (
     RuntimeAssembly,
     build_env_backed_live_litellm_with_searxng_jsonl_runtime,
@@ -63,7 +61,7 @@ def _runtime() -> RuntimeAssembly:
         results=runtime.results,
         receipts=runtime.receipts,
         logger=runtime.logger,
-        pdf=RuntimePdfReadGateway(analyzer=build_research_pdf_analyzer(openclaw_pdf_capability)),
+        pdf=build_local_pdf_read_gateway(),
     )
 
 

@@ -1,8 +1,5 @@
 from sourcetrace.application import PdfIngestResult
 from sourcetrace.runtime_pdf_ingest import (
-    _coerce_float,
-    _coerce_positive_ints,
-    _coerce_strings,
     build_research_pdf_analyzer,
     parse_full_evidence_pages,
     parse_full_key_findings,
@@ -10,6 +7,11 @@ from sourcetrace.runtime_pdf_ingest import (
     parse_preview_candidate_pages,
     parse_preview_confidence,
     parse_preview_relevance,
+)
+from sourcetrace_pdf_runtime.analyzer import (
+    _coerce_float,
+    _coerce_positive_ints,
+    _coerce_strings,
 )
 
 

@@ -1,3 +1,4 @@
+from sourcetrace_v2.adapters.pdf.interfaces import PdfReadResult
 from sourcetrace_v2.core.domain.models import PdfEvidenceContext, RetrievedEvidenceCandidate
 from sourcetrace_v2.execution.stages.retrieval import (
     RetrievalStage,
@@ -8,8 +9,7 @@ from sourcetrace_v2.execution.stages.retrieval import (
 
 class _PdfGatewayRejected:
     def read(self, *, query: str, url: str, title: str, triage_verdict: str):
-        from sourcetrace.application import PdfIngestResult
-        return PdfIngestResult(
+        return PdfReadResult(
             relevant=False,
             confidence=0.2,
             document_scope="preview_only",
@@ -49,8 +49,7 @@ def test_pdf_candidate_keeps_pdf_context_when_snippet_is_meaningful_even_if_full
 
 class _PdfGatewayRejectedWithPartialFindings:
     def read(self, *, query: str, url: str, title: str, triage_verdict: str):
-        from sourcetrace.application import PdfIngestResult
-        return PdfIngestResult(
+        return PdfReadResult(
             relevant=False,
             confidence=0.42,
             document_scope="Polish labour law guidance for hybrid remote work",
@@ -62,8 +61,7 @@ class _PdfGatewayRejectedWithPartialFindings:
 
 class _PdfGatewayRejectedWithFailureOnly:
     def read(self, *, query: str, url: str, title: str, triage_verdict: str):
-        from sourcetrace.application import PdfIngestResult
-        return PdfIngestResult(
+        return PdfReadResult(
             relevant=False,
             confidence=0.2,
             document_scope="preview_only",
@@ -75,8 +73,7 @@ class _PdfGatewayRejectedWithFailureOnly:
 
 class _PdfGatewayRejectedWithoutContext:
     def read(self, *, query: str, url: str, title: str, triage_verdict: str):
-        from sourcetrace.application import PdfIngestResult
-        return PdfIngestResult(
+        return PdfReadResult(
             relevant=False,
             confidence=0.24,
             document_scope="",

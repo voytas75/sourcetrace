@@ -1,4 +1,4 @@
-from sourcetrace.runtime_pdf_ingest import build_research_pdf_analyzer
+from sourcetrace_pdf_runtime.analyzer import build_research_pdf_analyzer
 from sourcetrace_v2.adapters.pdf.runtime_ingest import RuntimePdfReadGateway
 from sourcetrace_v2.app.composition.runtime import RuntimeAssembly, build_stubbed_memory_runtime
 

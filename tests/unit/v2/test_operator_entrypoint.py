@@ -24,12 +24,8 @@ def test_operator_entrypoint_runs_one_bounded_flow_and_prints_json(monkeypatch, 
         ),
     )
     monkeypatch.setattr(
-        "sourcetrace_v2.operator.run_minimal_flow.RuntimePdfReadGateway",
-        lambda analyzer: object(),
-    )
-    monkeypatch.setattr(
-        "sourcetrace_v2.operator.run_minimal_flow.build_research_pdf_analyzer",
-        lambda capability: object(),
+        "sourcetrace_v2.operator.run_minimal_flow.build_local_pdf_read_gateway",
+        lambda: object(),
     )
     monkeypatch.setattr(
         "sourcetrace_v2.operator.run_minimal_flow.handle_run_minimal_flow_request",
