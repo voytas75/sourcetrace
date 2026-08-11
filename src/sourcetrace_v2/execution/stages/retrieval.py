@@ -308,7 +308,7 @@ class RetrievalStage:
                 else:
                     enriched.append(candidate)
                 continue
-            snippet_parts = []
+            snippet_parts: list[str] = []
             if pdf_result.document_scope:
                 snippet_parts.append(f"pdf_scope={pdf_result.document_scope}")
             if pdf_result.entity_match_summary:
@@ -625,7 +625,7 @@ def _institutional_exact_subject_bonus(
     title_overlap = focus_tokens & title_tokens
     parsed = urlparse(candidate.url)
     path_text = _normalize_semantic_scoring_text(parsed.path.replace("-", " ").replace("_", " "))
-    path_tokens = set(path_text.split()) if path_text else set()
+    path_tokens: set[str] = set(path_text.split()) if path_text else set()
     path_overlap = focus_tokens & path_tokens
     if len(title_overlap) >= 2:
         score += 6
@@ -739,7 +739,7 @@ def _build_retrieval_semantic_fit_diagnostics(
     )
 
 
-def _assess_candidate_pool_semantic_fit(
+def _assess_candidate_pool_semantic_fit(  # pyright: ignore[reportUnusedFunction]
     *,
     query: str,
     candidates: tuple[RetrievedEvidenceCandidate, ...],
