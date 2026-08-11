@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sourcetrace_v2.core.contracts.compiled_artifacts import CompiledResearchArtifact
+from sourcetrace_v2.core.domain.case_documents import CaseRecord, DocumentRecord
 from sourcetrace_v2.core.domain.models import (
     LlmExecutionReceipt,
     ResearchResultArtifact,
@@ -81,3 +82,37 @@ class InMemoryReceiptRepository:
         self, *, job_id: str, run_id: str
     ) -> tuple[LlmExecutionReceipt, ...]:
         return tuple(self.llm_receipts.get((job_id, run_id), []))
+
+
+@dataclass
+class InMemoryCaseDocumentRepository:
+    cases: dict[str, CaseRecord] = field(default_factory=dict[str, CaseRecord])
+    documents: dict[str, DocumentRecord] = field(
+        default_factory=dict[str, DocumentRecord]
+    )
+
+    def save_case(self, case: CaseRecord) -> CaseRecord:
+        self.cases[case.case_id] = case
+        return case
+
+    def get_case(self, *, case_id: str) -> CaseRecord | None:
+        return self.cases.get(case_id)
+
+    def save_document(self, document: DocumentRecord) -> DocumentRecord:
+        self.documents[document.document_id] = document
+        return document
+
+    def get_document(self, *, document_id: str) -> DocumentRecord | None:
+        return self.documents.get(document_id)
+
+    def list_documents_for_case(self, *, case_id: str) -> tuple[DocumentRecord, ...]:
+        return tuple(
+            sorted(
+                (
+                    document
+                    for document in self.documents.values()
+                    if document.case_id == case_id
+                ),
+                key=lambda document: document.document_id,
+            )
+        )
