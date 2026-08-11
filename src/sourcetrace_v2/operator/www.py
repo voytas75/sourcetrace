@@ -8,10 +8,12 @@ from pathlib import Path
 from signal import SIGTERM
 from subprocess import DEVNULL, PIPE, Popen
 from sys import executable
-from typing import Final
+from typing import Final, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 from uuid import uuid4
+from wsgiref.simple_server import make_server
+from wsgiref.types import StartResponse, WSGIApplication
 
 from sourcetrace_v2.adapters.pdf.local_runtime import build_local_pdf_read_gateway
 from sourcetrace_v2.app.composition.runtime import (
@@ -25,13 +27,14 @@ from sourcetrace_v2.app.services.http_api import (
 )
 from sourcetrace_v2.projections.api.http import HttpResponse
 
-from wsgiref.simple_server import make_server
-
 DEFAULT_PID_PATH: Final[Path] = Path.home() / ".cache" / "sourcetrace-v2" / "www.pid"
 DEFAULT_LOG_PATH: Final[Path] = Path.home() / ".cache" / "sourcetrace-v2" / "www.log"
 DEFAULT_HOST: Final[str] = "127.0.0.1"
 DEFAULT_PORT: Final[int] = 8000
 DEFAULT_SYSTEMD_UNIT_PATH: Final[Path] = Path.home() / ".config" / "systemd" / "user" / "sourcetrace-v2-www.service"
+
+class _WsgiInput(Protocol):
+    def read(self, size: int = -1) -> bytes: ...
 
 
 def _repo_root() -> Path:
@@ -72,14 +75,14 @@ def _json_body(environ_dict: dict[str, object]) -> dict[str, object] | None:
         length = 0
     if length <= 0:
         return {}
-    raw = environ_dict["wsgi.input"].read(length)
+    raw = cast(_WsgiInput, environ_dict["wsgi.input"]).read(length)
     if not raw:
         return {}
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
-    return payload if isinstance(payload, dict) else None
+    return cast(dict[str, object], payload) if isinstance(payload, dict) else None
 
 
 def _status_text(status_code: int) -> str:
@@ -94,22 +97,22 @@ def _status_text(status_code: int) -> str:
     }.get(status_code, f"{status_code} OK")
 
 
-def _send(start_response, response: HttpResponse):
+def _send(start_response: StartResponse, response: HttpResponse) -> list[bytes]:
     start_response(_status_text(response.status_code), [("Content-Type", response.content_type)])
     return [response.body.encode("utf-8")]
 
 
-def _not_found(start_response):
+def _not_found(start_response: StartResponse) -> list[bytes]:
     start_response("404 Not Found", [("Content-Type", "application/json; charset=utf-8")])
     return [b'{"error":"not_found"}']
 
 
-def _health(start_response):
+def _health(start_response: StartResponse) -> list[bytes]:
     start_response("200 OK", [("Content-Type", "application/json; charset=utf-8")])
     return [b'{"status":"ok","runtime":"sourcetrace_v2"}']
 
 
-def _home(start_response):
+def _home(start_response: StartResponse) -> list[bytes]:
     body = (
         "<html><body><h1>SourceTrace v2</h1>"
         "<p>Minimal v2 operator surface.</p>"
@@ -124,12 +127,14 @@ def _home(start_response):
     return [body.encode("utf-8")]
 
 
-def build_wsgi_app():
+def build_wsgi_app() -> WSGIApplication:
     runtime = _runtime()
 
-    def app(environ_dict, start_response):
-        method = environ_dict.get("REQUEST_METHOD", "GET")
-        path = environ_dict.get("PATH_INFO", "/")
+    def app(environ_dict: dict[str, object], start_response: StartResponse) -> list[bytes]:
+        raw_method = environ_dict.get("REQUEST_METHOD", "GET")
+        method = raw_method if isinstance(raw_method, str) else "GET"
+        raw_path = environ_dict.get("PATH_INFO", "/")
+        path = raw_path if isinstance(raw_path, str) else "/"
 
         if method == "GET" and path == "/":
             return _home(start_response)
