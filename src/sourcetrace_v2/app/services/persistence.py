@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sourcetrace_v2.core.contracts.persistence import ReceiptRepository, ResultArtifactRepository
+from sourcetrace_v2.core.domain.identifiers import JobStatus
 from sourcetrace_v2.core.domain.models import RunPersistenceMarker
 from sourcetrace_v2.execution.receipts.persisted_collector import PersistedReceiptCollector
 from sourcetrace_v2.app.services.compiled_artifacts import build_compiled_artifact
@@ -17,5 +18,9 @@ def persist_execution_outcome(*, outcome: ExecutionOutcome, results: ResultArtif
         results.save_result(outcome.artifact)
         results.save_compiled_artifact(build_compiled_artifact(artifact=outcome.artifact))
     results.save_run_marker(
-        RunPersistenceMarker(job_id=outcome.run.job_id, run_id=outcome.run.run_id)
+        RunPersistenceMarker(
+            job_id=outcome.run.job_id,
+            run_id=outcome.run.run_id,
+            status="failed" if outcome.job.status is JobStatus.ERROR else "committed",
+        )
     )

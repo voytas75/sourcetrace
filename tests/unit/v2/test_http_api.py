@@ -49,9 +49,38 @@ def test_handle_run_minimal_flow_request_returns_incomplete_for_search_failure()
     assert payload["status"] == "incomplete"
     assert payload["persistence"]["completeness"] == "partial"
     assert payload["artifact"]["present"] is False
+    assert payload["persistence"]["marker_state"] == "failed"
     assert payload["rollup"]["failed_stages"] == 1
     assert payload["receipts"]["stages"][-1]["stage_id"] == "retrieval"
     assert payload["receipts"]["stages"][-1]["status"] == "failed"
+
+
+def test_handle_run_minimal_flow_request_rejects_duplicate_run_identity() -> None:
+    runtime = build_stubbed_memory_runtime()
+
+    first = handle_run_minimal_flow_request(
+        job_id="job-http-duplicate",
+        run_id="run-http-duplicate",
+        seed_text="test query",
+        runtime=runtime,
+    )
+    duplicate = handle_run_minimal_flow_request(
+        job_id="job-http-duplicate",
+        run_id="run-http-duplicate",
+        seed_text="test query",
+        runtime=runtime,
+    )
+
+    payload = json.loads(duplicate.body)
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert payload == {
+        "error": "run_identity_conflict",
+        "job_id": "job-http-duplicate",
+        "run_id": "run-http-duplicate",
+    }
+    assert len(runtime.receipts.list_stage_receipts(job_id="job-http-duplicate", run_id="run-http-duplicate")) == 10
+    assert len(runtime.receipts.list_llm_receipts(job_id="job-http-duplicate", run_id="run-http-duplicate")) == 4
 
 
 def test_handle_get_persisted_execution_request_returns_projection() -> None:

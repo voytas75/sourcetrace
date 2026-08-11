@@ -8,22 +8,35 @@ from sourcetrace_v2.projections.api.http import HttpResponse, json_response
 from sourcetrace_v2.projections.api.readback import project_persisted_execution_view
 from sourcetrace_v2.app.services.compiled_readback import load_persisted_compiled_artifact_view
 from sourcetrace_v2.app.services.readback import load_persisted_execution_view
-from sourcetrace_v2.app.services.run_use_case import run_and_persist_minimal_flow
+from sourcetrace_v2.app.services.run_use_case import (
+    RunIdentityConflictError,
+    run_and_persist_minimal_flow,
+)
 
 
 def handle_run_minimal_flow_request(*, job_id: str, run_id: str, seed_text: str, runtime: RuntimeAssembly) -> HttpResponse:
-    view = run_and_persist_minimal_flow(
-        job_id=job_id,
-        run_id=run_id,
-        seed_text=seed_text,
-        llm=runtime.llm,
-        search=runtime.search,
-        results=runtime.results,
-        receipts=runtime.receipts,
-        config=runtime.config,
-        logger=runtime.logger,
-        pdf=runtime.pdf,
-    )
+    try:
+        view = run_and_persist_minimal_flow(
+            job_id=job_id,
+            run_id=run_id,
+            seed_text=seed_text,
+            llm=runtime.llm,
+            search=runtime.search,
+            results=runtime.results,
+            receipts=runtime.receipts,
+            config=runtime.config,
+            logger=runtime.logger,
+            pdf=runtime.pdf,
+        )
+    except RunIdentityConflictError:
+        return json_response(
+            {
+                "error": "run_identity_conflict",
+                "job_id": job_id,
+                "run_id": run_id,
+            },
+            status_code=409,
+        )
     payload = project_persisted_execution_view(view=view)
     if view.status is PersistedViewStatus.INCOMPLETE:
         return json_response(payload, status_code=202)

@@ -86,6 +86,7 @@ def _status_text(status_code: int) -> str:
         201: "201 Created",
         202: "202 Accepted",
         400: "400 Bad Request",
+        409: "409 Conflict",
         404: "404 Not Found",
         500: "500 Internal Server Error",
     }.get(status_code, f"{status_code} OK")
