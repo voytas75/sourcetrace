@@ -1428,19 +1428,19 @@ name = "sourcetrace"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "litellm" },
     { name = "pdfplumber" },
 ]
 
 [package.optional-dependencies]
 dev = [
-    { name = "litellm" },
     { name = "pdfplumber" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "litellm", marker = "extra == 'dev'", specifier = ">=1.72,<2" },
+    { name = "litellm", specifier = ">=1.72,<2" },
     { name = "pdfplumber", specifier = ">=0.11,<0.12" },
     { name = "pdfplumber", marker = "extra == 'dev'", specifier = ">=0.11.10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3,<10" },

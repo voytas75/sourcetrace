@@ -10,12 +10,12 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "pdfplumber>=0.11,<0.12",
+    "litellm>=1.72,<2",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.3,<10",
-    "litellm>=1.72,<2",
     "pdfplumber>=0.11.10",
 ]
 
