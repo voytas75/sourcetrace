@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
 
 from sourcetrace_v2.core.contracts.compiled_artifacts import (
     CompiledEvidenceSnapshot,
@@ -34,7 +38,7 @@ def _serialize_dataclass(instance: Any) -> dict[str, Any]:
     return payload
 
 
-def _enum_value(enum_cls, value: str | None):
+def _enum_value(enum_cls: type[_EnumT], value: str | None) -> _EnumT | None:
     if value is None:
         return None
     return enum_cls(value)
