@@ -11,19 +11,26 @@ Prefer the v2 canonical path:
 
 from __future__ import annotations
 
-from sourcetrace_v2.adapters.storage.memory import InMemoryReceiptRepository, InMemoryResultArtifactRepository
+from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
+from sourcetrace_v2.adapters.search.stub import StubSearchGateway
+from sourcetrace_v2.adapters.storage.memory import (
+    InMemoryReceiptRepository,
+    InMemoryResultArtifactRepository,
+)
 from sourcetrace_v2.app.composition.runtime import RuntimeAssembly
 from sourcetrace_v2.app.services.http_api import handle_run_minimal_flow_request
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
-from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
 from sourcetrace_v2.runtime.logging.setup import configure_logging
 
 
-def get_persisted_minimal_flow_payload(*, job_id: str, run_id: str, seed_text: str) -> dict[str, object]:
+def get_persisted_minimal_flow_payload(
+    *, job_id: str, run_id: str, seed_text: str
+) -> dict[str, object]:
     config = build_default_runtime_config()
     runtime = RuntimeAssembly(
         config=config,
         llm=StubLlmGateway(config),
+        search=StubSearchGateway(),
         results=InMemoryResultArtifactRepository(),
         receipts=InMemoryReceiptRepository(),
         logger=configure_logging(config.logging),
