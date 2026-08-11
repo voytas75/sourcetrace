@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from sourcetrace_v2.adapters.storage.memory import InMemoryReceiptRepository, InMemoryResultArtifactRepository
 from sourcetrace_v2.adapters.llm.stub import StubLlmGateway
+from sourcetrace_v2.adapters.search.stub import StubSearchGateway
 from sourcetrace_v2.app.services.run_use_case import run_and_persist_minimal_flow
 from sourcetrace_v2.runtime.config.defaults import build_default_runtime_config
 
@@ -24,6 +25,7 @@ def run_persisted_minimal_flow(*, job_id: str, run_id: str, seed_text: str) -> d
         run_id=run_id,
         seed_text=seed_text,
         llm=StubLlmGateway(config),
+        search=StubSearchGateway(),
         results=InMemoryResultArtifactRepository(),
         receipts=InMemoryReceiptRepository(),
         config=config,
