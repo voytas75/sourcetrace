@@ -67,7 +67,7 @@ def _runtime() -> RuntimeAssembly:
     )
 
 
-def _json_body(environ_dict: dict[str, object]) -> dict[str, object]:
+def _json_body(environ_dict: dict[str, object]) -> dict[str, object] | None:
     try:
         length = int(str(environ_dict.get("CONTENT_LENGTH") or "0"))
     except ValueError:
@@ -77,7 +77,11 @@ def _json_body(environ_dict: dict[str, object]) -> dict[str, object]:
     raw = environ_dict["wsgi.input"].read(length)
     if not raw:
         return {}
-    return json.loads(raw.decode("utf-8"))
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _status_text(status_code: int) -> str:
@@ -141,6 +145,9 @@ def build_wsgi_app():
             return [json.dumps(payload).encode("utf-8")]
         if method == "POST" and path == "/api/v2/run":
             payload = _json_body(environ_dict)
+            if payload is None:
+                start_response("400 Bad Request", [("Content-Type", "application/json; charset=utf-8")])
+                return [b'{"error":"invalid_json"}']
             query = str(payload.get("query") or "").strip()
             if not query:
                 start_response("400 Bad Request", [("Content-Type", "application/json; charset=utf-8")])
