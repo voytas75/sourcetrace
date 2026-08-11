@@ -4,6 +4,9 @@ import logging
 import re
 from dataclasses import dataclass, replace
 
+from sourcetrace_v2.adapters.llm.interfaces import LlmTextGateway
+from sourcetrace_v2.adapters.pdf.interfaces import PdfReadGateway
+from sourcetrace_v2.adapters.search.interfaces import SearchGateway
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, FeatureId, StageId
 from sourcetrace_v2.core.domain.models import (
     LlmExecutionReceipt,
@@ -335,7 +338,7 @@ class ExecutionOutcome:
     collector: ReceiptCollector
 
 
-def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, llm, search, config: RuntimeConfig, logger: logging.Logger | None = None, pdf=None) -> ExecutionOutcome:
+def execute_minimal_research_flow(*, job_id: str, run_id: str, seed_text: str, llm: LlmTextGateway, search: SearchGateway, config: RuntimeConfig, logger: logging.Logger | None = None, pdf: PdfReadGateway | None = None) -> ExecutionOutcome:
     collector = ReceiptCollector()
     event_logger = EventLogger(logger or logging.getLogger("sourcetrace_v2.execution"))
     job = ResearchJob(job_id=job_id).mark_running()

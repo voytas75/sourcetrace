@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import logging
 
+from sourcetrace_v2.adapters.llm.interfaces import LlmTextGateway
+from sourcetrace_v2.adapters.pdf.interfaces import PdfReadGateway
+from sourcetrace_v2.adapters.search.interfaces import SearchGateway
 from sourcetrace_v2.core.contracts.persistence import ReceiptRepository, ResultArtifactRepository
 from sourcetrace_v2.core.contracts.read_models import PersistedExecutionView, PersistedViewStatus
 from sourcetrace_v2.app.services.execution import execute_minimal_research_flow
@@ -14,7 +17,7 @@ class RunIdentityConflictError(Exception):
     pass
 
 
-def run_and_persist_minimal_flow(*, job_id: str, run_id: str, seed_text: str, llm, search, results: ResultArtifactRepository, receipts: ReceiptRepository, config: RuntimeConfig, logger: logging.Logger | None = None, pdf=None) -> PersistedExecutionView:
+def run_and_persist_minimal_flow(*, job_id: str, run_id: str, seed_text: str, llm: LlmTextGateway, search: SearchGateway, results: ResultArtifactRepository, receipts: ReceiptRepository, config: RuntimeConfig, logger: logging.Logger | None = None, pdf: PdfReadGateway | None = None) -> PersistedExecutionView:
     existing = load_persisted_execution_view(
         job_id=job_id,
         run_id=run_id,
