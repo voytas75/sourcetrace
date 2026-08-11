@@ -60,6 +60,22 @@ def test_litellm_like_gateway_maps_usage_and_missing_usage() -> None:
     assert missing.coverage_status == ReceiptCoverageStatus.PROVIDER_MISSING_USAGE
 
 
+def test_litellm_like_gateway_degrades_malformed_provider_payload() -> None:
+    config = build_default_runtime_config()
+
+    def malformed_completion(**_: object) -> dict[str, object]:
+        return {"choices": ["unexpected"], "usage": "unexpected"}
+
+    result = LiteLikeLlmGateway(config=config, completion_fn=malformed_completion).generate(
+        profile_name="planning_default",
+        prompt="hello",
+    )
+
+    assert result.text == ""
+    assert result.input_tokens is None
+    assert result.coverage_status == ReceiptCoverageStatus.PROVIDER_MISSING_USAGE
+
+
 def test_stage_failure_is_captured_as_failed_stage_receipt() -> None:
     class FailingGateway:
         def generate(self, *, profile_name: str, prompt: str):

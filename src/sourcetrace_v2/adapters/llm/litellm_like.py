@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import cast
 
 from sourcetrace_v2.adapters.llm.interfaces import LlmCallResult, LlmTextGateway
 from sourcetrace_v2.core.domain.identifiers import DegradationReason, ReceiptCoverageStatus
@@ -17,7 +18,7 @@ class LiteLikeBootstrap:
 
 
 class LiteLikeLlmGateway(LlmTextGateway):
-    def __init__(self, *, config: RuntimeConfig, completion_fn: Callable[..., dict[str, Any]], bootstrap: LiteLikeBootstrap | None = None) -> None:
+    def __init__(self, *, config: RuntimeConfig, completion_fn: Callable[..., dict[str, object]], bootstrap: LiteLikeBootstrap | None = None) -> None:
         self.config = config
         self.completion_fn = completion_fn
         self.bootstrap = bootstrap or LiteLikeBootstrap()
@@ -36,10 +37,12 @@ class LiteLikeLlmGateway(LlmTextGateway):
             base_url=self.bootstrap.base_url,
             api_version=self.bootstrap.api_version,
         )
-        choices = response.get("choices") or []
-        message = choices[0].get("message", {}) if choices else {}
-        usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
-        finish_reason = choices[0].get("finish_reason") if choices else None
+        choices = _object_list(response.get("choices"))
+        choice: dict[str, object] = _object_mapping(choices[0]) if choices else {}
+        message = _object_mapping(choice.get("message"))
+        usage = _object_mapping(response.get("usage"))
+        raw_finish_reason = choice.get("finish_reason")
+        finish_reason = raw_finish_reason if isinstance(raw_finish_reason, str) else None
         coverage_status = ReceiptCoverageStatus.TRACKED if usage else ReceiptCoverageStatus.PROVIDER_MISSING_USAGE
         degradation_reason = None
         if finish_reason == "length":
@@ -48,10 +51,28 @@ class LiteLikeLlmGateway(LlmTextGateway):
             text=str(message.get("content", "")),
             provider=profile.provider,
             model=profile.model,
-            input_tokens=usage.get("prompt_tokens"),
-            output_tokens=usage.get("completion_tokens"),
-            total_tokens=usage.get("total_tokens"),
+            input_tokens=_optional_int(usage.get("prompt_tokens")),
+            output_tokens=_optional_int(usage.get("completion_tokens")),
+            total_tokens=_optional_int(usage.get("total_tokens")),
             finish_reason=finish_reason,
             coverage_status=coverage_status,
             degradation_reason=degradation_reason,
         )
+
+
+def _object_mapping(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        return cast(dict[str, object], value)
+    return {}
+
+
+def _object_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return cast(list[object], value)
+    return []
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
