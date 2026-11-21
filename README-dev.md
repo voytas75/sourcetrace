@@ -39,6 +39,19 @@ The repo now exposes an app-level help surface for the v2 runtime control comman
 The historical v1 agent-help contract remains in:
 - `docs/agent-operable-help-contract-v1.md` — legacy reference, not the current v2 operator contract.
 
+### v2 registry CLI (metadata, no providers)
+
+```sh
+sourcetrace-v2-registry --artifacts-dir ./registry case add --case-id c1 --title 'Example case'
+sourcetrace-v2-registry --artifacts-dir ./registry document add --case-id c1 --document-id d1 --source-type note --source-locator 'reference-1'
+```
+
+Use the same directory as `SOURCETRACE_RESEARCH_DATA_DIR` to view the records at `/cases/documents?case_id=c1`.
+Exit `0`: one JSON object on stdout, `{"ok":true,"record":{...}}`.
+Exit `1`: one JSON object on stdout with `ok:false` and code `conflict`, `case_not_found`, or `storage_error`.
+Exit `2`: argument diagnostics on stderr, no JSON or writes. `--help` is text on stdout.
+The locator is metadata only; nothing is fetched. Serialize writers per directory; after a storage error, inspect the store before retrying.
+
 ### Default v2 WWW mode
 Use this when you want the repo-owned v2 runtime config plus:
 - v2 live LLM wiring,
