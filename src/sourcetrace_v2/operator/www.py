@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from html import escape
 from os import environ, getpgid, kill, makedirs
 from pathlib import Path
 from signal import SIGTERM
@@ -10,12 +11,17 @@ from subprocess import DEVNULL, PIPE, Popen
 from sys import executable
 from typing import Final, Protocol, cast
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs
 from urllib.request import urlopen
 from uuid import uuid4
 from wsgiref.simple_server import make_server
 from wsgiref.types import StartResponse, WSGIApplication
 
 from sourcetrace_v2.adapters.pdf.local_runtime import build_local_pdf_read_gateway
+from sourcetrace_v2.adapters.storage.case_documents_jsonl import (
+    CaseDocumentStorageError,
+    JsonlCaseDocumentRepository,
+)
 from sourcetrace_v2.app.composition.runtime import (
     RuntimeAssembly,
     build_env_backed_live_litellm_with_searxng_jsonl_runtime,
@@ -118,12 +124,43 @@ def _home(start_response: StartResponse) -> list[bytes]:
         "<p>Minimal v2 operator surface.</p>"
         "<ul>"
         "<li>GET /api/health</li>"
+        "<li>GET /cases/documents?case_id=&lt;case_id&gt;</li>"
         "<li>POST /api/v2/run</li>"
         "<li>GET /api/v2/execution/&lt;job_id&gt;/&lt;run_id&gt;</li>"
         "<li>GET /api/v2/compiled/&lt;job_id&gt;/&lt;run_id&gt;</li>"
         "</ul></body></html>"
     )
     start_response("200 OK", [("Content-Type", "text/html; charset=utf-8")])
+    return [body.encode("utf-8")]
+
+
+def _case_documents(case_id: str, start_response: StartResponse) -> list[bytes]:
+    repository = JsonlCaseDocumentRepository(_artifacts_dir())
+    try:
+        case = repository.get_case(case_id=case_id)
+        if case is None:
+            return _not_found(start_response)
+        documents = repository.list_documents_for_case(case_id=case_id)
+    except CaseDocumentStorageError:
+        return _send(
+            start_response,
+            HttpResponse(
+                status_code=500,
+                content_type="application/json; charset=utf-8",
+                body='{"error":"case_document_storage_error"}',
+            ),
+        )
+    rows = "".join(
+        f"<li>{escape(doc.title or doc.document_id)} — "
+        f"{escape(doc.source_type)}: {escape(doc.source_locator)}</li>"
+        for doc in documents
+    )
+    content = f"<ul>{rows}</ul>" if rows else "<p>No documents registered.</p>"
+    start_response("200 OK", [("Content-Type", "text/html; charset=utf-8")])
+    body = (
+        f"<!doctype html><title>Case documents</title><h1>{escape(case.title)}</h1>"
+        f"<h2>Documents</h2>{content}"
+    )
     return [body.encode("utf-8")]
 
 
@@ -138,6 +175,19 @@ def build_wsgi_app() -> WSGIApplication:
 
         if method == "GET" and path == "/":
             return _home(start_response)
+        if method == "GET" and path == "/cases/documents":
+            query_string = str(environ_dict.get("QUERY_STRING", ""))
+            try:
+                ids = parse_qs(query_string, keep_blank_values=True, errors="strict").get("case_id", [])
+            except UnicodeDecodeError:
+                ids = []
+            if len(ids) != 1 or not ids[0]:
+                return _send(start_response, HttpResponse(
+                    status_code=400,
+                    content_type="application/json; charset=utf-8",
+                    body='{"error":"invalid_case_id"}',
+                ))
+            return _case_documents(ids[0], start_response)
         if method == "GET" and path == "/api/health":
             return _health(start_response)
         if method == "GET" and path == "/api/ready":
